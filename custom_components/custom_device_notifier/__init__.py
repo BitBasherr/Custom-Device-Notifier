@@ -1,16 +1,14 @@
+# custom_components/custom_device_notifier/__init__.py
+
 """Custom Device Notifier integration (dynamic notify + sensor)."""
 
 import logging
 import voluptuous as vol
 
-import logging
-from .const import DOMAIN
-_LOGGER = logging.getLogger(DOMAIN)
-
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_MESSAGE, CONF_TITLE
 from homeassistant.helpers import config_validation as cv
+from homeassistant.components.notify import ATTR_MESSAGE, ATTR_TITLE
 
 from .const import (
     DOMAIN,
@@ -24,15 +22,17 @@ from .const import (
     KEY_MATCH,
 )
 
+_LOGGER = logging.getLogger(DOMAIN)
+
 SERVICE_SCHEMA = vol.Schema({
-    vol.Required(CONF_MESSAGE): cv.string,
-    vol.Optional(CONF_TITLE):   cv.string,
+    vol.Required(ATTR_MESSAGE): cv.string,
+    vol.Optional(ATTR_TITLE):   cv.string,
     vol.Optional("data"):       dict
 }, extra=vol.ALLOW_EXTRA)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Nothing at core startup."""
+    """Nothing to do at core startup."""
     return True
 
 
@@ -51,7 +51,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Register notify service, dev-tool, and sensor platform."""
+    """Register notify.<slug>, dev-tool evaluate, and forward to sensor."""
     data     = entry.data
     slug     = data[CONF_SERVICE_NAME]
     raw_name = data.get(CONF_SERVICE_NAME_RAW, slug)
@@ -60,8 +60,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     fallback = data[CONF_FALLBACK]
 
     async def _notify(call):
-        msg   = call.data.get(CONF_MESSAGE)
-        title = call.data.get(CONF_TITLE)
+        """Handle notify.<slug>: evaluate in priority or fallback."""
+        msg   = call.data.get(ATTR_MESSAGE)
+        title = call.data.get(ATTR_TITLE)
         extra = call.data.get("data", {})
 
         _LOGGER.debug("notify.%s called: title=%s msg=%s", slug, title, msg)
@@ -79,7 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.debug("  → Forwarding to %s.%s", dom, svc)
                 await hass.services.async_call(
                     dom, svc,
-                    {**extra, CONF_MESSAGE: msg, **({CONF_TITLE: title} if title else {})},
+                    {**extra, ATTR_MESSAGE: msg, **({ATTR_TITLE: title} if title else {})},
                     blocking=True,
                 )
                 return
@@ -88,7 +89,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.debug("  → Falling back to %s.%s", dom, svc)
         await hass.services.async_call(
             dom, svc,
-            {**extra, CONF_MESSAGE: msg, **({CONF_TITLE: title} if title else {})},
+            {**extra, ATTR_MESSAGE: msg, **({ATTR_TITLE: title} if title else {})},
             blocking=True,
         )
 
@@ -96,7 +97,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Registered notify.%s", slug)
 
     async def _evaluate(call):
-        """Dev-tool: dump current eval state."""
+        """Dev-tool: log each condition and overall decision."""
         _LOGGER.debug("Dev-evaluate for notify.%s", slug)
         for tgt in targets:
             svc_id = tgt[KEY_SERVICE]
@@ -107,28 +108,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ok = _evaluate_cond(hass, cond)
                 _LOGGER.debug("    %s -> %s", cond, ok)
                 res.append(ok)
-            _LOGGER.debug("    overall -> %s", all(res) if mode == "all" else any(res))
+            overall = all(res) if mode == "all" else any(res)
+            _LOGGER.debug("    overall -> %s", overall)
 
     hass.services.async_register(DOMAIN, "evaluate", _evaluate)
     _LOGGER.debug("Registered %s.evaluate", DOMAIN)
 
-    # forward to sensor
     await hass.config_entries.async_forward_entry_setup(entry, "sensor")
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload notify, evaluate and sensor."""
+    """Unload notify, evaluate, and sensor platforms."""
     slug = entry.data[CONF_SERVICE_NAME]
     hass.services.async_remove("notify", slug)
     hass.services.async_remove(DOMAIN, "evaluate")
     await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    _LOGGER.debug("Unloaded notify.%s, %s.evaluate, sensor", slug, DOMAIN)
+    _LOGGER.debug("Unloaded notify.%s, %s.evaluate, and sensor", slug, DOMAIN)
     return True
 
 
 def _evaluate_cond(hass, cond: dict) -> bool:
-    """Evaluate one condition (entity, op, value)."""
+    """Evaluate a single condition."""
     ent = hass.states.get(cond["entity"])
     if not ent:
         return False
@@ -142,9 +143,9 @@ def _evaluate_cond(hass, cond: dict) -> bool:
         s = float(ent.state)
         v = float(val)
         if   op == ">":  return s > v
-        if   op == "<":  return s < v
-        if   op == ">=": return s >= v
-        if   op == "<=": return s <= v
+        elif op == "<":  return s < v
+        elif op == ">=": return s >= v
+        elif op == "<=": return s <= v
     except ValueError:
         pass
 
