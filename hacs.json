@@ -3,5 +3,6 @@
   "content_in_root": false,
   "domain": "custom_device_notifier",
   "homeassistant": "2025.7.0",
-  "render_readme": true
+  "render_readme": true,
+  "stable_branch": "main"
 }

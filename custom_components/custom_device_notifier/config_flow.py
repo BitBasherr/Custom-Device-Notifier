@@ -1,4 +1,3 @@
-# custom_components/custom_device_notifier/config_flow.py
 """Config flow for Custom Device Notifier."""
 from __future__ import annotations
 
@@ -9,7 +8,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
 
-# slugify may live in either place depending on HA version
+# slugify may live in two places
 try:
     from homeassistant.helpers.text import slugify as _slugify
 except ImportError:
@@ -30,7 +29,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-# Step identifiers
 STEP_NAME         = "user"
 STEP_ADD_TARGET   = "add_target"
 STEP_ADD_COND     = "add_condition"
@@ -40,11 +38,9 @@ STEP_TARGET_MORE  = "target_more"
 STEP_ORDER        = "order_targets"
 STEP_FALLBACK     = "choose_fallback"
 
-# Operators
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
 
-# Allowed domains for condition entities
 ENTITY_DOMAINS = [
     "sensor",
     "binary_sensor",
@@ -61,7 +57,7 @@ class CustomDeviceNotifierConfigFlow(
     config_entries.ConfigFlow,
     domain=DOMAIN,
 ):
-    """Wizard-style config flow for notify.<your_name> service."""
+    """Wizard-style setup for notify.<your_name> service."""
 
     VERSION = 2
 
@@ -71,70 +67,50 @@ class CustomDeviceNotifierConfigFlow(
         self._current: dict = {}
 
     async def async_step_user(self, user_input=None):
-        """Step 1: Name your service."""
-        _LOGGER.debug("▶ async_step_user ENTRY; user_input=%s", user_input)
+        """Step 1: Enter a human-friendly name."""
+        _LOGGER.debug("async_step_user ENTRY user_input=%s", user_input)
         if user_input:
             raw = user_input["service_name_raw"]
-            try:
-                slug = _slugify(raw).replace("-", "_")
-                _LOGGER.debug("   slugify('%s') → '%s'", raw, slug)
-                if not slug:
-                    slug = "custom_notifier"
-                    _LOGGER.debug("   slug was empty, using fallback '%s'", slug)
+            slug = _slugify(raw).replace("-", "_")
+            if not slug:
+                slug = "custom_notifier"
+            self._data[CONF_SERVICE_NAME_RAW] = raw
+            self._data[CONF_SERVICE_NAME]     = slug
+            _LOGGER.debug(" → slug='%s' data=%s", slug, self._data)
+            return await self.async_step_add_target()
 
-                self._data[CONF_SERVICE_NAME_RAW] = raw
-                self._data[CONF_SERVICE_NAME]     = slug
-
-                _LOGGER.debug("   data so far: %s", self._data)
-                _LOGGER.debug("   advancing to add_target step")
-                return await self.async_step_add_target()
-
-            except Exception:
-                _LOGGER.exception("!!! Exception in async_step_user")
-                # re-raise so you see the traceback in the HA log
-                raise
-
-        schema = vol.Schema({
-            vol.Required(
-                "service_name_raw",
-                default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier"),
-            ): str
-        })
+        schema = vol.Schema(
+            {vol.Required("service_name_raw", default=self._data.get(
+                CONF_SERVICE_NAME_RAW, "Custom Notifier"
+            )): str}
+        )
         return self.async_show_form(step_id=STEP_NAME, data_schema=schema)
 
     async def async_step_add_target(self, user_input=None):
-        """Step 2: Pick an existing notify.* service to wrap."""
-        _LOGGER.debug("▶ async_step_add_target ENTRY; user_input=%s", user_input)
+        """Step 2: Pick an existing notify.* service."""
+        _LOGGER.debug("async_step_add_target ENTRY user_input=%s", user_input)
         if user_input:
             svc = user_input["target_service"]
-            _LOGGER.debug("   picked target_service=%s", svc)
             self._current = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
+            _LOGGER.debug(" → target %s", svc)
             return await self.async_step_add_condition()
 
-        schema = vol.Schema({
-            vol.Required("target_service"): selector({
-                "service": {"domain": "notify"}
-            })
-        })
+        schema = vol.Schema(
+            {vol.Required("target_service"): selector({"service": {"domain": "notify"}})}
+        )
         return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema)
 
     async def async_step_add_condition(self, user_input=None):
         """Step 3: Pick entity → operator & value."""
-        _LOGGER.debug("▶ async_step_add_condition ENTRY; user_input=%s", user_input)
-        # 1) Choose the entity
+        _LOGGER.debug("async_step_add_condition ENTRY user_input=%s", user_input)
         if not user_input or "entity" not in user_input:
-            schema = vol.Schema({
-                vol.Required("entity"): selector({
-                    "entity": {"domain": ENTITY_DOMAINS}
-                })
-            })
+            schema = vol.Schema(
+                {vol.Required("entity"): selector({"entity": {"domain": ENTITY_DOMAINS}})}
+            )
             return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
 
-        # 2) Entity chosen → operator/value
         ent_id = user_input["entity"]
-        _LOGGER.debug("   chosen entity=%s", ent_id)
         self._current[KEY_CONDITIONS].append({"entity": ent_id})
-
         st = self.hass.states.get(ent_id)
         is_num = False
         if st:
@@ -145,122 +121,94 @@ class CustomDeviceNotifierConfigFlow(
                 pass
 
         if is_num:
-            val_sel = (
-                {"number": {"min": 0, "max": 100, "step": 1}}
-                if "battery" in ent_id
-                else {"number": {}}
-            )
+            val_sel = {"number": {"min": 0, "max": 100, "step": 1}} if "battery" in ent_id else {"number": {}}
             schema = vol.Schema({
-                vol.Required("operator", default="=="): selector({
-                    "select": {"options": _OPS_NUM}
-                }),
+                vol.Required("operator", default="=="): selector({"select": {"options": _OPS_NUM}}),
                 vol.Required("value"): selector(val_sel),
             })
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
+            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
             seen = set(); final = []
             for o in opts:
                 if o not in seen:
                     final.append(o); seen.add(o)
             schema = vol.Schema({
-                vol.Required("operator", default="=="): selector({
-                    "select": {"options": _OPS_STR}
-                }),
-                vol.Required("value"): selector({
-                    "select": {"options": final}
-                }),
+                vol.Required("operator", default="=="): selector({"select": {"options": _OPS_STR}}),
+                vol.Required("value"): selector({"select": {"options": final}}),
             })
 
         return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
 
     async def async_step_match_mode(self, user_input=None):
         """Step 4: Match ALL vs ANY for this target."""
-        _LOGGER.debug("▶ async_step_match_mode ENTRY; user_input=%s", user_input)
+        _LOGGER.debug("async_step_match_mode ENTRY user_input=%s", user_input)
         if user_input:
-            self._current[KEY_MATCH] = user_input["match_mode"]
-            _LOGGER.debug("   match mode set to %s", user_input["match_mode"])
+            self._current[KEY_MATCH] = user_input[CONF_MATCH_MODE]
             return await self.async_step_condition_more()
 
         schema = vol.Schema({
-            vol.Required("match_mode", default="all"): selector({
-                "select": {
-                    "options": [
-                        ("Match all conditions", "all"),
-                        ("Match any condition", "any"),
-                    ]
-                }
+            vol.Required(CONF_MATCH_MODE, default="all"): selector({
+                "select": {"options": [
+                    ("Match all conditions", "all"),
+                    ("Match any condition",  "any")
+                ]}
             })
         })
         return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
 
     async def async_step_condition_more(self, user_input=None):
-        """Step 5: Add another condition or finish this target."""
-        _LOGGER.debug("▶ async_step_condition_more ENTRY; user_input=%s", user_input)
+        """Step 5: Add more conditions or finish target."""
+        _LOGGER.debug("async_step_condition_more ENTRY user_input=%s", user_input)
         if user_input:
             if user_input["choice"] == "add":
-                _LOGGER.debug("   user chose to add another condition")
                 return await self.async_step_add_condition()
-            _LOGGER.debug("   user done with this target; appending %s", self._current)
             self._targets.append(self._current)
             self._current = {}
             return await self.async_step_target_more()
 
         schema = vol.Schema({
-            vol.Required("choice", default="add"): selector({
-                "select": {"options": {
-                    "add":  "➕ Add another condition",
-                    "done": "✅ Done this target"
-                }}
-            })
+            vol.Required("choice", default="add"): selector({"select": {
+                "add":  "➕ Add another condition",
+                "done": "✅ Done this target"
+            }})
         })
         return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
 
     async def async_step_target_more(self, user_input=None):
-        """Step 6: Add another target or move to ordering."""
-        _LOGGER.debug("▶ async_step_target_more ENTRY; user_input=%s", user_input)
+        """Step 6: Add another target or set priority."""
+        _LOGGER.debug("async_step_target_more ENTRY user_input=%s", user_input)
         if user_input:
             if user_input["next"] == "add":
                 return await self.async_step_add_target()
             return await self.async_step_order_targets()
 
         schema = vol.Schema({
-            vol.Required("next", default="add"): selector({
-                "select": {"options": {
-                    "add":  "➕ Add another notify target",
-                    "done": "✅ Done targets"
-                }}
-            })
+            vol.Required("next", default="add"): selector({"select": {
+                "add":  "➕ Add another notify target",
+                "done": "✅ Done targets"
+            }})
         })
         return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=schema)
 
     async def async_step_order_targets(self, user_input=None):
         """Step 7: Order targets by priority."""
-        _LOGGER.debug("▶ async_step_order_targets ENTRY; user_input=%s", user_input)
+        _LOGGER.debug("async_step_order_targets ENTRY user_input=%s", user_input)
         if user_input:
             self._data[CONF_TARGETS]  = self._targets
             self._data[CONF_PRIORITY] = user_input["priority"]
-            _LOGGER.debug("   priority order set to %s", user_input["priority"])
             return await self.async_step_choose_fallback()
 
         opts = [t[KEY_SERVICE] for t in self._targets]
         schema = vol.Schema({
-            vol.Required("priority", default=opts): selector({
-                "select": {"options": opts, "mode": "list"}
-            })
+            vol.Required("priority", default=opts): selector({"select": {"options": opts, "mode": "list"}})
         })
         return self.async_show_form(step_id=STEP_ORDER, data_schema=schema)
 
     async def async_step_choose_fallback(self, user_input=None):
-        """Step 8: Pick a fallback service."""
-        _LOGGER.debug("▶ async_step_choose_fallback ENTRY; user_input=%s", user_input)
+        """Step 8: Pick fallback service."""
+        _LOGGER.debug("async_step_choose_fallback ENTRY user_input=%s", user_input)
         if user_input:
             self._data[CONF_FALLBACK] = user_input["fallback"]
-            _LOGGER.debug("   fallback set to %s", user_input["fallback"])
             return self.async_create_entry(
                 title=self._data[CONF_SERVICE_NAME_RAW],
                 data=self._data,
@@ -268,16 +216,14 @@ class CustomDeviceNotifierConfigFlow(
 
         default_fb = self._targets[0][KEY_SERVICE]
         schema = vol.Schema({
-            vol.Required("fallback", default=default_fb): selector({
-                "service": {"domain": "notify"}
-            })
+            vol.Required("fallback", default=default_fb): selector({"service": {"domain": "notify"}})
         })
         return self.async_show_form(step_id=STEP_FALLBACK, data_schema=schema)
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        """Enable editing an existing entry."""
+        """Enable editing existing entries."""
         flow = CustomDeviceNotifierConfigFlow()
         flow.hass     = config_entry.hass
         flow._data    = dict(config_entry.data)

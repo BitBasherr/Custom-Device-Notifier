@@ -1,13 +1,7 @@
-# custom_components/custom_device_notifier/__init__.py
-
-"""Custom Device Notifier integration (dynamic notify + sensor)."""
-
+"""Custom Device Notifier integration."""
 import logging
-import voluptuous as vol
-
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import config_validation as cv
 from homeassistant.components.notify import ATTR_MESSAGE, ATTR_TITLE
 
 from .const import (
@@ -24,43 +18,27 @@ from .const import (
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-SERVICE_SCHEMA = vol.Schema({
-    vol.Required(ATTR_MESSAGE): cv.string,
-    vol.Optional(ATTR_TITLE):   cv.string,
-    vol.Optional("data"):       dict
-}, extra=vol.ALLOW_EXTRA)
+SERVICE_SCHEMA = {
+    # will be applied in each notify.<slug> registration
+}
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Nothing to do at core startup."""
-    return True
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate v1 → v2 (seed missing fallback)."""
-    if entry.version == 1:
-        data = dict(entry.data)
-        targets = data.get(CONF_TARGETS, [])
-        if data.get(CONF_FALLBACK) is None and targets:
-            data[CONF_FALLBACK] = targets[0][KEY_SERVICE]
-            _LOGGER.debug("Migrated: seeded fallback=%s", data[CONF_FALLBACK])
-        entry.data = data
-        entry.version = 2
-        _LOGGER.debug("Migrated Custom Device Notifier to version 2")
+    """Nothing at startup."""
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Register notify.<slug>, dev-tool evaluate, and forward to sensor."""
+    """Set up notify.<slug>, developer evaluate, and sensor."""
     data     = entry.data
     slug     = data[CONF_SERVICE_NAME]
-    raw_name = data.get(CONF_SERVICE_NAME_RAW, slug)
+    raw      = data[CONF_SERVICE_NAME_RAW]
     targets  = data[CONF_TARGETS]
     priority = data[CONF_PRIORITY]
     fallback = data[CONF_FALLBACK]
 
     async def _notify(call):
-        """Handle notify.<slug>: evaluate in priority or fallback."""
+        """Handle service call to notify.<slug>."""
         msg   = call.data.get(ATTR_MESSAGE)
         title = call.data.get(ATTR_TITLE)
         extra = call.data.get("data", {})
@@ -71,10 +49,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            _LOGGER.debug("  Checking %s (mode=%s)", svc_id, mode)
             results = [_evaluate_cond(hass, c) for c in tgt[KEY_CONDITIONS]]
-            _LOGGER.debug("    condition results: %s", results)
             matched = all(results) if mode == "all" else any(results)
+            _LOGGER.debug("  %s match=%s results=%s", svc_id, matched, results)
             if matched:
                 dom, svc = svc_id.split(".", 1)
                 _LOGGER.debug("  → Forwarding to %s.%s", dom, svc)
@@ -85,6 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
                 return
 
+        # fallback
         dom, svc = fallback.split(".", 1)
         _LOGGER.debug("  → Falling back to %s.%s", dom, svc)
         await hass.services.async_call(
@@ -93,43 +71,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             blocking=True,
         )
 
-    hass.services.async_register("notify", slug, _notify, schema=SERVICE_SCHEMA)
-    _LOGGER.debug("Registered notify.%s", slug)
+    hass.services.async_register("notify", slug, _notify)
 
     async def _evaluate(call):
-        """Dev-tool: log each condition and overall decision."""
-        _LOGGER.debug("Dev-evaluate for notify.%s", slug)
+        """Developer tool: log each condition result."""
+        _LOGGER.debug("evaluate called for notify.%s", slug)
         for tgt in targets:
             svc_id = tgt[KEY_SERVICE]
             mode   = tgt.get(KEY_MATCH, "all")
-            _LOGGER.debug("  Target %s (mode=%s):", svc_id, mode)
-            res = []
-            for cond in tgt[KEY_CONDITIONS]:
-                ok = _evaluate_cond(hass, cond)
-                _LOGGER.debug("    %s -> %s", cond, ok)
-                res.append(ok)
+            res = [_evaluate_cond(hass, c) for c in tgt[KEY_CONDITIONS]]
             overall = all(res) if mode == "all" else any(res)
-            _LOGGER.debug("    overall -> %s", overall)
+            _LOGGER.debug("%s mode=%s results=%s overall=%s", svc_id, mode, res, overall)
 
     hass.services.async_register(DOMAIN, "evaluate", _evaluate)
-    _LOGGER.debug("Registered %s.evaluate", DOMAIN)
+    _LOGGER.debug("Registered notify.%s and %s.evaluate", slug, DOMAIN)
 
     await hass.config_entries.async_forward_entry_setup(entry, "sensor")
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload notify, evaluate, and sensor platforms."""
-    slug = entry.data[CONF_SERVICE_NAME]
+    """Unload notify, evaluate, and sensor."""
+    data = entry.data
+    slug = data[CONF_SERVICE_NAME]
     hass.services.async_remove("notify", slug)
     hass.services.async_remove(DOMAIN, "evaluate")
     await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    _LOGGER.debug("Unloaded notify.%s, %s.evaluate, and sensor", slug, DOMAIN)
+    _LOGGER.debug("Unloaded notify.%s and sensor", slug)
     return True
 
 
 def _evaluate_cond(hass, cond: dict) -> bool:
-    """Evaluate a single condition."""
+    """Evaluate a single condition dict."""
     ent = hass.states.get(cond["entity"])
     if not ent:
         return False
@@ -142,10 +115,10 @@ def _evaluate_cond(hass, cond: dict) -> bool:
     try:
         s = float(ent.state)
         v = float(val)
-        if   op == ">":  return s > v
-        elif op == "<":  return s < v
-        elif op == ">=": return s >= v
-        elif op == "<=": return s <= v
+        if op == ">":  return s > v
+        if op == "<":  return s < v
+        if op == ">=": return s >= v
+        if op == "<=": return s <= v
     except ValueError:
         pass
 

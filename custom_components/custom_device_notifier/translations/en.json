@@ -1,47 +1,31 @@
 {
   "title": "Custom Device Notifier",
-
   "config": {
     "step": {
       "user": {
         "title": "Name Your Notify Service",
-        "description": "Enter a human name (spaces OK); snake_case slug is auto-generated."
+        "description": "Enter a human-friendly name (spaces OK); snake_case slug is auto-generated."
       },
       "add_target": {
-        "title": "Select Notify Target",
-        "description": "Choose an existing notify service to wrap."
+        "title": "Select Notify Target"
       },
       "add_condition": {
-        "title": "Define a Condition",
-        "description": "Pick any entity (sensor, binary_sensor, device_tracker, input_*), then operator/value."
+        "title": "Define a Condition"
       },
       "match_mode": {
-        "title": "Condition Match Mode",
-        "description": "Match ALL conditions vs ANY one for this target."
+        "title": "Condition Match Mode"
       },
       "condition_more": {
-        "title": "More Conditions?",
-        "description": "Add another condition or finish this target."
+        "title": "More Conditions"
       },
       "target_more": {
-        "title": "More Targets?",
-        "description": "Add another notify target or finish."
+        "title": "More Notify Targets"
       },
       "order_targets": {
-        "title": "Set Priority Order",
-        "description": "Reorder targets (first match wins)."
+        "title": "Set Priority Order"
       },
       "choose_fallback": {
-        "title": "Fallback Service",
-        "description": "Select which notify service to use if none match."
-      }
-    }
-  },
-
-  "options": {
-    "step": {
-      "user": {
-        "title": "Reconfigure Custom Device Notifier"
+        "title": "Select Fallback Service"
       }
     }
   }
