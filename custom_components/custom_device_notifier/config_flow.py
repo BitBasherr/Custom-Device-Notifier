@@ -9,11 +9,11 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
 
-# slugify moved in recent HA; try both places
+# slugify may live in two places depending on HA version:
 try:
-    from homeassistant.helpers.text import slugify
+    from homeassistant.helpers.text import slugify as _slugify
 except ImportError:
-    from homeassistant.util import slugify
+    from homeassistant.util import slugify as _slugify
 
 from .const import (
     DOMAIN,
@@ -73,7 +73,8 @@ class CustomDeviceNotifierConfigFlow(
 
         if user_input:
             raw = user_input["service_name_raw"]
-            slug = slugify(raw, separator="_")
+            # Always slugify then replace hyphens with underscores
+            slug = _slugify(raw).replace("-", "_")
             if not slug:
                 slug = "custom_notifier"
 
@@ -143,7 +144,6 @@ class CustomDeviceNotifierConfigFlow(
                 "unknown",
                 "unavailable",
             ]
-            # dedupe
             seen = set(); final = []
             for o in opts:
                 if o not in seen:
