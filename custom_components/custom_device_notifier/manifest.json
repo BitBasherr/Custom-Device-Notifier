@@ -1,7 +1,6 @@
 {
   "domain": "custom_device_notifier",
   "name": "Custom Device Notifier",
-  //"version": "1.0.0",
   "documentation": "https://github.com/BitBasherr/Custom-Device-Notifier",
   "requirements": [],
   "dependencies": [],
