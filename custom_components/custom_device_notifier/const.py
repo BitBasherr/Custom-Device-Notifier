@@ -1,4 +1,3 @@
-"""Constants for Custom Device Notifier."""
 DOMAIN = "custom_device_notifier"
 
 CONF_SERVICE_NAME     = "service_name"

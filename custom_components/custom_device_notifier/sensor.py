@@ -1,4 +1,3 @@
-"""Sensor to show the current matching notify target."""
 import logging
 
 from homeassistant.components.sensor import SensorEntity
@@ -6,20 +5,25 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DOMAIN, CONF_SERVICE_NAME_RAW, CONF_SERVICE_NAME, CONF_TARGETS, CONF_PRIORITY, CONF_FALLBACK, KEY_SERVICE, KEY_CONDITIONS, KEY_MATCH
-from . import _evaluate_cond
+from .const import (
+    DOMAIN,
+    CONF_SERVICE_NAME_RAW,
+    CONF_SERVICE_NAME,
+    CONF_TARGETS,
+    CONF_PRIORITY,
+    CONF_FALLBACK,
+    KEY_SERVICE,
+    KEY_CONDITIONS,
+    KEY_MATCH,
+)
+from .__init__ import _evaluate_cond
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
-    """Set up the Current Target sensor."""
     async_add_entities([CurrentTargetSensor(hass, entry)])
 
-
 class CurrentTargetSensor(SensorEntity):
-    """Shows which notify target (or fallback) would fire now."""
-
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         self.hass       = hass
         self._entry     = entry
@@ -29,12 +33,11 @@ class CurrentTargetSensor(SensorEntity):
         self._fallback  = data[CONF_FALLBACK]
         raw_name        = data[CONF_SERVICE_NAME_RAW]
         slug            = data[CONF_SERVICE_NAME]
-        self._attr_name        = f"{raw_name} Current Target"
-        self._attr_unique_id   = f"{slug}_current_target"
-        self._state     = None
+        self._attr_name      = f"{raw_name} Current Target"
+        self._attr_unique_id = f"{slug}_current_target"
+        self._state          = None
 
     async def async_added_to_hass(self):
-        """Subscribe to all entities used in conditions."""
         entities = {
             cond["entity"]
             for tgt in self._targets
@@ -44,8 +47,7 @@ class CurrentTargetSensor(SensorEntity):
         self._update(None)
 
     @callback
-    def _update(self, event):
-        """Re-evaluate and update state."""
+    def _update(self, _):
         for svc_id in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:

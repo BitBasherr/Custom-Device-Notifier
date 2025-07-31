@@ -1,17 +1,26 @@
 """Notify platform for Custom Device Notifier."""
 import logging
+
 from homeassistant.components.notify import BaseNotificationService, ATTR_MESSAGE, ATTR_TITLE
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, CONF_SERVICE_NAME, CONF_TARGETS, CONF_PRIORITY, CONF_FALLBACK, KEY_SERVICE, KEY_CONDITIONS, KEY_MATCH
+from .const import (
+    DOMAIN,
+    CONF_SERVICE_NAME,
+    CONF_TARGETS,
+    CONF_PRIORITY,
+    CONF_FALLBACK,
+    KEY_SERVICE,
+    KEY_CONDITIONS,
+    KEY_MATCH,
+)
 from . import _evaluate_cond
 
 _LOGGER = logging.getLogger(DOMAIN)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up notify.<slug>."""
     data     = entry.data
     slug     = data[CONF_SERVICE_NAME]
     targets  = data[CONF_TARGETS]
@@ -20,16 +29,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     service = _NotifierService(hass, slug, targets, priority, fallback)
     hass.services.async_register(
-        "notify", slug, service.async_send_message,
-        schema=service.SERVICE_SCHEMA
+        "notify", slug, service.async_send_message, schema=service.SERVICE_SCHEMA
     )
     _LOGGER.debug("Notify platform ready: notify.%s", slug)
     return True
 
 
 class _NotifierService(BaseNotificationService):
-    """Dispatch notify.<slug> based on priority/conditions."""
-
     SERVICE_SCHEMA = BaseNotificationService.SERVICE_SCHEMA
 
     def __init__(self, hass, slug, targets, priority, fallback):
