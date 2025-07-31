@@ -1,10 +1,10 @@
 # custom_components/custom_device_notifier/config_flow.py
 """Config flow for Custom Device Notifier."""
-
-import logging
 from __future__ import annotations
 
+import logging
 import voluptuous as vol
+
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
@@ -65,10 +65,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input:
             raw = user_input["service_name_raw"]
-            # Use Home Assistant's slugify to generate a valid snake_case slug
             slug = slugify(raw, separator="_")
             if not slug:
-                # If slugify yields nothing (e.g. only punctuation), use a generic fallback
                 slug = "custom_notifier"
 
             self._data[CONF_SERVICE_NAME_RAW] = raw
@@ -106,7 +104,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Numeric → raw symbols + slider if battery sensor;
         Non-numeric → ==/!= + dropdown of [current, unknown or unavailable, unknown, unavailable].
         """
-        # 1) no input → pick entity
         if not user_input or "entity" not in user_input:
             schema = vol.Schema({
                 vol.Required("entity"): selector({
@@ -115,7 +112,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             })
             return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
 
-        # 2) entity chosen → stash and show operator/value
         ent_id = user_input["entity"]
         self._current[KEY_CONDITIONS].append({"entity": ent_id})
         st = self.hass.states.get(ent_id)
@@ -142,7 +138,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "unknown",
                 "unavailable"
             ]
-            # dedupe
             seen = set(); final = []
             for o in opts:
                 if o not in seen:
@@ -159,7 +154,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
 
     async def async_step_match_mode(self, user_input=None):
-        """Step 4: choose whether to match ALL or ANY conditions."""
+        """Step 4: match ALL vs ANY for this target."""
         if user_input:
             self._current[KEY_MATCH] = user_input["match_mode"]
             return await self.async_step_condition_more()
@@ -181,7 +176,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             if user_input["choice"] == "add":
                 return await self.async_step_add_condition()
-            # done with this target
             self._targets.append(self._current)
             self._current = {}
             return await self.async_step_target_more()
