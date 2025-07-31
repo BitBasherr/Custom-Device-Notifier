@@ -53,9 +53,12 @@ ENTITY_DOMAINS = [
     "input_datetime",
 ]
 
-@config_entries.HANDLERS.register(DOMAIN)
-class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
-    """Wizard‐style setup for notify.<your_name> service."""
+
+class CustomDeviceNotifierConfigFlow(
+    config_entries.ConfigFlow,
+    domain=DOMAIN,
+):
+    """Wizard-style setup for notify.<your_name> service."""
 
     VERSION = 2
 
@@ -65,7 +68,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
         self._current: dict = {}
 
     async def async_step_user(self, user_input=None):
-        """Step 1: Enter a human name (spaces/apostrophes OK)."""
+        """Step 1: Enter a human-friendly name (spaces/apostrophes OK)."""
         _LOGGER.debug("async_step_user called; user_input=%s", user_input)
 
         if user_input:
@@ -73,6 +76,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
             slug = slugify(raw, separator="_")
             if not slug:
                 slug = "custom_notifier"
+
             self._data[CONF_SERVICE_NAME_RAW] = raw
             self._data[CONF_SERVICE_NAME]     = slug
             return await self.async_step_add_target()
@@ -86,7 +90,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
         return self.async_show_form(step_id=STEP_NAME, data_schema=schema)
 
     async def async_step_add_target(self, user_input=None):
-        """Step 2: pick an existing notify.* service to wrap."""
+        """Step 2: Pick an existing notify.* service to wrap."""
         if user_input:
             svc = user_input["target_service"]
             self._current = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
@@ -100,7 +104,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
         return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema)
 
     async def async_step_add_condition(self, user_input=None):
-        """Step 3: pick entity → operator & value."""
+        """Step 3: Pick entity → operator & value."""
         if not user_input or "entity" not in user_input:
             schema = vol.Schema({
                 vol.Required("entity"): selector({
@@ -121,7 +125,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
                 pass
 
         if is_num:
-            val_sel = {"number": {"min": 0, "max": 100, "step": 1}} if "battery" in ent_id else {"number": {}}
+            val_sel = (
+                {"number": {"min": 0, "max": 100, "step": 1}}
+                if "battery" in ent_id
+                else {"number": {}}
+            )
             schema = vol.Schema({
                 vol.Required("operator", default="=="): selector({
                     "select": {"options": _OPS_NUM}
@@ -129,7 +137,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
                 vol.Required("value"): selector(val_sel)
             })
         else:
-            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
+            opts = [
+                st.state if st else "",
+                "unknown or unavailable",
+                "unknown",
+                "unavailable",
+            ]
+            # dedupe
             seen = set(); final = []
             for o in opts:
                 if o not in seen:
@@ -146,7 +160,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
         return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
 
     async def async_step_match_mode(self, user_input=None):
-        """Step 4: match ALL vs ANY for this target."""
+        """Step 4: Match ALL vs ANY for this target."""
         if user_input:
             self._current[KEY_MATCH] = user_input["match_mode"]
             return await self.async_step_condition_more()
@@ -156,7 +170,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
                 "select": {
                     "options": [
                         ("Match all conditions", "all"),
-                        ("Match any condition",  "any")
+                        ("Match any condition", "any"),
                     ]
                 }
             })
@@ -164,7 +178,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
         return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
 
     async def async_step_condition_more(self, user_input=None):
-        """Step 5: add another condition or finish this target."""
+        """Step 5: Add another condition or finish this target."""
         if user_input:
             if user_input["choice"] == "add":
                 return await self.async_step_add_condition()
@@ -176,14 +190,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
             vol.Required("choice", default="add"): selector({
                 "select": {"options": {
                     "add":  "➕ Add another condition",
-                    "done": "✅ Done this target"
+                    "done": "✅ Done this target",
                 }}
             })
         })
         return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
 
     async def async_step_target_more(self, user_input=None):
-        """Step 6: add another target or move to ordering."""
+        """Step 6: Add another target or move to ordering."""
         if user_input:
             if user_input["next"] == "add":
                 return await self.async_step_add_target()
@@ -193,14 +207,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
             vol.Required("next", default="add"): selector({
                 "select": {"options": {
                     "add":  "➕ Add another notify target",
-                    "done": "✅ Done targets"
+                    "done": "✅ Done targets",
                 }}
             })
         })
         return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=schema)
 
     async def async_step_order_targets(self, user_input=None):
-        """Step 7: order targets by priority."""
+        """Step 7: Order targets by priority."""
         if user_input:
             self._data[CONF_TARGETS]  = self._targets
             self._data[CONF_PRIORITY] = user_input["priority"]
@@ -215,12 +229,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
         return self.async_show_form(step_id=STEP_ORDER, data_schema=schema)
 
     async def async_step_choose_fallback(self, user_input=None):
-        """Step 8: pick a fallback service."""
+        """Step 8: Pick a fallback service."""
         if user_input:
             self._data[CONF_FALLBACK] = user_input["fallback"]
             return self.async_create_entry(
                 title=self._data[CONF_SERVICE_NAME_RAW],
-                data=self._data
+                data=self._data,
             )
 
         default_fb = self._targets[0][KEY_SERVICE]
