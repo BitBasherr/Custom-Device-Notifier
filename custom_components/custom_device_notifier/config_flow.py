@@ -9,7 +9,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
 
-# slugify may live in one of two places depending on HA version
+# slugify moved in recent HA; try both places
 try:
     from homeassistant.helpers.text import slugify
 except ImportError:
@@ -53,9 +53,9 @@ ENTITY_DOMAINS = [
     "input_datetime",
 ]
 
-
-class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Wizard-style setup for notify.<your_name> service."""
+@config_entries.HANDLERS.register(DOMAIN)
+class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow):
+    """Wizard‐style setup for notify.<your_name> service."""
 
     VERSION = 2
 
@@ -65,16 +65,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._current: dict = {}
 
     async def async_step_user(self, user_input=None):
-        """Step 1: Enter a human-friendly name (spaces/apostrophes OK)."""
+        """Step 1: Enter a human name (spaces/apostrophes OK)."""
         _LOGGER.debug("async_step_user called; user_input=%s", user_input)
 
         if user_input:
             raw = user_input["service_name_raw"]
-            # Use HA slugify to strip punctuation, lowercase, spaces→"_"
             slug = slugify(raw, separator="_")
             if not slug:
                 slug = "custom_notifier"
-
             self._data[CONF_SERVICE_NAME_RAW] = raw
             self._data[CONF_SERVICE_NAME]     = slug
             return await self.async_step_add_target()
@@ -102,7 +100,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema)
 
     async def async_step_add_condition(self, user_input=None):
-        """Step 3: pick entity, then operator & value."""
+        """Step 3: pick entity → operator & value."""
         if not user_input or "entity" not in user_input:
             schema = vol.Schema({
                 vol.Required("entity"): selector({
@@ -131,12 +129,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("value"): selector(val_sel)
             })
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable"
-            ]
+            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
             seen = set(); final = []
             for o in opts:
                 if o not in seen:
@@ -171,7 +164,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
 
     async def async_step_condition_more(self, user_input=None):
-        """Step 5: add a condition or finish this target."""
+        """Step 5: add another condition or finish this target."""
         if user_input:
             if user_input["choice"] == "add":
                 return await self.async_step_add_condition()
