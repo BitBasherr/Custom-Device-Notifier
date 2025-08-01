@@ -21,30 +21,30 @@ from .evaluate import evaluate_condition
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-SERVICE_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_MESSAGE): cv.string,
-        vol.Optional(ATTR_TITLE): cv.string,
-        vol.Optional("data"): dict,
-    }
-)
-
+SERVICE_SCHEMA = vol.Schema({
+    vol.Required(ATTR_MESSAGE): cv.string,
+    vol.Optional(ATTR_TITLE): cv.string,
+    vol.Optional("data"): dict,
+})
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    data = entry.data
-    slug = data[CONF_SERVICE_NAME]
-    targets = data[CONF_TARGETS]
-    priority = data[CONF_PRIORITY]
-    fallback = data[CONF_FALLBACK]
+    try:
+        data     = entry.data
+        slug     = data[CONF_SERVICE_NAME]
+        targets  = data[CONF_TARGETS]
+        priority = data[CONF_PRIORITY]
+        fallback = data[CONF_FALLBACK]
 
-    service = _NotifierService(hass, slug, targets, priority, fallback)
-    hass.services.async_register(
-        "notify", slug, service.async_send_message, schema=SERVICE_SCHEMA
-    )
+        service = _NotifierService(hass, slug, targets, priority, fallback)
+        hass.services.async_register(
+            "notify", slug, service.async_send_message, schema=SERVICE_SCHEMA
+        )
 
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
-    return True
-
+        await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+        return True
+    except Exception as e:
+        _LOGGER.error("Error setting up entry: %s", e)
+        return False
 
 class _NotifierService(BaseNotificationService):
     def __init__(self, hass, slug, targets, priority, fallback):

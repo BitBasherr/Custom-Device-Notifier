@@ -26,6 +26,11 @@
       "choose_fallback": {
         "title": "Choose fallback service"
       }
+    },
+    "error": {
+      "must_be_notify": "Please select a notify service.",
+      "no_targets": "At least one target is required.",
+      "unknown": "An unexpected error occurred. Check the logs for details."
     }
   },
   "options": {

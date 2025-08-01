@@ -21,29 +21,30 @@ from .evaluate import evaluate_condition
 _LOGGER = logging.getLogger(DOMAIN)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
-):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     async_add_entities([CurrentTargetSensor(hass, entry)])
 
 
 class CurrentTargetSensor(SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
-        self.hass = hass
-        self._entry = entry
-        data = entry.data
-        self._targets = data[CONF_TARGETS]
-        self._priority = data[CONF_PRIORITY]
-        self._fallback = data[CONF_FALLBACK]
-        raw_name = data[CONF_SERVICE_NAME_RAW]
-        slug = data[CONF_SERVICE_NAME]
-        self._attr_name = f"{raw_name} Current Target"
+        self.hass       = hass
+        self._entry     = entry
+        data            = entry.data
+        self._targets   = data[CONF_TARGETS]
+        self._priority  = data[CONF_PRIORITY]
+        self._fallback  = data[CONF_FALLBACK]
+        raw_name        = data[CONF_SERVICE_NAME_RAW]
+        slug            = data[CONF_SERVICE_NAME]
+        self._attr_name      = f"{raw_name} Current Target"
         self._attr_unique_id = f"{slug}_current_target"
-        self._state = None
+        self._state          = None
 
     async def async_added_to_hass(self):
         entities = {
-            cond["entity"] for tgt in self._targets for cond in tgt[KEY_CONDITIONS]
+            cond["entity"]
+            for tgt in self._targets
+            for cond in tgt[KEY_CONDITIONS]
+            if self.hass.states.get(cond["entity"]) is not None
         }
         async_track_state_change_event(self.hass, list(entities), self._update)
         self._update(None)
