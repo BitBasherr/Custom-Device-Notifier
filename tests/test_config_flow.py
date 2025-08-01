@@ -21,8 +21,7 @@ async def test_user_flow(hass: HomeAssistant):
 
     # Provide user input
     result2 = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        user_input={"service_name_raw": "Test Notifier"}
+        result["flow_id"], user_input={"service_name_raw": "Test Notifier"}
     )
 
     assert result2["type"] == data_entry_flow.RESULT_TYPE_FORM

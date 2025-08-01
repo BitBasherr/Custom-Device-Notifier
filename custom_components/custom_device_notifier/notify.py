@@ -56,21 +56,11 @@ async def async_register_services(hass: HomeAssistant, entry) -> None:
 
             all_pass = all(results) if mode == "all" else any(results)
             if all_pass:
-                await hass.services.async_call(
-                    "notify",
-                    svc,
-                    call.data,
-                    blocking=True
-                )
+                await hass.services.async_call("notify", svc, call.data, blocking=True)
                 return
 
         if fallback:
             _LOGGER.debug("No match. Using fallback: %s", fallback)
-            await hass.services.async_call(
-                "notify",
-                fallback,
-                call.data,
-                blocking=True
-            )
+            await hass.services.async_call("notify", fallback, call.data, blocking=True)
 
     hass.services.async_register("notify", name, _handle_notify)

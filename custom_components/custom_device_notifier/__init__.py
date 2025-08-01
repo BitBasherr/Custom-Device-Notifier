@@ -21,16 +21,19 @@ from .evaluate import evaluate_condition
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-SERVICE_SCHEMA = vol.Schema({
-    vol.Required(ATTR_MESSAGE): cv.string,
-    vol.Optional(ATTR_TITLE): cv.string,
-    vol.Optional("data"): dict,
-})
+SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_MESSAGE): cv.string,
+        vol.Optional(ATTR_TITLE): cv.string,
+        vol.Optional("data"): dict,
+    }
+)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    data     = entry.data
-    slug     = data[CONF_SERVICE_NAME]
-    targets  = data[CONF_TARGETS]
+    data = entry.data
+    slug = data[CONF_SERVICE_NAME]
+    targets = data[CONF_TARGETS]
     priority = data[CONF_PRIORITY]
     fallback = data[CONF_FALLBACK]
 
@@ -41,6 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     return True
+
 
 class _NotifierService(BaseNotificationService):
     def __init__(self, hass, slug, targets, priority, fallback):
