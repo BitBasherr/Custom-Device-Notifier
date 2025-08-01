@@ -1,3 +1,4 @@
+
 name: CI
 
 permissions:
@@ -41,7 +42,6 @@ jobs:
             pytest-mock \
             gitpython \
             homeassistant
-
       - name: Format code with Black
         run: black .
 
