@@ -1,9 +1,6 @@
-
 name: CI
-
 permissions:
   contents: write
-
 on:
   push:
     branches:
@@ -11,26 +8,25 @@ on:
   pull_request:
     branches:
       - main
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   lint-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python: ['3.10']
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Update to v4 for better performance
         with:
           fetch-depth: 0
           persist-credentials: true
-
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Install dev dependencies
         run: |
           python -m pip install --upgrade pip
@@ -43,20 +39,17 @@ jobs:
             gitpython \
             homeassistant
       - name: Format code with Black
-        run: black .
-
+        run: black . --line-length=88
       - name: Commit Black fixes
         uses: EndBug/add-and-commit@v9
         with:
-          message: "chore: format code with Black"
+          message: "chore: format code with Black [skip ci]"
           add: "."
+          pull: '--rebase --autostash'
           push: true
-
       - name: Lint with Flake8
         run: flake8 .
-
       - name: Type-check with Mypy
         run: mypy custom_components/custom_device_notifier
-
       - name: Run tests
         run: pytest tests/ --maxfail=1 --disable-warnings -q
