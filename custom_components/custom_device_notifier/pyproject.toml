@@ -1,0 +1,17 @@
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true  # Check function bodies
+disallow_untyped_defs = false  # Allow gradual typing
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+files = "custom_components/custom_device_notifier"
+
+[[tool.mypy.overrides]]
+module = [
+  "voluptuous",
+  "homeassistant.helpers.text",
+  "homeassistant.util"
+]
+ignore_missing_imports = true
