@@ -20,10 +20,8 @@ from . import _evaluate_cond
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     async_add_entities([CurrentTargetSensor(hass, entry)])
-
 
 class CurrentTargetSensor(SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
