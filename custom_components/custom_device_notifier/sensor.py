@@ -54,13 +54,11 @@ class CurrentTargetSensor(SensorEntity):
     @callback
     def _update(self, _):
         for svc_id in self._priority:
-            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id),
-                       None)
+            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            results = [evaluate_condition(self.hass, c)
-                       for c in tgt[KEY_CONDITIONS]]
+            results = [evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]]
             matched = all(results) if mode == "all" else any(results)
             if matched:
                 self._state = svc_id

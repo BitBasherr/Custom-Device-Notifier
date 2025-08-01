@@ -67,20 +67,17 @@ class _NotifierService(BaseNotificationService):
 
         _LOGGER.debug("notify.%s called: %s / %s", self._slug, title, message)
         for svc in self._priority:
-            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc),
-                       None)
+            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc), None)
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            results = [evaluate_condition(self.hass, c)
-                       for c in tgt[KEY_CONDITIONS]]
+            results = [evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]]
             matched = all(results) if mode == "all" else any(results)
             _LOGGER.debug("  target %s match=%s", svc, matched)
             if matched:
                 dom, name = svc.split(".", 1)
                 _LOGGER.debug("  → forwarding to %s.%s", dom, name)
-                await self.hass.services.async_call(dom, name, data,
-                                                    blocking=True)
+                await self.hass.services.async_call(dom, name, data, blocking=True)
                 return
 
         dom, name = self._fallback.split(".", 1)
