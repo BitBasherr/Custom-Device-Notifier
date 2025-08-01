@@ -1,4 +1,4 @@
-name: Lint and Auto-Fix
+name: Lint and Auto-Fix with Ruff
 
 on:
   push:
@@ -11,27 +11,32 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false  # Required to use PAT instead of default GITHUB_TOKEN
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install Ruff
         run: |
           python -m pip install --upgrade pip
           pip install ruff
 
-      - name: Run Ruff Auto-Fix
+      - name: Run Ruff with auto-fix
         run: |
           ruff check . --fix --unsafe-fixes
 
-      - name: Commit changes (if any)
+      - name: Commit and push changes if any
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
           git add .
-          git diff --cached --quiet || git commit -m "chore: auto-fix with Ruff"
-          git push https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }} HEAD:${{ github.ref }}
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: auto-fix with Ruff"
+            git push "https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}" HEAD:${{ github.ref }}
+          fi
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
