@@ -66,7 +66,7 @@ class CustomDeviceNotifierConfigFlow(
         _LOGGER.debug("async_step_user ENTRY user_input=%s", user_input)
         if user_input:
             raw = user_input["service_name_raw"]
-            slug = slugify(raw).replace("-", "_")
+            slug = slugify(raw)
             if not slug:
                 slug = "custom_notifier"
             self._data[CONF_SERVICE_NAME_RAW] = raw

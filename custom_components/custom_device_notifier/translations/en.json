@@ -1,32 +1,18 @@
 {
-  "title": "Custom Device Notifier",
   "config": {
     "step": {
       "user": {
-        "title": "Name Your Notify Service",
-        "description": "Enter a human-friendly name (spaces OK); snake_case slug is auto-generated."
-      },
-      "add_target": {
-        "title": "Select Notify Target"
-      },
-      "add_condition": {
-        "title": "Define a Condition"
-      },
-      "match_mode": {
-        "title": "Condition Match Mode"
-      },
-      "condition_more": {
-        "title": "More Conditions"
-      },
-      "target_more": {
-        "title": "More Notify Targets"
-      },
-      "order_targets": {
-        "title": "Set Priority Order"
-      },
-      "choose_fallback": {
-        "title": "Select Fallback Service"
+        "title": "Custom Device Notifier",
+        "description": "Create a dynamic notify service that forwards based on entity state."
       }
     }
-  }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Edit Custom Device Notifier"
+      }
+    }
+  },
+  "title": "Custom Device Notifier"
 }

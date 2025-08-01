@@ -18,6 +18,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(DOMAIN)
+PLATFORMS = ["sensor"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -94,7 +95,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _evaluate_cond(hass: HomeAssistant, cond: dict) -> bool:
-    """Evaluate a single condition dict against current state."""
     ent = hass.states.get(cond["entity"])
     if not ent:
         return False
