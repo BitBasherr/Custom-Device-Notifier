@@ -145,7 +145,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     float(st.state)
                     is_num = True
                 except ValueError:
-                    pass
+                    is_num = False
 
             if is_num:
                 val_sel = {"number": {"min": 0, "max": 100, "step": 1}} if "battery" in ent_id else {"number": {}}
@@ -177,18 +177,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }),
                 })
 
-                return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
-            except Exception as e:
-                _LOGGER.error("Error in add_condition step: %s", e)
-                return self.async_show_form(
-                    step_id=STEP_ADD_COND,
-                    data_schema=vol.Schema({
-                        vol.Required("entity", default=""): selector({
-                            "entity": {"domain": ENTITY_DOMAINS}
-                        })
-                    }),
-                    errors={"base": "unknown"}
-                )
+            return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
+        except Exception as e:
+            _LOGGER.error("Error in add_condition step: %s", e)
+            return self.async_show_form(
+                step_id=STEP_ADD_COND,
+                data_schema=vol.Schema({
+                    vol.Required("entity", default=""): selector({
+                        "entity": {"domain": ENTITY_DOMAINS}
+                    })
+                }),
+                errors={"base": "unknown"}
+            )
 
     async def async_step_match_mode(self, user_input=None):
         try:
