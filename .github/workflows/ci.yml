@@ -38,7 +38,8 @@ jobs:
             pytest-mock \
             gitpython \
             homeassistant \
-            homeassistant-stubs
+            homeassistant-stubs \
+            types-voluptuous
       - name: Format code with Black
         run: black . --line-length=88
       - name: Commit Black fixes
