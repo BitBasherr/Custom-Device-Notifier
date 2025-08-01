@@ -5,12 +5,7 @@ import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.selector import (
-    TextSelector,
-    TextSelectorConfig,
-    TextSelectorType,
-    selector,
-)
+from homeassistant.helpers.selector import selector, ServiceSelector, ServiceSelectorConfig
 
 try:
     from homeassistant.helpers.text import slugify
@@ -83,14 +78,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             schema = vol.Schema({
                 vol.Required(
                     "service_name_raw",
-                    default=self._data.get(CONF_SERVICE_NAME_RAW,
-                                           "Custom Notifier")
+                    default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
                 ): str
             })
-            return self.async_show_form(
-                step_id=STEP_NAME,
-                data_schema=schema
-            )
+            return self.async_show_form(step_id=STEP_NAME, data_schema=schema)
         except Exception as e:
             _LOGGER.error("Error in user step: %s", e)
             return self.async_show_form(
@@ -98,8 +89,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({
                     vol.Required(
                         "service_name_raw",
-                        default=self._data.get(CONF_SERVICE_NAME_RAW,
-                                               "Custom Notifier")
+                        default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
                     ): str
                 }),
                 errors={"base": "unknown"}
@@ -107,12 +97,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_add_target(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_add_target ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_add_target ENTRY user_input=%s", user_input)
             errors = {}
             if user_input:
                 svc = user_input["target_service"]
-                if not svc.startswith("notify."):
+                domain, _ = svc.split(".", 1)
+                if domain != "notify":
                     errors["target_service"] = "must_be_notify"
                 if not errors:
                     self._current = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
@@ -120,41 +110,29 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self.async_step_add_condition()
 
             schema = vol.Schema({
-                vol.Required("target_service"): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.TEXT)
-                )
+                vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())
             })
-            return self.async_show_form(
-                step_id=STEP_ADD_TARGET,
-                data_schema=schema,
-                errors=errors
-            )
+            return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors)
         except Exception as e:
             _LOGGER.error("Error in add_target step: %s", e)
             return self.async_show_form(
                 step_id=STEP_ADD_TARGET,
                 data_schema=vol.Schema({
-                    vol.Required("target_service"): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.TEXT)
-                    )
+                    vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())
                 }),
                 errors={"base": "unknown"}
             )
 
     async def async_step_add_condition(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_add_condition ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_add_condition ENTRY user_input=%s", user_input)
             if not user_input or "entity" not in user_input:
                 schema = vol.Schema({
                     vol.Required("entity", default=""): selector({
                         "entity": {"domain": ENTITY_DOMAINS}
                     })
                 })
-                return self.async_show_form(
-                    step_id=STEP_ADD_COND,
-                    data_schema=schema
-                )
+                return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
 
             ent_id = user_input["entity"]
             self._current[KEY_CONDITIONS].append({"entity": ent_id})
@@ -170,11 +148,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     pass
 
             if is_num:
-                val_sel = (
-                    {"number": {"min": 0, "max": 100, "step": 1}}
-                    if "battery" in ent_id
-                    else {"number": {}}
-                )
+                val_sel = {"number": {"min": 0, "max": 100, "step": 1}} if "battery" in ent_id else {"number": {}}
                 schema = vol.Schema({
                     vol.Required("operator", default="=="): selector({
                         "select": {"options": _OPS_NUM}
@@ -203,26 +177,22 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }),
                 })
 
-            return self.async_show_form(
-                step_id=STEP_MATCH_MODE,
-                data_schema=schema
-            )
-        except Exception as e:
-            _LOGGER.error("Error in add_condition step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_ADD_COND,
-                data_schema=vol.Schema({
-                    vol.Required("entity", default=""): selector({
-                        "entity": {"domain": ENTITY_DOMAINS}
-                    })
-                }),
-                errors={"base": "unknown"}
-            )
+                return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
+            except Exception as e:
+                _LOGGER.error("Error in add_condition step: %s", e)
+                return self.async_show_form(
+                    step_id=STEP_ADD_COND,
+                    data_schema=vol.Schema({
+                        vol.Required("entity", default=""): selector({
+                            "entity": {"domain": ENTITY_DOMAINS}
+                        })
+                    }),
+                    errors={"base": "unknown"}
+                )
 
     async def async_step_match_mode(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_match_mode ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_match_mode ENTRY user_input=%s", user_input)
             if user_input:
                 self._current[KEY_MATCH] = user_input[CONF_MATCH_MODE]
                 _LOGGER.debug(" → match mode set: %s", self._current[KEY_MATCH])
@@ -238,10 +208,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }
                 })
             })
-            return self.async_show_form(
-                step_id=STEP_MATCH_MODE,
-                data_schema=schema
-            )
+            return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
         except Exception as e:
             _LOGGER.error("Error in match_mode step: %s", e)
             return self.async_show_form(
@@ -261,8 +228,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_condition_more(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_condition_more ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_condition_more ENTRY user_input=%s", user_input)
             if user_input:
                 if user_input["choice"] == "add":
                     return await self.async_step_add_condition()
@@ -279,10 +245,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }}
                 })
             })
-            return self.async_show_form(
-                step_id=STEP_COND_MORE,
-                data_schema=schema
-            )
+            return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
         except Exception as e:
             _LOGGER.error("Error in condition_more step: %s", e)
             return self.async_show_form(
@@ -300,8 +263,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_target_more(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_target_more ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_target_more ENTRY user_input=%s", user_input)
             if user_input:
                 if user_input["next"] == "add":
                     return await self.async_step_add_target()
@@ -315,10 +277,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }}
                 })
             })
-            return self.async_show_form(
-                step_id=STEP_TARGET_MORE,
-                data_schema=schema
-            )
+            return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=schema)
         except Exception as e:
             _LOGGER.error("Error in target_more step: %s", e)
             return self.async_show_form(
@@ -336,8 +295,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_order_targets(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_order_targets ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_order_targets ENTRY user_input=%s", user_input)
             errors = {}
             if user_input:
                 self._data[CONF_TARGETS] = self._targets
@@ -354,11 +312,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "select": {"options": opts, "mode": "list"}
                 })
             })
-            return self.async_show_form(
-                step_id=STEP_ORDER,
-                data_schema=schema,
-                errors=errors
-            )
+            return self.async_show_form(step_id=STEP_ORDER, data_schema=schema, errors=errors)
         except Exception as e:
             _LOGGER.error("Error in order_targets step: %s", e)
             return self.async_show_form(
@@ -373,44 +327,33 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_choose_fallback(self, user_input=None):
         try:
-            _LOGGER.debug("async_step_choose_fallback ENTRY user_input=%s",
-                          user_input)
+            _LOGGER.debug("async_step_choose_fallback ENTRY user_input=%s", user_input)
             errors = {}
             if user_input:
                 fb = user_input["fallback"]
-                if not fb.startswith("notify."):
+                domain, _ = fb.split(".", 1)
+                if domain != "notify":
                     errors["fallback"] = "must_be_notify"
                 if not errors:
                     self._data[CONF_FALLBACK] = fb
-                    _LOGGER.debug(" → fallback set: %s",
-                                  self._data[CONF_FALLBACK])
+                    _LOGGER.debug(" → fallback set: %s", self._data[CONF_FALLBACK])
                     _LOGGER.debug("FINAL DATA: %s", self._data)
                     return self.async_create_entry(
                         title=self._data[CONF_SERVICE_NAME_RAW],
                         data=self._data,
                     )
 
-            default_fb = (
-                self._targets[0][KEY_SERVICE] if self._targets else None
-            )
+            default_fb = self._targets[0][KEY_SERVICE] if self._targets else None
             schema = vol.Schema({
-                vol.Required("fallback", default=default_fb): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.TEXT)
-                )
+                vol.Required("fallback", default=default_fb): ServiceSelector(ServiceSelectorConfig())
             })
-            return self.async_show_form(
-                step_id=STEP_FALLBACK,
-                data_schema=schema,
-                errors=errors
-            )
+            return self.async_show_form(step_id=STEP_FALLBACK, data_schema=schema, errors=errors)
         except Exception as e:
             _LOGGER.error("Error in choose_fallback step: %s", e)
             return self.async_show_form(
                 step_id=STEP_FALLBACK,
                 data_schema=vol.Schema({
-                    vol.Required("fallback"): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.TEXT)
-                    )
+                    vol.Required("fallback"): ServiceSelector(ServiceSelectorConfig())
                 }),
                 errors={"base": "unknown"}
             )
