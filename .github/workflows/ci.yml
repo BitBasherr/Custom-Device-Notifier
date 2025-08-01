@@ -51,6 +51,6 @@ jobs:
       - name: Lint with Flake8
         run: flake8 --max-line-length=88 --extend-ignore=E501 .
       - name: Type-check with Mypy
-        run: mypy custom_components/custom_device_notifier
+        run: mypy --install-types --non-interactive custom_components/custom_device_notifier
       - name: Run tests
         run: pytest tests/ --maxfail=1 --disable-warnings -q
