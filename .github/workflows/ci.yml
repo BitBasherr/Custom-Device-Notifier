@@ -19,7 +19,7 @@ jobs:
         python: ['3.10']
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4  # Update to v4 for better performance
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: true
