@@ -1,6 +1,8 @@
-name: Pylint
+name: Lint & Type Check
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 
 jobs:
   lint:
@@ -12,16 +14,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v3
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pylint homeassistant home-assistant-stubs
+          pip install pylint ruff
 
-      - name: Run pylint on custom integration
+      - name: Run Pylint
         run: |
-          pylint custom_components/custom_device_notifier --disable=missing-docstring,invalid-name,too-few-public-methods
+          pylint $(git ls-files '*.py')
 
+      - name: Run Ruff (fast linter)
+        run: |
+          ruff check .
