@@ -68,7 +68,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 slug = "custom_notifier"
             self._data[CONF_SERVICE_NAME_RAW] = raw
             self._data[CONF_SERVICE_NAME] = slug
-            _LOGGER.debug(" → slug=%s data=%s", slug, self._data)
+            _LOGGER.debug(" → slug=%s", slug)
+            _LOGGER.debug(" → _data=%s", self._data)
             return await self.async_step_add_target()
 
         schema = vol.Schema({
@@ -84,6 +85,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             svc = user_input["target_service"]
             self._current = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
+            _LOGGER.debug(" → _current=%s", self._current)
             return await self.async_step_add_condition()
 
         schema = vol.Schema({
@@ -105,6 +107,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         ent_id = user_input["entity"]
         self._current[KEY_CONDITIONS].append({"entity": ent_id})
+        _LOGGER.debug(" → condition entity added: %s", ent_id)
+
         st = self.hass.states.get(ent_id)
         is_num = False
         if st:
@@ -150,6 +154,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("async_step_match_mode ENTRY user_input=%s", user_input)
         if user_input:
             self._current[KEY_MATCH] = user_input[CONF_MATCH_MODE]
+            _LOGGER.debug(" → match mode set: %s", self._current[KEY_MATCH])
             return await self.async_step_condition_more()
 
         schema = vol.Schema({
@@ -170,6 +175,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if user_input["choice"] == "add":
                 return await self.async_step_add_condition()
             self._targets.append(self._current)
+            _LOGGER.debug(" → target added: %s", self._current)
             self._current = {}
             return await self.async_step_target_more()
 
@@ -205,6 +211,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             self._data[CONF_TARGETS] = self._targets
             self._data[CONF_PRIORITY] = user_input["priority"]
+            _LOGGER.debug(" → priority set: %s", self._data[CONF_PRIORITY])
+            _LOGGER.debug(" → targets: %s", self._data[CONF_TARGETS])
             return await self.async_step_choose_fallback()
 
         opts = [t[KEY_SERVICE] for t in self._targets]
@@ -219,6 +227,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("async_step_choose_fallback ENTRY user_input=%s", user_input)
         if user_input:
             self._data[CONF_FALLBACK] = user_input["fallback"]
+            _LOGGER.debug(" → fallback set: %s", self._data[CONF_FALLBACK])
+            _LOGGER.debug("FINAL DATA: %s", self._data)
             return self.async_create_entry(
                 title=self._data[CONF_SERVICE_NAME_RAW],
                 data=self._data,
