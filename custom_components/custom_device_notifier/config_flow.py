@@ -62,7 +62,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         self._data = self._data or {}
         _LOGGER.debug("async_step_user ENTRY user_input=%s", user_input)
-        
+
         if user_input:
             raw = user_input["service_name_raw"]
             slug = slugify(raw)
@@ -71,7 +71,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_SERVICE_NAME_RAW] = raw
             self._data[CONF_SERVICE_NAME] = slug
             _LOGGER.debug(" → slug=%s data=%s", slug, self._data)
-            return await self.async_step_add_target()  # ✅ ensure return + await!
+            return await self.async_step_add_target()
 
         schema = vol.Schema({
             vol.Required(
