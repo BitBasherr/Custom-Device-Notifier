@@ -6,10 +6,10 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
-    selector,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
+    selector,
 )
 
 try:
