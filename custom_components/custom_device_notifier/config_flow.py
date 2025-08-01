@@ -62,15 +62,29 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         _LOGGER.debug("async_step_user ENTRY user_input=%s", user_input)
         if user_input:
-            raw = user_input["service_name_raw"]
-            slug = slugify(raw)
-            if not slug:
-                slug = "custom_notifier"
-            self._data[CONF_SERVICE_NAME_RAW] = raw
-            self._data[CONF_SERVICE_NAME] = slug
-            _LOGGER.debug(" → slug=%s", slug)
-            _LOGGER.debug(" → _data=%s", self._data)
-            return await self.async_step_add_target()
+            try:
+                raw = user_input["service_name_raw"]
+                slug = slugify(raw)
+                if not slug:
+                    slug = "custom_notifier"
+                self._data[CONF_SERVICE_NAME_RAW] = raw
+                self._data[CONF_SERVICE_NAME] = slug
+                _LOGGER.debug(" → slug=%s", slug)
+                _LOGGER.debug(" → _data=%s", self._data)
+                return await self.async_step_add_target()
+            except Exception:  # noqa: BLEED
+                _LOGGER.exception("Error in async_step_user processing input=%s", user_input)
+                # surface an error to the user instead of silent unknown
+                return self.async_show_form(
+                    step_id=STEP_NAME,
+                    data_schema=vol.Schema({
+                        vol.Required(
+                            "service_name_raw",
+                            default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
+                        ): str
+                    }),
+                    errors={"service_name_raw": "processing_failed"},
+                )
 
         schema = vol.Schema(
             {
