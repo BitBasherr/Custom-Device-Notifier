@@ -1,0 +1,9 @@
+[MESSAGES CONTROL]
+disable=
+    missing-docstring,
+    too-few-public-methods,
+    invalid-name,
+    no-member
+
+[FORMAT]
+max-line-length=100
