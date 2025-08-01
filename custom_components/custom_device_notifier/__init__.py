@@ -1,7 +1,12 @@
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.components.notify import BaseNotificationService, ATTR_MESSAGE, ATTR_TITLE
-import logging
+from homeassistant.components.notify import BaseNotificationService
+from homeassistant.const import ATTR_MESSAGE, ATTR_TITLE
+
+from homeassistant.helpers import config_validation as cv
+import voluptuous as vol
 
 from .const import (
     DOMAIN,
@@ -13,9 +18,15 @@ from .const import (
     KEY_CONDITIONS,
     KEY_MATCH,
 )
+from .evaluate import evaluate_condition  # assumes you placed _evaluate_cond into evaluate.py
 
 _LOGGER = logging.getLogger(DOMAIN)
 
+SERVICE_SCHEMA = vol.Schema({
+    vol.Required(ATTR_MESSAGE): cv.string,
+    vol.Optional(ATTR_TITLE): cv.string,
+    vol.Optional("data"): dict,
+})
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data     = entry.data
@@ -26,27 +37,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     service = _NotifierService(hass, slug, targets, priority, fallback)
     hass.services.async_register(
-        "notify", slug, service.async_send_message, schema=service.SERVICE_SCHEMA
+        "notify", slug, service.async_send_message, schema=SERVICE_SCHEMA
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     return True
 
-
 class _NotifierService(BaseNotificationService):
-    SERVICE_SCHEMA = BaseNotificationService.SERVICE_SCHEMA
-
     def __init__(self, hass, slug, targets, priority, fallback):
-        self.hass      = hass
-        self._slug     = slug
-        self._targets  = targets
+        self.hass = hass
+        self._slug = slug
+        self._targets = targets
         self._priority = priority
         self._fallback = fallback
 
     async def async_send_message(self, message="", **kwargs):
-        from . import _evaluate_cond
         title = kwargs.get(ATTR_TITLE)
-        data  = {ATTR_MESSAGE: message}
+        data = {ATTR_MESSAGE: message}
         if title:
             data[ATTR_TITLE] = title
         data.update(kwargs.get("data", {}))
@@ -56,8 +63,8 @@ class _NotifierService(BaseNotificationService):
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc), None)
             if not tgt:
                 continue
-            mode    = tgt.get(KEY_MATCH, "all")
-            results = [_evaluate_cond(self.hass, c) for c in tgt[KEY_CONDITIONS]]
+            mode = tgt.get(KEY_MATCH, "all")
+            results = [evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]]
             matched = all(results) if mode == "all" else any(results)
             _LOGGER.debug("  target %s match=%s", svc, matched)
             if matched:
