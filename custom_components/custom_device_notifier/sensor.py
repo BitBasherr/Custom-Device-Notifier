@@ -16,12 +16,13 @@ from .const import (
     KEY_CONDITIONS,
     KEY_MATCH,
 )
-from . import _evaluate_cond
 
 _LOGGER = logging.getLogger(DOMAIN)
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     async_add_entities([CurrentTargetSensor(hass, entry)])
+
 
 class CurrentTargetSensor(SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
@@ -48,6 +49,8 @@ class CurrentTargetSensor(SensorEntity):
 
     @callback
     def _update(self, _):
+        from . import _evaluate_cond  # ✅ moved here to avoid circular import
+
         for svc_id in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:

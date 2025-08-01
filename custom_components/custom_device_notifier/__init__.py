@@ -13,7 +13,6 @@ from .const import (
     KEY_CONDITIONS,
     KEY_MATCH,
 )
-from . import _evaluate_cond
 
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -45,6 +44,7 @@ class _NotifierService(BaseNotificationService):
         self._fallback = fallback
 
     async def async_send_message(self, message="", **kwargs):
+        from . import _evaluate_cond
         title = kwargs.get(ATTR_TITLE)
         data  = {ATTR_MESSAGE: message}
         if title:
