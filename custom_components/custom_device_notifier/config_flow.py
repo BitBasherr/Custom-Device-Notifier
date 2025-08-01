@@ -60,9 +60,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._current: dict = {}
 
     async def async_step_user(self, user_input=None):
-        self._data = self._data or {}
         _LOGGER.debug("async_step_user ENTRY user_input=%s", user_input)
-
         if user_input:
             raw = user_input["service_name_raw"]
             slug = slugify(raw)
@@ -74,11 +72,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_add_target()
 
         schema = vol.Schema({
-            vol.Required("target_service", default=""): selector({
-                "service": {"domain": "notify"}
-            })
+            vol.Required(
+                "service_name_raw",
+                default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
+            ): str
         })
-
         return self.async_show_form(step_id=STEP_NAME, data_schema=schema)
 
     async def async_step_add_target(self, user_input=None):
@@ -89,7 +87,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_add_condition()
 
         schema = vol.Schema({
-            vol.Required("target_service"): selector({
+            vol.Required("target_service", default=""): selector({
                 "service": {"domain": "notify"}
             })
         })
@@ -99,7 +97,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("async_step_add_condition ENTRY user_input=%s", user_input)
         if not user_input or "entity" not in user_input:
             schema = vol.Schema({
-                vol.Required("entity"): selector({
+                vol.Required("entity", default=""): selector({
                     "entity": {"domain": ENTITY_DOMAINS}
                 })
             })
@@ -122,7 +120,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("operator", default="=="): selector({
                     "select": {"options": _OPS_NUM}
                 }),
-                vol.Required("value"): selector(val_sel),
+                vol.Required("value", default=0): selector(val_sel),
             })
         else:
             opts = [
@@ -141,7 +139,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("operator", default="=="): selector({
                     "select": {"options": _OPS_STR}
                 }),
-                vol.Required("value"): selector({
+                vol.Required("value", default=final[0]): selector({
                     "select": {"options": final}
                 }),
             })
@@ -211,7 +209,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         opts = [t[KEY_SERVICE] for t in self._targets]
         schema = vol.Schema({
-            vol.Required("priority", default=opts): selector({
+            vol.Required("priority", default=opts or [""]): selector({
                 "select": {"options": opts, "mode": "list"}
             })
         })
@@ -226,7 +224,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data=self._data,
             )
 
-        default_fb = self._targets[0][KEY_SERVICE]
+        default_fb = self._targets[0][KEY_SERVICE] if self._targets else ""
         schema = vol.Schema({
             vol.Required("fallback", default=default_fb): selector({
                 "service": {"domain": "notify"}
