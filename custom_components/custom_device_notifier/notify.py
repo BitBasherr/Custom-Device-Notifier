@@ -51,16 +51,27 @@ async def async_register_services(hass: HomeAssistant, entry) -> None:
                         result = eval(f'"{st.state}" {op} "{val}"')
                     results.append(result)
                 except Exception as e:
-                    _LOGGER.warning("Condition eval error for %s: %s", ent_id, e)
+                    _LOGGER.warning("Condition eval error for %s: %s", ent_id,
+                                    e)
                     results.append(False)
 
             all_pass = all(results) if mode == "all" else any(results)
             if all_pass:
-                await hass.services.async_call("notify", svc, call.data, blocking=True)
+                await hass.services.async_call(
+                    "notify",
+                    svc,
+                    call.data,
+                    blocking=True
+                )
                 return
 
         if fallback:
             _LOGGER.debug("No match. Using fallback: %s", fallback)
-            await hass.services.async_call("notify", fallback, call.data, blocking=True)
+            await hass.services.async_call(
+                "notify",
+                fallback,
+                call.data,
+                blocking=True
+            )
 
     hass.services.async_register("notify", name, _handle_notify)
