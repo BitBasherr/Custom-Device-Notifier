@@ -28,7 +28,7 @@
       }
     },
     "error": {
-      "must_be_notify": "Please select a notify service.",
+      "must_be_notify": "Must be a notify service (e.g., notify.mobile_app_phone).",
       "no_targets": "At least one target is required.",
       "unknown": "An unexpected error occurred. Check the logs for details."
     }
