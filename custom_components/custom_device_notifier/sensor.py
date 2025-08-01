@@ -22,7 +22,9 @@ _LOGGER = logging.getLogger(DOMAIN)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities
 ):
     async_add_entities([CurrentTargetSensor(hass, entry)])
 
@@ -48,17 +50,21 @@ class CurrentTargetSensor(SensorEntity):
             for cond in tgt[KEY_CONDITIONS]
             if self.hass.states.get(cond["entity"]) is not None
         }
-        async_track_state_change_event(self.hass, list(entities), self._update)
+        async_track_state_change_event(
+            self.hass, list(entities), self._update
+        )
         self._update(None)
 
     @callback
     def _update(self, _):
         for svc_id in self._priority:
-            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
+            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id),
+                       None)
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            results = [evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]]
+            results = [evaluate_condition(self.hass, c)
+                       for c in tgt[KEY_CONDITIONS]]
             matched = all(results) if mode == "all" else any(results)
             if matched:
                 self._state = svc_id
