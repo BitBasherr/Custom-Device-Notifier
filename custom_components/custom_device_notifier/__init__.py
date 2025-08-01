@@ -3,7 +3,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.notify import BaseNotificationService
-from homeassistant.const import ATTR_MESSAGE, ATTR_TITLE
+from homeassistant.components.notify.const import ATTR_MESSAGE, ATTR_TITLE
 
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
