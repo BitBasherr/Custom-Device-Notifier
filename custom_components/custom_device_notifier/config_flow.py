@@ -5,7 +5,7 @@ import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.selector import selector, ServiceSelector, ServiceSelectorConfig
+from homeassistant.helpers.selector import ServiceSelector, ServiceSelectorConfig, selector
 
 try:
     from homeassistant.helpers.text import slugify
