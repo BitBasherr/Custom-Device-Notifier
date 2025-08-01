@@ -74,11 +74,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_add_target()
 
         schema = vol.Schema({
-            vol.Required(
-                "service_name_raw",
-                default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
-            ): str
+            vol.Required("target_service", default=""): selector({
+                "service": {"domain": "notify"}
+            })
         })
+
         return self.async_show_form(step_id=STEP_NAME, data_schema=schema)
 
     async def async_step_add_target(self, user_input=None):
