@@ -1,0 +1,12 @@
+# ruff.toml
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "I", "N", "UP", "D"]
+ignore = ["E501", "D107", "D100", "D104"]  # E501=long lines, D*=docstring errors (adjust as needed)
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
