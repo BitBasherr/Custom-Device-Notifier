@@ -1,22 +1,21 @@
 import logging
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+import voluptuous as vol
 from homeassistant.components.notify import BaseNotificationService
 from homeassistant.components.notify.const import ATTR_MESSAGE, ATTR_TITLE
-
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
-import voluptuous as vol
 
 from .const import (
-    DOMAIN,
+    CONF_FALLBACK,
+    CONF_PRIORITY,
     CONF_SERVICE_NAME,
     CONF_TARGETS,
-    CONF_PRIORITY,
-    CONF_FALLBACK,
-    KEY_SERVICE,
+    DOMAIN,
     KEY_CONDITIONS,
     KEY_MATCH,
+    KEY_SERVICE,
 )
 from .evaluate import evaluate_condition
 

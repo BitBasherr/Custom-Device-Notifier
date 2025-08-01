@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import service
-from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
-    CONF_TARGETS,
-    CONF_PRIORITY,
     CONF_FALLBACK,
-    CONF_MATCH_MODE,
-    KEY_SERVICE,
+    CONF_PRIORITY,
+    CONF_TARGETS,
     KEY_CONDITIONS,
     KEY_MATCH,
+    KEY_SERVICE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,7 +44,7 @@ async def async_register_services(hass: HomeAssistant, entry) -> None:
                     continue
 
                 try:
-                    if isinstance(val, (int, float)):
+                    if isinstance(val, int | float):
                         st_val = float(st.state)
                         result = eval(f"{st_val} {op} {val}")
                     else:

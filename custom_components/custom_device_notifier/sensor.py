@@ -1,22 +1,22 @@
 import logging
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from .evaluate import evaluate_condition
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
-    DOMAIN,
-    CONF_SERVICE_NAME_RAW,
-    CONF_SERVICE_NAME,
-    CONF_TARGETS,
-    CONF_PRIORITY,
     CONF_FALLBACK,
-    KEY_SERVICE,
+    CONF_PRIORITY,
+    CONF_SERVICE_NAME,
+    CONF_SERVICE_NAME_RAW,
+    CONF_TARGETS,
+    DOMAIN,
     KEY_CONDITIONS,
     KEY_MATCH,
+    KEY_SERVICE,
 )
+from .evaluate import evaluate_condition
 
 _LOGGER = logging.getLogger(DOMAIN)
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-import voluptuous as vol
 
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
@@ -13,16 +13,16 @@ except ImportError:
     from homeassistant.util import slugify
 
 from .const import (
-    DOMAIN,
+    CONF_FALLBACK,
+    CONF_MATCH_MODE,
+    CONF_PRIORITY,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
     CONF_TARGETS,
-    CONF_PRIORITY,
-    CONF_FALLBACK,
-    CONF_MATCH_MODE,
-    KEY_SERVICE,
+    DOMAIN,
     KEY_CONDITIONS,
     KEY_MATCH,
+    KEY_SERVICE,
 )
 
 _LOGGER = logging.getLogger(DOMAIN)

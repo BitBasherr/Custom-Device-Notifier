@@ -6,8 +6,6 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.custom_device_notifier.const import DOMAIN
 
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 pytestmark = pytest.mark.asyncio
 
 
