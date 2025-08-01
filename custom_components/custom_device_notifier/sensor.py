@@ -4,6 +4,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from .evaluate import evaluate_condition
 
 from .const import (
     DOMAIN,
@@ -49,14 +50,12 @@ class CurrentTargetSensor(SensorEntity):
 
     @callback
     def _update(self, _):
-        from . import _evaluate_cond  # ✅ moved here to avoid circular import
-
         for svc_id in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            results = [_evaluate_cond(self.hass, c) for c in tgt[KEY_CONDITIONS]]
+            results = [evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]]
             matched = all(results) if mode == "all" else any(results)
             if matched:
                 self._state = svc_id

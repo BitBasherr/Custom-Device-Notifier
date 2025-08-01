@@ -18,7 +18,7 @@ from .const import (
     KEY_CONDITIONS,
     KEY_MATCH,
 )
-from .evaluate import evaluate_condition  # assumes you placed _evaluate_cond into evaluate.py
+from .evaluate import evaluate_condition
 
 _LOGGER = logging.getLogger(DOMAIN)
 
