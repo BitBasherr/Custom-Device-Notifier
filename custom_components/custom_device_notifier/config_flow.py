@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Dict, List
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.selector import ServiceSelector, ServiceSelectorConfig, selector
+from homeassistant.helpers.selector import (
+    ServiceSelector,
+    ServiceSelectorConfig,
+    selector,
+)
 
 try:
+    # ≥2025.7
     from homeassistant.helpers.text import slugify
-except ImportError:
+except ImportError:  # ≤2025.6
     from homeassistant.util import slugify
 
 from .const import (
@@ -27,14 +33,17 @@ from .const import (
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-STEP_NAME = "user"
+# ----- constants for step ids -------------------------------------------------
+STEP_USER = "user"
 STEP_ADD_TARGET = "add_target"
-STEP_ADD_COND = "add_condition"
-STEP_MATCH_MODE = "match_mode"
+STEP_ADD_COND_ENTITY = "add_condition_entity"
+STEP_ADD_COND_VALUE = "add_condition_value"
 STEP_COND_MORE = "condition_more"
+STEP_MATCH_MODE = "match_mode"
 STEP_TARGET_MORE = "target_more"
-STEP_ORDER = "order_targets"
-STEP_FALLBACK = "choose_fallback"
+STEP_ORDER_TARGETS = "order_targets"
+STEP_CHOOSE_FALLBACK = "choose_fallback"
+# ------------------------------------------------------------------------------
 
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
@@ -52,317 +61,273 @@ ENTITY_DOMAINS = [
 
 
 class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 2
+    """Handle a config flow for Custom Device Notifier."""
 
-    def __init__(self):
-        self._data: dict = {}
-        self._targets: list[dict] = []
-        self._current: dict = {}
+    VERSION = 3  # bump because we changed the data layout
 
+    # ---- life-cycle ----------------------------------------------------------
+    def __init__(self) -> None:
+        self._data: Dict[str, Any] = {}
+        self._targets: List[Dict[str, Any]] = []
+        self._working_target: Dict[str, Any] | None = None
+        self._working_condition: Dict[str, Any] | None = None
+
+    # ---- step: user ----------------------------------------------------------
     async def async_step_user(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_user ENTRY user_input=%s", user_input)
-            if user_input:
-                raw = user_input["service_name_raw"]
-                slug = slugify(raw)
-                if not slug:
-                    slug = "custom_notifier"
-                self._data[CONF_SERVICE_NAME_RAW] = raw
-                self._data[CONF_SERVICE_NAME] = slug
-                await self.async_set_unique_id(slug)
-                self._abort_if_unique_id_configured()
-                _LOGGER.debug(" → slug=%s", slug)
-                _LOGGER.debug(" → _data=%s", self._data)
-                return await self.async_step_add_target()
+        _LOGGER.debug("STEP user | input=%s", user_input)
+        if user_input is not None:
+            raw = user_input["service_name_raw"]
+            slug = slugify(raw) or "custom_notifier"
+            await self.async_set_unique_id(slug)
+            self._abort_if_unique_id_configured()
 
-            schema = vol.Schema({
-                vol.Required(
-                    "service_name_raw",
-                    default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
-                ): str
-            })
-            return self.async_show_form(step_id=STEP_NAME, data_schema=schema)
-        except Exception as e:
-            _LOGGER.error("Error in user step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_NAME,
-                data_schema=vol.Schema({
-                    vol.Required(
-                        "service_name_raw",
-                        default=self._data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier")
-                    ): str
-                }),
-                errors={"base": "unknown"}
-            )
+            self._data[CONF_SERVICE_NAME_RAW] = raw
+            self._data[CONF_SERVICE_NAME] = slug
+            return await self.async_step_add_target()
 
+        schema = vol.Schema(
+            {vol.Required("service_name_raw", default="Custom Notifier"): str}
+        )
+        return self.async_show_form(step_id=STEP_USER, data_schema=schema)
+
+    # ---- step: add_target ----------------------------------------------------
     async def async_step_add_target(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_add_target ENTRY user_input=%s", user_input)
-            errors = {}
-            if user_input:
-                svc = user_input["target_service"]
-                domain, _ = svc.split(".", 1)
-                if domain != "notify":
-                    errors["target_service"] = "must_be_notify"
-                if not errors:
-                    self._current = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
-                    _LOGGER.debug(" → _current=%s", self._current)
-                    return await self.async_step_add_condition()
+        _LOGGER.debug("STEP add_target | input=%s", user_input)
+        errors = {}
+        if user_input is not None:
+            svc = user_input["target_service"]
+            domain, _ = svc.split(".", 1)
+            if domain != "notify":
+                errors["target_service"] = "must_be_notify"
+            if not errors:
+                self._working_target = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
+                return await self.async_step_add_condition_entity()
 
-            schema = vol.Schema({
-                vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())
-            })
-            return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors)
-        except Exception as e:
-            _LOGGER.error("Error in add_target step: %s", e)
+        schema = vol.Schema(
+            {vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())}
+        )
+        return self.async_show_form(
+            step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
+        )
+
+    # ---- step: add_condition_entity -----------------------------------------
+    async def async_step_add_condition_entity(self, user_input=None):
+        _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
+        if user_input is None:
+            schema = vol.Schema(
+                {
+                    vol.Required("entity"): selector(
+                        {"entity": {"domain": ENTITY_DOMAINS}}
+                    )
+                }
+            )
             return self.async_show_form(
-                step_id=STEP_ADD_TARGET,
-                data_schema=vol.Schema({
-                    vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())
-                }),
-                errors={"base": "unknown"}
+                step_id=STEP_ADD_COND_ENTITY, data_schema=schema
             )
 
-    async def async_step_add_condition(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_add_condition ENTRY user_input=%s", user_input)
-            if not user_input or "entity" not in user_input:
-                schema = vol.Schema({
-                    vol.Required("entity", default=""): selector({
-                        "entity": {"domain": ENTITY_DOMAINS}
-                    })
-                })
-                return self.async_show_form(step_id=STEP_ADD_COND, data_schema=schema)
+        # store entity, move to value step
+        ent_id = user_input["entity"]
+        self._working_condition = {"entity_id": ent_id}
+        return await self.async_step_add_condition_value()
 
-            ent_id = user_input["entity"]
-            self._current[KEY_CONDITIONS].append({"entity": ent_id})
-            _LOGGER.debug(" → condition entity added: %s", ent_id)
+    # ---- step: add_condition_value ------------------------------------------
+    async def async_step_add_condition_value(self, user_input=None):
+        _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
+        if user_input is not None:
+            # persist operator & value, push into target’s list
+            self._working_condition["operator"] = user_input["operator"]
+            self._working_condition["value"] = user_input["value"]
+            self._working_target[KEY_CONDITIONS].append(self._working_condition)
+            self._working_condition = None
+            return await self.async_step_condition_more()
 
-            st = self.hass.states.get(ent_id)
-            is_num = False
-            if st:
-                try:
-                    float(st.state)
-                    is_num = True
-                except ValueError:
-                    is_num = False
+        # build form based on entity type
+        ent_id = self._working_condition["entity_id"]
+        st = self.hass.states.get(ent_id)
+        is_num = False
+        if st:
+            try:
+                float(st.state)
+                is_num = True
+            except ValueError:
+                pass
 
-            if is_num:
-                val_sel = {"number": {"min": 0, "max": 100, "step": 1}} if "battery" in ent_id else {"number": {}}
-                schema = vol.Schema({
-                    vol.Required("operator", default="=="): selector({
-                        "select": {"options": _OPS_NUM}
-                    }),
-                    vol.Required("value", default=0): selector(val_sel),
-                })
-            else:
-                opts = [
-                    st.state if st else "",
-                    "unknown or unavailable",
-                    "unknown",
-                    "unavailable",
-                ]
-                seen = set()
-                final = []
-                for o in opts:
-                    if o not in seen:
-                        final.append(o)
-                        seen.add(o)
-                schema = vol.Schema({
-                    vol.Required("operator", default="=="): selector({
-                        "select": {"options": _OPS_STR}
-                    }),
-                    vol.Required("value", default=final[0]): selector({
-                        "select": {"options": final}
-                    }),
-                })
-
-            return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
-        except Exception as e:
-            _LOGGER.error("Error in add_condition step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_ADD_COND,
-                data_schema=vol.Schema({
-                    vol.Required("entity", default=""): selector({
-                        "entity": {"domain": ENTITY_DOMAINS}
-                    })
-                }),
-                errors={"base": "unknown"}
+        if is_num:
+            val_sel = (
+                {"number": {"min": 0, "max": 100, "step": 1}}
+                if "battery" in ent_id
+                else {"number": {}}
+            )
+            schema = vol.Schema(
+                {
+                    vol.Required("operator", default="=="): selector(
+                        {"select": {"options": _OPS_NUM}}
+                    ),
+                    vol.Required("value", default=float(st.state) if st else 0): selector(
+                        val_sel
+                    ),
+                }
+            )
+        else:
+            opts = [
+                st.state if st else "",
+                "unknown or unavailable",
+                "unknown",
+                "unavailable",
+            ]
+            # keep order, remove dups
+            final = []
+            seen = set()
+            for o in opts:
+                if o not in seen:
+                    final.append(o)
+                    seen.add(o)
+            schema = vol.Schema(
+                {
+                    vol.Required("operator", default="=="): selector(
+                        {"select": {"options": _OPS_STR}}
+                    ),
+                    vol.Required("value", default=final[0]): selector(
+                        {"select": {"options": final}}
+                    ),
+                }
             )
 
-    async def async_step_match_mode(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_match_mode ENTRY user_input=%s", user_input)
-            if user_input:
-                self._current[KEY_MATCH] = user_input[CONF_MATCH_MODE]
-                _LOGGER.debug(" → match mode set: %s", self._current[KEY_MATCH])
-                return await self.async_step_condition_more()
+        return self.async_show_form(
+            step_id=STEP_ADD_COND_VALUE, data_schema=schema
+        )
 
-            schema = vol.Schema({
-                vol.Required(CONF_MATCH_MODE, default="all"): selector({
-                    "select": {
-                        "options": [
-                            ("Match all conditions", "all"),
-                            ("Match any condition", "any"),
-                        ]
+    # ---- step: condition_more ------------------------------------------------
+    async def async_step_condition_more(self, user_input=None):
+        _LOGGER.debug("STEP condition_more | input=%s", user_input)
+        if user_input is not None:
+            if user_input["choice"] == "add":
+                return await self.async_step_add_condition_entity()
+            # finished adding conditions → ask for match_mode
+            return await self.async_step_match_mode()
+
+        schema = vol.Schema(
+            {
+                vol.Required("choice", default="add"): selector(
+                    {
+                        "select": {
+                            "options": {
+                                "add": "➕ Add another condition",
+                                "done": "✅ Done this target",
+                            }
+                        }
                     }
-                })
-            })
-            return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
-        except Exception as e:
-            _LOGGER.error("Error in match_mode step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_MATCH_MODE,
-                data_schema=vol.Schema({
-                    vol.Required(CONF_MATCH_MODE, default="all"): selector({
+                )
+            }
+        )
+        return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
+
+    # ---- step: match_mode ----------------------------------------------------
+    async def async_step_match_mode(self, user_input=None):
+        _LOGGER.debug("STEP match_mode | input=%s", user_input)
+        if user_input is not None:
+            self._working_target[KEY_MATCH] = user_input[CONF_MATCH_MODE]
+            self._targets.append(self._working_target)
+            self._working_target = None
+            return await self.async_step_target_more()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_MATCH_MODE, default="all"): selector(
+                    {
                         "select": {
                             "options": [
                                 ("Match all conditions", "all"),
                                 ("Match any condition", "any"),
                             ]
                         }
-                    })
-                }),
-                errors={"base": "unknown"}
-            )
+                    }
+                )
+            }
+        )
+        return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
 
-    async def async_step_condition_more(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_condition_more ENTRY user_input=%s", user_input)
-            if user_input:
-                if user_input["choice"] == "add":
-                    return await self.async_step_add_condition()
-                self._targets.append(self._current)
-                _LOGGER.debug(" → target added: %s", self._current)
-                self._current = {}
-                return await self.async_step_target_more()
-
-            schema = vol.Schema({
-                vol.Required("choice", default="add"): selector({
-                    "select": {"options": {
-                        "add": "➕ Add another condition",
-                        "done": "✅ Done this target",
-                    }}
-                })
-            })
-            return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
-        except Exception as e:
-            _LOGGER.error("Error in condition_more step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_COND_MORE,
-                data_schema=vol.Schema({
-                    vol.Required("choice", default="add"): selector({
-                        "select": {"options": {
-                            "add": "➕ Add another condition",
-                            "done": "✅ Done this target",
-                        }}
-                    })
-                }),
-                errors={"base": "unknown"}
-            )
-
+    # ---- step: target_more ---------------------------------------------------
     async def async_step_target_more(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_target_more ENTRY user_input=%s", user_input)
-            if user_input:
-                if user_input["next"] == "add":
-                    return await self.async_step_add_target()
-                return await self.async_step_order_targets()
+        _LOGGER.debug("STEP target_more | input=%s", user_input)
+        if user_input is not None:
+            if user_input["next"] == "add":
+                return await self.async_step_add_target()
+            return await self.async_step_order_targets()
 
-            schema = vol.Schema({
-                vol.Required("next", default="add"): selector({
-                    "select": {"options": {
-                        "add": "➕ Add another notify target",
-                        "done": "✅ Done targets",
-                    }}
-                })
-            })
-            return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=schema)
-        except Exception as e:
-            _LOGGER.error("Error in target_more step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_TARGET_MORE,
-                data_schema=vol.Schema({
-                    vol.Required("next", default="add"): selector({
-                        "select": {"options": {
-                            "add": "➕ Add another notify target",
-                            "done": "✅ Done targets",
-                        }}
-                    })
-                }),
-                errors={"base": "unknown"}
-            )
+        schema = vol.Schema(
+            {
+                vol.Required("next", default="add"): selector(
+                    {
+                        "select": {
+                            "options": {
+                                "add": "➕ Add another notify target",
+                                "done": "✅ Done targets",
+                            }
+                        }
+                    }
+                )
+            }
+        )
+        return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=schema)
 
+    # ---- step: order_targets -------------------------------------------------
     async def async_step_order_targets(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_order_targets ENTRY user_input=%s", user_input)
-            errors = {}
-            if user_input:
-                self._data[CONF_TARGETS] = self._targets
-                self._data[CONF_PRIORITY] = user_input["priority"]
-                _LOGGER.debug(" → priority set: %s", self._data[CONF_PRIORITY])
-                _LOGGER.debug(" → targets: %s", self._data[CONF_TARGETS])
-                return await self.async_step_choose_fallback()
+        _LOGGER.debug("STEP order_targets | input=%s", user_input)
+        errors = {}
+        opts = [t[KEY_SERVICE] for t in self._targets]
 
-            opts = [t[KEY_SERVICE] for t in self._targets]
-            if not opts:
-                errors["base"] = "no_targets"
-            schema = vol.Schema({
-                vol.Required("priority", default=opts or [""]): selector({
-                    "select": {"options": opts, "mode": "list"}
-                })
-            })
-            return self.async_show_form(step_id=STEP_ORDER, data_schema=schema, errors=errors)
-        except Exception as e:
-            _LOGGER.error("Error in order_targets step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_ORDER,
-                data_schema=vol.Schema({
-                    vol.Required("priority", default=[""]): selector({
-                        "select": {"options": [], "mode": "list"}
-                    })
-                }),
-                errors={"base": "unknown"}
-            )
+        if user_input is not None:
+            self._data[CONF_TARGETS] = self._targets
+            self._data[CONF_PRIORITY] = user_input["priority"]
+            return await self.async_step_choose_fallback()
 
+        if not opts:
+            errors["base"] = "no_targets"
+
+        schema = vol.Schema(
+            {
+                vol.Required("priority", default=opts or [""]): selector(
+                    {"select": {"options": opts, "mode": "list"}}
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id=STEP_ORDER_TARGETS, data_schema=schema, errors=errors
+        )
+
+    # ---- step: choose_fallback ----------------------------------------------
     async def async_step_choose_fallback(self, user_input=None):
-        try:
-            _LOGGER.debug("async_step_choose_fallback ENTRY user_input=%s", user_input)
-            errors = {}
-            if user_input:
-                fb = user_input["fallback"]
-                domain, _ = fb.split(".", 1)
-                if domain != "notify":
-                    errors["fallback"] = "must_be_notify"
-                if not errors:
-                    self._data[CONF_FALLBACK] = fb
-                    _LOGGER.debug(" → fallback set: %s", self._data[CONF_FALLBACK])
-                    _LOGGER.debug("FINAL DATA: %s", self._data)
-                    return self.async_create_entry(
-                        title=self._data[CONF_SERVICE_NAME_RAW],
-                        data=self._data,
-                    )
+        _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
+        errors = {}
+        if user_input is not None:
+            fb = user_input["fallback"]
+            if not fb.startswith("notify."):
+                errors["fallback"] = "must_be_notify"
+            else:
+                self._data[CONF_FALLBACK] = fb
+                return self.async_create_entry(
+                    title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
+                )
 
-            default_fb = self._targets[0][KEY_SERVICE] if self._targets else None
-            schema = vol.Schema({
-                vol.Required("fallback", default=default_fb): ServiceSelector(ServiceSelectorConfig())
-            })
-            return self.async_show_form(step_id=STEP_FALLBACK, data_schema=schema, errors=errors)
-        except Exception as e:
-            _LOGGER.error("Error in choose_fallback step: %s", e)
-            return self.async_show_form(
-                step_id=STEP_FALLBACK,
-                data_schema=vol.Schema({
-                    vol.Required("fallback"): ServiceSelector(ServiceSelectorConfig())
-                }),
-                errors={"base": "unknown"}
-            )
+        default_fb = self._targets[0][KEY_SERVICE] if self._targets else None
+        schema = vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): ServiceSelector(
+                    ServiceSelectorConfig()
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
+        )
 
+    # ---- options flow (reuse same UI) ---------------------------------------
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
         flow = CustomDeviceNotifierConfigFlow()
-        flow.hass = config_entry.hass
+        flow.hass = config_entry.hass  # type: ignore[assignment]
         flow._data = dict(config_entry.data)
         flow._targets = list(config_entry.data.get(CONF_TARGETS, []))
         return flow
