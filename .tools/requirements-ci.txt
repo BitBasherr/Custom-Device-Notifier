@@ -1,17 +1,11 @@
-# Linting / formatting
-ruff==0.4.3
-black==24.3.0
-flake8==7.3.0
+ruff                         ==0.4.3
+black                        ==24.3.0
+flake8                       ==7.3.0
+mypy                         ==1.10.0
 
-# Typing
-mypy==1.10.0
-homeassistant-stubs==2025.1.4
+pytest                       ==8.2.2
+pytest-asyncio               ==0.23.6          # works with pytest 8
+pytest-homeassistant-custom-component ==0.13.0 # first release that supports py3.13 + pytest 8
+pytest-mock                  ==3.14.0
 
-# Testing
-pytest==8.2.2
-pytest-asyncio==0.23.6
-pytest-homeassistant-custom-component==0.12.0
-pytest-mock==3.14.0
-
-# Pin HA core for the test env
-homeassistant==2025.1.4
+homeassistant-stubs          ==2025.1.4        # stubs lag core; 2025.1.4 is the newest right now
