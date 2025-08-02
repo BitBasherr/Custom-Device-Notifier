@@ -1,4 +1,5 @@
 """Unit-test evaluate_condition helper."""
+
 import pytest
 from homeassistant.core import HomeAssistant
 

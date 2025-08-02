@@ -1,4 +1,5 @@
 """Test config flow for custom_device_notifier integration."""
+
 import pytest
 from homeassistant import data_entry_flow
 from homeassistant.core import HomeAssistant
@@ -10,7 +11,9 @@ pytestmark = pytest.mark.asyncio
 
 async def test_user_flow_minimal(hass: HomeAssistant):
     """Walk through the shortest happy path."""
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
     assert result["step_id"] == "user"
 

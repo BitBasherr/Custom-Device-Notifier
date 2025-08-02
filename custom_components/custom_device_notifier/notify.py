@@ -2,6 +2,7 @@
 
 All logic lives in _NotifierService inside ``__init__.py``.
 """
+
 import logging
 
 from homeassistant.core import HomeAssistant
@@ -22,4 +23,6 @@ async def async_register_services(hass: HomeAssistant, entry) -> None:
         data["priority"],
         data["fallback"],
     )
-    hass.services.async_register("notify", data["service_name"], service.async_send_message)
+    hass.services.async_register(
+        "notify", data["service_name"], service.async_send_message
+    )

@@ -163,9 +163,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default="=="): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value", default=float(st.state) if st else 0): selector(
-                        val_sel
-                    ),
+                    vol.Required(
+                        "value", default=float(st.state) if st else 0
+                    ): selector(val_sel),
                 }
             )
         else:
@@ -193,9 +193,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             )
 
-        return self.async_show_form(
-            step_id=STEP_ADD_COND_VALUE, data_schema=schema
-        )
+        return self.async_show_form(step_id=STEP_ADD_COND_VALUE, data_schema=schema)
 
     # ---- step: condition_more ------------------------------------------------
     async def async_step_condition_more(self, user_input=None):
