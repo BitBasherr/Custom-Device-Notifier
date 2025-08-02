@@ -3,6 +3,7 @@
 All logic lives in _NotifierService inside ``__init__.py``.
 """
 import logging
+
 from homeassistant.core import HomeAssistant
 
 from .__init__ import _NotifierService  # re-export the real class

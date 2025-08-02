@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -67,10 +67,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ---- life-cycle ----------------------------------------------------------
     def __init__(self) -> None:
-        self._data: Dict[str, Any] = {}
-        self._targets: List[Dict[str, Any]] = []
-        self._working_target: Dict[str, Any] | None = None
-        self._working_condition: Dict[str, Any] | None = None
+        self._data: dict[str, Any] = {}
+        self._targets: list[dict[str, Any]] = []
+        self._working_target: dict[str, Any] | None = None
+        self._working_condition: dict[str, Any] | None = None
 
     # ---- step: user ----------------------------------------------------------
     async def async_step_user(self, user_input=None):
