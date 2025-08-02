@@ -1,8 +1,6 @@
 name: CI-dev
 
-on:
-  push:
-  pull_request:
+on: [push, pull_request]
 
 jobs:
   test:
@@ -26,6 +24,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ github.ref }}-${{ hashFiles('**/*.py') }}
+          restore-keys: |
+            mypy-${{ github.ref }}-
+            mypy-
 
       - name: Lint / type‑check
         run: |
@@ -33,7 +39,7 @@ jobs:
           black --check .
           flake8 . --max-line-length 88
           # Explicitly point mypy at the root‑level config to avoid the lookup confusion
-          mypy --config-file pyproject.toml custom_components
+          mypy --config-file pyproject.toml -p custom_device_notifier
 
       - name: Run tests
         run: pytest -q
