@@ -1,0 +1,12 @@
+[tool.mypy]
+python_version = "3.11"
+
+ignore_missing_imports = true        # suppress voluptuous & HA stubs
+
+namespace_packages = false           # marker file present
+explicit_package_bases = true
+
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
