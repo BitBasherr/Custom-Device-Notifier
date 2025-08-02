@@ -1,0 +1,9 @@
+ruff
+black
+flake8
+mypy
+pytest
+pytest-mock
+gitpython
+homeassistant==2025.7.4
+homeassistant-stubs==2025.7.4

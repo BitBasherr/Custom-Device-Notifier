@@ -37,17 +37,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"                    # built-in pip cache
+          cache: "pip"
+          cache-dependency-path: ".tools/requirements-ci.txt"
 
-      - name: Install lint deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade "pip<23.2"
-          pip install \
-            ruff \
-            black \
-            flake8 \
-            mypy \
-            "homeassistant-stubs==2023.7.3"
+          pip install -r .tools/requirements-ci.txt
 
       - name: Ruff
         run: ruff check .
