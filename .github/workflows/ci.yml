@@ -1,34 +1,45 @@
 name: CI
 permissions:
-  contents: write         # needed only when Black pushes fixes
+  contents: write       # needed when Black pushes auto-fixes
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  push:        { branches: [main] }
+  pull_request: { branches: [main] }
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 ###############################################################################
-# 1️⃣  Lint / Static analysis (fast)                                           #
+# 1️⃣  HassFest – Home-Assistant manifest/translation lint (3 s)               #
 ###############################################################################
 jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: HassFest
+        uses: home-assistant/actions/hassfest@master
+
+###############################################################################
+# 2️⃣  Lint / static analysis (fast)                                           #
+###############################################################################
   lint:
     runs-on: ubuntu-latest
+    needs: hassfest                       # run after HassFest
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"                    # built-in pip cache
 
-      - name: Install lint dependencies
+      - name: Install lint deps
         run: |
           python -m pip install --upgrade "pip<23.2"
           pip install \
@@ -38,29 +49,23 @@ jobs:
             mypy \
             "homeassistant-stubs==2023.7.3"
 
-      # Ruff (style / simple rules)
-      - name: Ruff style check
+      - name: Ruff
         run: ruff check .
 
-      # Black (auto-format)
-      - name: Black format
+      - name: Black
         run: black . --line-length 88
 
-      # Flake8 (extra linting)
-      - name: Flake8 lint
+      - name: Flake8
         run: flake8 --max-line-length 88 .
 
-      - name: Mypy type check
+      - name: Mypy
         run: |
-          mypy \
-            --namespace-packages \
-            --explicit-package-bases \
-            --no-error-code=import-untyped,duplicate-module \
-            -p custom_components.custom_device_notifier
+          mypy --namespace-packages --explicit-package-bases \
+               --disable-error-code import-untyped,duplicate-module \
+               -p custom_components.custom_device_notifier
 
-      # Commit Black fixes back to `main`
       - name: Commit Black fixes
-        if: ${{ github.event_name == 'push' }}
+        if: github.event_name == 'push'
         uses: EndBug/add-and-commit@v9
         with:
           message: "chore: format code with Black [skip ci]"
@@ -69,30 +74,40 @@ jobs:
           push: true
 
 ###############################################################################
-# 2️⃣  Tests (runs only if lint passes)                                        #
+# 3️⃣  Tests – matrix over HA versions                                         #
 ###############################################################################
   test:
     runs-on: ubuntu-latest
     needs: lint
 
+    strategy:
+      matrix:
+        ha: ["2023.7.3", "2024.2.0"]      # test against two core versions
+
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: "pip"
 
-      - name: Install test / HA dependencies
+      # Cache heavy wheels (Home Assistant, aiohttp, etc.)
+      - name: Cache HA wheels
+        uses: actions/cache@v4
+        with:
+          key: ha-wheels-${{ runner.os }}-${{ matrix.ha }}
+          restore-keys: ha-wheels-${{ runner.os }}-
+          path: ~/.cache/pip
+
+      - name: Install test deps
         run: |
           python -m pip install --upgrade "pip<23.2"
           pip install \
-            pytest \
-            pytest-mock \
-            gitpython \
-            "homeassistant==2023.7.3" \
-            "homeassistant-stubs==2023.7.3"
+            pytest pytest-mock gitpython \
+            "homeassistant==${{ matrix.ha }}" \
+            "homeassistant-stubs==${{ matrix.ha }}"
 
       - name: Run pytest
         run: pytest tests/ --maxfail=1 --disable-warnings -q
