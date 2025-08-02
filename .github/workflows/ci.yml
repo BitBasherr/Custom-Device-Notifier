@@ -39,7 +39,7 @@ jobs:
           black --check .
           flake8 . --max-line-length 88
           # Explicitly point mypy at the root‑level config to avoid the lookup confusion
-          mypy --config-file pyproject.toml -p custom_device_notifier
+          mypy --config-file custom_device_notifier/pyproject.toml -p custom_device_notifier
 
       - name: Run tests
         run: pytest -q
