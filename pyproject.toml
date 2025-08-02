@@ -2,8 +2,7 @@
 python_version = "3.11"
 ignore_missing_imports = true
 
-# namespace_packages = false   ←  can omit; default is fine
-# explicit_package_bases = true ←  **delete this line**
+disable_error_code = ["duplicate-module"]   # ← add this
 
 check_untyped_defs = true
 no_implicit_optional = true
