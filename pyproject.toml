@@ -7,7 +7,7 @@ ignore_missing_imports = true
 # use the same package-base logic Frigate uses
 namespace_packages = true
 explicit_package_bases = true
-mypy_path = "custom_components"
+MYPYPATH=custom_components
 
 # keep real checks
 check_untyped_defs      = true
