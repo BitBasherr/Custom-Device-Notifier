@@ -1,12 +1,12 @@
 {
   "domain": "custom_device_notifier",
   "name": "Custom Device Notifier",
-  "version": "1.1.0",
+  "codeowners": ["@BitBasherr"],
   "config_flow": true,
+  "dependencies": [],
   "documentation": "https://github.com/BitBasherr/Custom-Device-Notifier",
   "issue_tracker": "https://github.com/BitBasherr/Custom-Device-Notifier/issues",
   "iot_class": "local_push",
-  "codeowners": ["@BitBasherr"],
-  "dependencies": [],
-  "requirements": []
+  "requirements": [],
+  "version": "1.1.0"
 }
