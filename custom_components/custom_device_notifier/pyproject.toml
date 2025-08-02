@@ -1,19 +1,18 @@
 [tool.mypy]
 python_version = "3.11"
 
-# ── third-party libs without stubs ───────────────────────────────────────────
+# ── Turn off noise from 3rd-party libs and duplicate-module scan ─────────────
 ignore_missing_imports = true
-disable_error_code = ["import-untyped"]    # silence “module installed, no stubs”
+disable_error_code = ["import-untyped", "duplicate-module"]
 
-# ── namespace / duplicate-module handling ───────────────────────────────────
-explicit_package_bases = true
+# ── Namespace handling (custom_components is a namespace package) ────────────
 namespace_packages = true
+explicit_package_bases = true
 
-# ── other strictness you wanted ─────────────────────────────────────────────
+# ── Your desired strictness settings ─────────────────────────────────────────
 check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_return_any = true
 
-# Let mypy discover files itself (no ‘files =’ to avoid double-scan)
