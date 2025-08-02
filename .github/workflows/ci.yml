@@ -20,6 +20,10 @@ jobs:
             .tools/requirements-ci.txt
             **/pyproject.toml
 
+      - name: Debug pip-cache hit
+        run: |
+          echo "Restored pip cache size: $(du -sh ~/.cache/pip | cut -f1)"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
