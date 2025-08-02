@@ -52,7 +52,9 @@ jobs:
 
       # Mypy (type checking)
       - name: Mypy type check
-        run: mypy -p custom_components.custom_device_notifier
+        run: |
+          mypy --namespace-packages --explicit-package-bases \
+               custom_components/custom_device_notifier
 
       # Commit Black fixes back to `main`
       - name: Commit Black fixes
