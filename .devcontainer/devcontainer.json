@@ -1,0 +1,32 @@
+{
+  "name": "HA-Custom-Device-Notifier",
+
+  // Pre-built Home-Assistant dev image (Python 3.11 + build tools)
+  "image": "ghcr.io/home-assistant/devcontainer:stable",
+
+  // Run after the container is first created
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  // Forward Home Assistant’s default port so you can run `hass -c .devcontainer/ha`
+  "forwardPorts": [8123],
+
+  // VS Code–specific tweaks now live here
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        // Keep Pylance from indexing every 3rd-party lib and HA core
+        "python.analysis.exclude": [
+          "**/.venv/**",
+          "**/homeassistant/**"
+        ],
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  }
+}

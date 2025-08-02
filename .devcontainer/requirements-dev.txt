@@ -1,0 +1,12 @@
+# Lint / type / test stack
+ruff
+black
+flake8
+mypy
+pytest
+pytest-mock
+gitpython
+
+# Home Assistant – pin to same versions as CI matrix
+homeassistant==2025.7.4
+homeassistant-stubs==2025.7.4
