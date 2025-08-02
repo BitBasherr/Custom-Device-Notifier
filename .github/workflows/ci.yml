@@ -61,7 +61,6 @@ jobs:
       - name: Mypy
         run: |
           mypy --namespace-packages --explicit-package-bases \
-               --disable-error-code import-untyped,duplicate-module \
                -p custom_components.custom_device_notifier
 
       - name: Commit Black fixes
