@@ -26,7 +26,7 @@ jobs:
         run: |
           ruff check .
           black --check .
-          flake8 .
+          flake8 . --max-line-length 88
           mypy custom_components/custom_device_notifier
 
       - name: Run tests
