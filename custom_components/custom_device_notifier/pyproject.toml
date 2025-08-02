@@ -1,20 +1,19 @@
 [tool.mypy]
 python_version = "3.11"
 
-# ── Silence 3rd-party stub issues ────────────────────────────────────────────
-ignore_missing_imports = true        # treat unknown libs as Any
-disable_error_code = ["import-untyped"]
+# ── third-party libs without stubs ───────────────────────────────────────────
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]    # silence “module installed, no stubs”
 
-# ── Namespace / package handling ─────────────────────────────────────────────
-explicit_package_bases = true        # prevent duplicate-module error
-namespace_packages = true            # allow namespace packages
+# ── namespace / duplicate-module handling ───────────────────────────────────
+explicit_package_bases = true
+namespace_packages = true
 
-# ── Other checks you already wanted ─────────────────────────────────────────
+# ── other strictness you wanted ─────────────────────────────────────────────
 check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_return_any = true
 
-# Which code to scan
-files = "custom_components/custom_device_notifier"
+# Let mypy discover files itself (no ‘files =’ to avoid double-scan)

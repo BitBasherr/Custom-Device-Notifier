@@ -50,11 +50,10 @@ jobs:
       - name: Flake8 lint
         run: flake8 --max-line-length 88 .
 
-      # Mypy (type checking)
       - name: Mypy type check
         run: |
           mypy --namespace-packages --explicit-package-bases \
-               custom_components/custom_device_notifier
+               -p custom_components.custom_device_notifier
 
       # Commit Black fixes back to `main`
       - name: Commit Black fixes
