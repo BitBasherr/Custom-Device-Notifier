@@ -1,11 +1,14 @@
 [tool.mypy]
 python_version = "3.11"
 
-# ── silence unavoidable Home-Assistant / voluptuous stub warnings ───────────
+# third-party libs (voluptuous, homeassistant) ship no stubs
 ignore_missing_imports = true
-disable_error_code = ["import-untyped", "duplicate-module"]
 
-# ── keep strictness for *your* code ─────────────────────────────────────────
+# regular package semantics now that the marker file exists
+namespace_packages = false
+explicit_package_bases = true
+
+# keep your useful strictness
 check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
