@@ -9,3 +9,4 @@ pytest-homeassistant-custom-component
 pytest-mock
 
 homeassistant-stubs
+homeassistant==2025.7.4
