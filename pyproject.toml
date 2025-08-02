@@ -2,15 +2,15 @@
 python_version = "3.13"
 
 # third-party libs have no stubs
-ignore_missing_imports = True
+ignore_missing_imports = true
 
 # use the same package-base logic Frigate uses
-namespace_packages = True
-explicit_package_bases = True
+namespace_packages = true
+explicit_package_bases = true
 mypy_path = custom_components
 
 # keep real checks
-check_untyped_defs      = True
-no_implicit_optional    = True
-warn_return_any         = True
-warn_unused_ignores     = True
+check_untyped_defs      = true
+no_implicit_optional    = true
+warn_return_any         = true
+warn_unused_ignores     = true
