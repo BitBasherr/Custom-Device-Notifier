@@ -1,6 +1,6 @@
 name: CI
 permissions:
-  contents: write
+  contents: write         # needed only when Black pushes fixes
 
 on:
   push:
@@ -12,7 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# ───────────────────────── 1️⃣ Lint / Static Analysis ────────────────────────
+###############################################################################
+# 1️⃣  Lint / Static analysis (fast)                                           #
+###############################################################################
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -26,7 +28,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install lint deps (fast)
+      - name: Install lint dependencies
         run: |
           python -m pip install --upgrade "pip<23.2"
           pip install \
@@ -36,20 +38,25 @@ jobs:
             mypy \
             "homeassistant-stubs==2023.7.3"
 
+      # Ruff (style / simple rules)
       - name: Ruff style check
         run: ruff check .
 
+      # Black (auto-format)
       - name: Black format
         run: black . --line-length 88
 
+      # Flake8 (extra linting)
       - name: Flake8 lint
         run: flake8 --max-line-length 88 .
 
+      # Mypy (type checking)
       - name: Mypy type check
-        run: mypy --install-types --non-interactive custom_components/custom_device_notifier
+        run: mypy -p custom_components.custom_device_notifier
 
+      # Commit Black fixes back to `main`
       - name: Commit Black fixes
-        if: ${{ github.event_name == 'push' }}      # don't rewrite PRs
+        if: ${{ github.event_name == 'push' }}
         uses: EndBug/add-and-commit@v9
         with:
           message: "chore: format code with Black [skip ci]"
@@ -57,7 +64,9 @@ jobs:
           pull: "--rebase --autostash"
           push: true
 
-# ─────────────────────────── 2️⃣ Tests (needs lint) ───────────────────────────
+###############################################################################
+# 2️⃣  Tests (runs only if lint passes)                                        #
+###############################################################################
   test:
     runs-on: ubuntu-latest
     needs: lint
@@ -71,13 +80,15 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dev & HA deps
+      - name: Install test / HA dependencies
         run: |
           python -m pip install --upgrade "pip<23.2"
           pip install \
-            pytest pytest-mock gitpython \
+            pytest \
+            pytest-mock \
+            gitpython \
             "homeassistant==2023.7.3" \
             "homeassistant-stubs==2023.7.3"
 
-      - name: Run tests
+      - name: Run pytest
         run: pytest tests/ --maxfail=1 --disable-warnings -q
