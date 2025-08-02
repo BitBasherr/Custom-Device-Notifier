@@ -37,8 +37,8 @@ jobs:
             pytest \
             pytest-mock \
             gitpython \
-            homeassistant==2023.7.3 \  # Pin to match manifest
-            homeassistant-stubs==2023.7.3  # Match HA version
+            "homeassistant==2023.7.3" \
+            "homeassistant-stubs==2023.7.3"  # Match HA version"
       - name: Format code with Black
         run: black . --line-length=88
       - name: Commit Black fixes

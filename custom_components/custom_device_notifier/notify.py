@@ -1,6 +1,6 @@
-"""
-Thin wrapper so tests can import `async_register_services`.
-All logic lives in _NotifierService inside __init__.py.
+"""Thin wrapper so tests can import ``async_register_services``.
+
+All logic lives in _NotifierService inside ``__init__.py``.
 """
 import logging
 from homeassistant.core import HomeAssistant
@@ -12,7 +12,7 @@ _LOGGER = logging.getLogger(DOMAIN)
 
 
 async def async_register_services(hass: HomeAssistant, entry) -> None:
-    """Register notify.<slug> service for unit tests."""
+    """Register notify.<slug> for tests."""
     data = entry.data
     service = _NotifierService(
         hass,
@@ -21,6 +21,4 @@ async def async_register_services(hass: HomeAssistant, entry) -> None:
         data["priority"],
         data["fallback"],
     )
-    hass.services.async_register(
-        "notify", data["service_name"], service.async_send_message
-    )
+    hass.services.async_register("notify", data["service_name"], service.async_send_message)
