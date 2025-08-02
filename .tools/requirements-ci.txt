@@ -1,11 +1,11 @@
-ruff                         ==0.4.3
-black                        ==24.3.0
-flake8                       ==7.3.0
-mypy                         ==1.10.0
+ruff
+black
+flake8
+mypy
 
-pytest                       ==8.2.2
-pytest-asyncio               ==0.23.6          # works with pytest 8
-pytest-homeassistant-custom-component ==0.13.0 # first release that supports py3.13 + pytest 8
-pytest-mock                  ==3.14.0
+pytest
+pytest-asyncio
+pytest-homeassistant-custom-component
+pytest-mock
 
-homeassistant-stubs          ==2025.1.4        # stubs lag core; 2025.1.4 is the newest right now
+homeassistant-stubs
