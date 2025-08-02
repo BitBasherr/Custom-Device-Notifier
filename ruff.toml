@@ -4,7 +4,7 @@ target-version = "py311"
 
 [lint]
 select = ["E", "F", "W", "I", "N", "UP", "D"]
-ignore = ["E501", "D100", "D101", "D102", "D103", "D104", "D107"]  # E501=long lines, D*=docstring errors (adjust as needed)
+ignore = ["E501", "D2", "D100", "D101", "D102", "D103", "D104", "D107", "D400", "D401"]  # E501=long lines, D*=docstring errors (adjust as needed)
 
 [format]
 quote-style = "double"

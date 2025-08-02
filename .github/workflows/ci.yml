@@ -1,56 +1,83 @@
 name: CI
 permissions:
   contents: write
+
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# ───────────────────────── 1️⃣ Lint / Static Analysis ────────────────────────
 jobs:
-  lint-test:
+  lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: ['3.10']
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-      - name: Install dev dependencies
+          python-version: "3.11"
+
+      - name: Install lint deps (fast)
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade "pip<23.2"
           pip install \
+            ruff \
             black \
             flake8 \
             mypy \
-            pytest \
-            pytest-mock \
-            gitpython \
-            "homeassistant==2023.7.3" \
-            "homeassistant-stubs==2023.7.3"  # Match HA version"
-      - name: Format code with Black
-        run: black . --line-length=88
+            "homeassistant-stubs==2023.7.3"
+
+      - name: Ruff style check
+        run: ruff check .
+
+      - name: Black format
+        run: black . --line-length 88
+
+      - name: Flake8 lint
+        run: flake8 --max-line-length 88 .
+
+      - name: Mypy type check
+        run: mypy --install-types --non-interactive custom_components/custom_device_notifier
+
       - name: Commit Black fixes
+        if: ${{ github.event_name == 'push' }}      # don't rewrite PRs
         uses: EndBug/add-and-commit@v9
         with:
           message: "chore: format code with Black [skip ci]"
           add: "."
-          pull: '--rebase --autostash'
+          pull: "--rebase --autostash"
           push: true
-      - name: Lint with Flake8
-        run: flake8 --max-line-length=88 --extend-ignore=E501 .
-      - name: Type-check with Mypy
-        run: mypy --install-types --non-interactive custom_components/custom_device_notifier
+
+# ─────────────────────────── 2️⃣ Tests (needs lint) ───────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dev & HA deps
+        run: |
+          python -m pip install --upgrade "pip<23.2"
+          pip install \
+            pytest pytest-mock gitpython \
+            "homeassistant==2023.7.3" \
+            "homeassistant-stubs==2023.7.3"
+
       - name: Run tests
         run: pytest tests/ --maxfail=1 --disable-warnings -q
