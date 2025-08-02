@@ -1,0 +1,17 @@
+# Describes services registered by this integration.
+evaluate:
+  name: Evaluate conditions for a notifier
+  description: >
+    Developer-tool helper: evaluates every condition for each target and
+    logs the decision tree without actually sending a notification. Useful
+    to debug why a message is routed to a particular underlying `notify.*`
+    service or falls back.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: >
+        If omitted, all Custom Device Notifier entries are evaluated; otherwise,
+        only the specified entry ID is checked.
+      required: false
+      selector:
+        text:
