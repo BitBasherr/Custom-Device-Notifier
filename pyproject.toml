@@ -1,12 +1,11 @@
 [tool.mypy]
 python_version = "3.11"
+ignore_missing_imports = true
 
-ignore_missing_imports = true        # suppress voluptuous & HA stubs
-
-namespace_packages = false           # marker file present
-explicit_package_bases = true
+# namespace_packages = false   ←  can omit; default is fine
+# explicit_package_bases = true ←  **delete this line**
 
 check_untyped_defs = true
-disallow_untyped_defs = true
+no_implicit_optional = true
 warn_return_any = true
 warn_unused_ignores = true

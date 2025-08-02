@@ -60,8 +60,7 @@ jobs:
 
       - name: Mypy
         run: |
-          mypy --explicit-package-bases \
-              -p custom_components.custom_device_notifier
+          mypy -p custom_components.custom_device_notifier
 
       - name: Commit Black fixes
         if: github.event_name == 'push'
