@@ -21,3 +21,6 @@ line-length = 88
 [tool.ruff.format]
 skip-magic-trailing-comma = false       # Black defaults
 docstring-code-format      = true
+
+[pytest]
+asyncio_mode = auto
