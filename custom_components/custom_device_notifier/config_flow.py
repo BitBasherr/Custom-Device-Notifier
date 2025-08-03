@@ -100,7 +100,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_add_condition_entity()
 
         schema = vol.Schema(
-            {vol.Required("target_service"): selector({"service": {"domain": "notify"}})}
+            {
+                vol.Required("target_service"): selector(
+                    {"service": {"domain": "notify"}}
+                )
+            }
         )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
@@ -254,7 +258,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "add", "label": "➕ Add another notify target"},
+                                {
+                                    "value": "add",
+                                    "label": "➕ Add another notify target",
+                                },
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
