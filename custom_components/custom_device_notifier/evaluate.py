@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
