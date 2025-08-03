@@ -29,9 +29,7 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
         ``True`` when the condition matches, otherwise ``False``.
     """
     # Home Assistant’s `async_from_config` expects a real dict, _not_ a Mapping.
-    checker: ConditionCheckerType = await condition.async_from_config(
-        hass, dict(cfg)
-    )
+    checker: ConditionCheckerType = await condition.async_from_config(hass, dict(cfg))
 
     # The checker may be an async function or a plain function returning
     # `bool | None`.  We have to handle both cases to keep the type-checker happy.
