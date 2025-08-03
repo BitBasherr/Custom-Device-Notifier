@@ -1,6 +1,3 @@
-# custom_components/custom_device_notifier/evaluate.py
-"""Helpers to evaluate a single HA condition dict."""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -8,15 +5,23 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
-from homeassistant.helpers.condition import ConditionCheckerType
-
-ConditionDict = Mapping[str, Any]
 
 
-async def evaluate_condition(hass: HomeAssistant, cfg: ConditionDict) -> bool:
-    """Return True if *cfg* matches in the current HA context."""
-    # cfg (dict) ➜ hass (instance)  ✅
-    checker: ConditionCheckerType = await condition.async_from_config(cfg, hass)
+# The callable type returned by async_from_config
+ConditionChecker = (
+    condition.ConditionCheckerType  # available in HA ≥2023.9
+    if hasattr(condition, "ConditionCheckerType")
+    else Any                         # fallback for older versions
+)
 
-    # checker returns bool | None; coerce to bool for MyPy
-    return bool(checker(hass, {}))  # no template variables needed
+
+async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> bool:
+    """Validate *one* HA condition block and return True/False."""
+    # 1️⃣ build the checker from the raw config
+    checker: ConditionChecker = await condition.async_from_config(hass, cfg)
+
+    # 2️⃣ run the checker (no template variables needed here)
+    result = checker(hass, {})
+
+    # async_from_config guarantees bool | None → make the type checker happy
+    return bool(result)
