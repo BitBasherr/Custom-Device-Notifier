@@ -53,9 +53,7 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "condition_more"
 
     # Step 5: Done with conditions
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
     assert result["type"] == "form"
     assert result["step_id"] == "match_mode"
 
@@ -67,9 +65,7 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "target_more"
 
     # Step 7: Done with targets (single target)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
     assert result["type"] == "form"
     assert result["step_id"] == "order_targets"
 
@@ -135,9 +131,7 @@ async def test_user_flow_with_multiple_targets(
     )
 
     # More conditions? Done
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
 
     # Match mode
     result = await hass.config_entries.flow.async_configure(
@@ -145,9 +139,7 @@ async def test_user_flow_with_multiple_targets(
     )
 
     # More targets? Add another
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "add"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "add"})
 
     # Add second target
     result = await hass.config_entries.flow.async_configure(
@@ -163,9 +155,7 @@ async def test_user_flow_with_multiple_targets(
     )
 
     # Done conditions
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
 
     # Match mode for second
     result = await hass.config_entries.flow.async_configure(
@@ -173,9 +163,7 @@ async def test_user_flow_with_multiple_targets(
     )
 
     # No more targets
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
 
     # Priority order
     result = await hass.config_entries.flow.async_configure(
@@ -248,15 +236,11 @@ async def test_add_fallback_error_invalid_service(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"operator": ">", "value": 40}
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"match_mode": "all"}
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"priority": ["notify.test_notify"]}
     )
@@ -279,9 +263,7 @@ async def test_no_targets_error(hass: HomeAssistant, enable_custom_integrations:
     )
 
     # Go to target_more and choose done without adding targets
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
     assert result["type"] == "form"
     assert result["step_id"] == "order_targets"
     assert result["errors"]["base"] == "no_targets"
@@ -308,15 +290,11 @@ async def test_invalid_priority(hass: HomeAssistant, enable_custom_integrations:
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"operator": ">", "value": 40}
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"match_mode": "all"}
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
 
     # Submit invalid priority
     result = await hass.config_entries.flow.async_configure(
