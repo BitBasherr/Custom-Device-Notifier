@@ -8,7 +8,9 @@ from custom_components.custom_device_notifier.evaluate import evaluate_condition
 pytestmark = pytest.mark.asyncio
 
 
-async def test_evaluate_condition_numeric_true(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_numeric_true(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     hass.states.async_set("sensor.phone_battery", 42)
     await hass.async_block_till_done()
 
@@ -21,7 +23,9 @@ async def test_evaluate_condition_numeric_true(hass: HomeAssistant, enable_custo
     assert await evaluate_condition(hass, cond)
 
 
-async def test_evaluate_condition_numeric_false(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_numeric_false(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     hass.states.async_set("sensor.phone_battery", 10)
     await hass.async_block_till_done()
 
@@ -34,7 +38,9 @@ async def test_evaluate_condition_numeric_false(hass: HomeAssistant, enable_cust
     assert not await evaluate_condition(hass, cond)
 
 
-async def test_evaluate_condition_string_true(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_string_true(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     hass.states.async_set("binary_sensor.door", "on")
     await hass.async_block_till_done()
 
@@ -47,7 +53,9 @@ async def test_evaluate_condition_string_true(hass: HomeAssistant, enable_custom
     assert await evaluate_condition(hass, cond)
 
 
-async def test_evaluate_condition_string_false(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_string_false(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     hass.states.async_set("binary_sensor.door", "off")
     await hass.async_block_till_done()
 
@@ -60,7 +68,9 @@ async def test_evaluate_condition_string_false(hass: HomeAssistant, enable_custo
     assert not await evaluate_condition(hass, cond)
 
 
-async def test_evaluate_condition_unknown_entity(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_unknown_entity(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     cond = {
         "condition": "state",
         "entity_id": ["binary_sensor.unknown"],
