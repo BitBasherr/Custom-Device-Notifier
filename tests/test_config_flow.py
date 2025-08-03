@@ -95,7 +95,24 @@ async def test_add_target_error_invalid_service(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Error Test"}
     )
+async def test_add_target_error_invalid_service(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
+    """Test error when submitting invalid target service."""
+    # Initiate flow
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    # Submit name
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"service_name_raw": "Error Test"}
+    )
 
+    # Submit invalid target
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"target_service": "invalid_service"}
+    )
+    assert result["type"] == "form"
+    assert result["step_id"] == "add_target"
+    assert result["errors"]["target_service"] == "must_be_notify"
     # Submit invalid target
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"target_service": "invalid_service"}
