@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
 
-concurrency:           # avoid two formatter runs racing on the same branch
+concurrency:
   group: ci-dev-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
@@ -16,10 +16,12 @@ jobs:
         shell: "bash -euo pipefail {0}"
 
     steps:
-    # 1 ▸ Checkout (full history so we can push back to the PR branch)
-    - uses: actions/checkout@v4
+    # 1 ▸ Checkout with credentials **disabled** (we’ll push with PAT)
+    - name: Checkout
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     # 2 ▸ Python + built-in pip cache
     - uses: actions/setup-python@v5
@@ -36,15 +38,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
-        # Ensure formatter / linters are available even if not in requirements
+        # ensure the formatters/linters exist
         pip install black ruff flake8 mypy
 
-    # 4 ▸ (optional) show pip-cache size
-    - name: Show pip-cache size
-      run: |
-        [[ -d ~/.cache/pip ]] && du -sh ~/.cache/pip || echo "No pip cache yet"
-
-    # 5 ▸ Cache mypy’s incremental results
+    # 4 ▸ Cache mypy
     - uses: actions/cache@v4
       with:
         path: .mypy_cache
@@ -54,17 +51,17 @@ jobs:
                                              'pyproject.toml') }}-v1
         restore-keys: mypy-${{ runner.os }}-
 
-    # 6 ▸ Run formatters (write mode)
-    - name: Run formatters (write mode)
+    # 5 ▸ Run formatters (write mode)
+    - name: Format code
       run: |
         black .
         ruff format .
 
-    # 6b ▸ Auto-commit & push formatting fixes
+    # 6 ▸ Commit & push any fixes using GH_PAT
     - name: Commit & push formatting fixes
       id: push
       env:
-        GH_PAT: ${{ secrets.GH_PAT }}
+        GH_PAT: ${{ secrets.GH_PAT }}   # ← your personal access token
       run: |
         git config user.name  "ci-bot"
         git config user.email "ci-bot@users.noreply.github.com"
@@ -73,20 +70,21 @@ jobs:
           echo "pushed=false" >> "$GITHUB_OUTPUT"
         else
           git commit -m "style: auto-format via CI"
-          git push "https://${GH_PAT}@github.com/${{ github.repository }}.git" \
-                   HEAD:${{ github.head_ref || github.ref_name }}
+          # figure out the branch to push to (PR branch or direct)
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git push "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git" \
+                   HEAD:"${BRANCH}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
 
-    # 6c ▸ Short-circuit the job if we just pushed
-    - name: Skip after push
+    # 7 ▸ If we just pushed, stop & let the new run take over
+    - name: Skip remainder (formatting just pushed)
       if: steps.push.outputs.pushed == 'true'
-      run: |
-        echo "Formatting fixes pushed — stopping this run early."
-        exit 0
+      run: echo "Run stopped after auto-format push."
 
-    # 7 ▸ Lint + type-check (verify only)
-    - name: Lint / type-check
+    # 8 ▸ Lint / type-check
+    - name: Lint & type-check
+      if: steps.push.outputs.pushed != 'true'
       run: |
         ruff check .
         black --check .
@@ -94,6 +92,7 @@ jobs:
         mypy custom_components/custom_device_notifier/__init__.py \
              --config-file custom_components/custom_device_notifier/pyproject.toml
 
-    # 8 ▸ Unit tests
+    # 9 ▸ Unit tests
     - name: Run tests
+      if: steps.push.outputs.pushed != 'true'
       run: pytest -q
