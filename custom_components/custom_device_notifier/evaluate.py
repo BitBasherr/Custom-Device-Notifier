@@ -1,12 +1,13 @@
 # custom_components/custom_device_notifier/evaluate.py
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, Union, cast
+from collections.abc import Awaitable, Mapping
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
 from homeassistant.helpers.condition import ConditionCheckerType
+
 
 # --------------------------------------------------------------------------- #
 # Public helpers
@@ -34,7 +35,7 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
 
     # The checker may be an async function or a plain function returning
     # `bool | None`.  We have to handle both cases to keep the type-checker happy.
-    raw_result: Union[bool, None, Awaitable[bool | None]] = checker(hass, {})
+    raw_result: bool | None | Awaitable[bool | None] = checker(hass, {})
 
     if isinstance(raw_result, Awaitable):
         raw_result = await raw_result
