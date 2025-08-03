@@ -89,7 +89,10 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
 
 # Similar for test_user_flow_with_multiple_targets, update the priority to ["notify.primary_notify", "notify.secondary_notify"]
 
-async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custom_integrations: None):
+
+async def test_user_flow_with_multiple_targets(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test config flow with multiple targets and conditions."""
     # Mock services
     hass.services.async_register("notify", "primary_notify", lambda msg: None)
@@ -171,7 +174,9 @@ async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custo
     assert len(result["data"]["targets"]) == 2
 
 
-async def test_add_target_error_invalid_service(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_add_target_error_invalid_service(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test error when submitting invalid target service."""
     # Initiate and submit name
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
