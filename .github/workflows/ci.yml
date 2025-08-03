@@ -5,93 +5,87 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.head_ref || github.ref }}
+  group: ci-dev-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-test:
+  test:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: "bash -euo pipefail {0}"
+        shell: bash -euo pipefail {0}
 
     steps:
-    # 1 ▸ checkout
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        persist-credentials: false        # we push with PAT
+      # 1 ▸ Checkout
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false     # needed for pushing via GH_PAT
 
-    # 2 ▸ python + pip-cache
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.13"
-        cache: "pip"
-        cache-dependency-path: |
-          .tools/requirements-ci.txt
-          .tools/constraints.txt
-          pyproject.toml
+      # 2 ▸ Python + pip-cache
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: |
+            .tools/requirements-ci.txt
+            .tools/constraints.txt
+            pyproject.toml
 
-    # 3 ▸ lightweight format deps
-    - name: Install formatters
-      run: |
-        python -m pip install --upgrade pip
-        pip install black "ruff>=0.3" flake8
+      # -- PHASE 1: format/write --
+      - name: Install formatters
+        run: |
+          python -m pip install --upgrade pip
+          pip install black ruff flake8
 
-    # 4 ▸ run formatters (write mode)
-    - name: Run formatters
-      run: |
-        black .
-        ruff format .
+      - name: Run formatters (write mode)
+        run: |
+          black .
+          ruff format .
 
-    # 5 ▸ auto-commit fixes
-    - name: Commit & push formatting fixes
-      id: commit
-      env:
-        GH_PAT: ${{ secrets.GH_PAT }}
-      run: |
-        git config user.name  "ci-bot"
-        git config user.email "ci-bot@users.noreply.github.com"
-        git add -u
-        if git diff --cached --quiet; then
-          echo "pushed=false" >> "$GITHUB_OUTPUT"
-        else
-          git commit -m "style: auto-format via CI"
-          git push "https://${GH_PAT}@github.com/${{ github.repository }}.git" \
-                   HEAD:${{ github.head_ref || 'main' }}
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
-        fi
+      - name: Commit & push formatting fixes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config user.name  "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add -u
+          if git diff --cached --quiet; then
+            echo "No formatting changes to commit"
+          else
+            git commit -m "style: auto-format via CI"
+            git push "https://${GH_PAT}@github.com/${{ github.repository }}" \
+                     HEAD:${{ github.head_ref }}
+          fi
 
-    # 6 ▸ short-circuit if we pushed
-    - name: Stop job after push
-      if: steps.commit.outputs.pushed == 'true'
-      run: echo "Formatting fixes pushed – skipping rest." && exit 0
+      # -- PHASE 2: full deps & checks --
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
 
-    # 7 ▸ full deps for lint/tests
-    - name: Install project requirements
-      run: |
-        pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
-        pip install "pytest<8" "pytest-asyncio<1"     # HA fixture pin
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: >-
+            mypy-${{ runner.os }}-
+            ${{ hashFiles('.tools/requirements-ci.txt',
+                           '.tools/constraints.txt',
+                           'pyproject.toml') }}-v1
+          restore-keys: |
+            mypy-${{ runner.os }}-
 
-    # 8 ▸ mypy cache
-    - uses: actions/cache@v4
-      with:
-        path: .mypy_cache
-        key: >-
-          mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt',
-                                             '.tools/constraints.txt',
-                                             'pyproject.toml') }}-v1
-        restore-keys: mypy-${{ runner.os }}-
+      - name: Lint & type-check
+        run: |
+          ruff check .
+          black --check .
+          flake8 . --max-line-length 88
+          mypy custom_components/custom_device_notifier/__init__.py \
+               --config-file custom_components/custom_device_notifier/pyproject.toml
 
-    # 9 ▸ lint / type-check (verify only)
-    - name: Lint & type-check
-      run: |
-        ruff check .
-        black --check .
-        flake8 . --max-line-length 88
-        mypy custom_components/custom_device_notifier/__init__.py \
-             --config-file custom_components/custom_device_notifier/pyproject.toml
-
-    # 10 ▸ tests
-    - name: Run tests
-      run: pytest -q
+      - name: Run tests
+        run: pytest -q
