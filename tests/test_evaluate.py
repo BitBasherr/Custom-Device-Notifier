@@ -81,9 +81,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_SERVICE_NAME] = slug
             return await self.async_step_add_target()
 
-        schema = vol.Schema(
-            {vol.Required("service_name_raw", default="Custom Notifier"): str}
-        )
+        schema = vol.Schema({vol.Required("service_name_raw", default="Custom Notifier"): str})
         return self.async_show_form(step_id=STEP_USER, data_schema=schema)
 
     # ---- step: add_target ----------------------------------------------------
@@ -99,27 +97,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._working_target = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
-        schema = vol.Schema(
-            {vol.Required("target_service"): selector({"service": {}})}
-        )
-        return self.async_show_form(
-            step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
-        )
+        schema = vol.Schema({vol.Required("target_service"): selector({"service": {}})})
+        return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors)
 
     # ---- step: add_condition_entity -----------------------------------------
     async def async_step_add_condition_entity(self, user_input=None):
         _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
         if user_input is None:
             schema = vol.Schema(
-                {
-                    vol.Required("entity"): selector(
-                        {"entity": {"domain": ENTITY_DOMAINS}}
-                    )
-                }
+                {vol.Required("entity"): selector({"entity": {"domain": ENTITY_DOMAINS}})}
             )
-            return self.async_show_form(
-                step_id=STEP_ADD_COND_ENTITY, data_schema=schema
-            )
+            return self.async_show_form(step_id=STEP_ADD_COND_ENTITY, data_schema=schema)
 
         # store entity, move to value step
         ent_id = user_input["entity"]
@@ -159,9 +147,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default="=="): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required(
-                        "value", default=float(st.state) if st else 0
-                    ): selector(val_sel),
+                    vol.Required("value", default=float(st.state) if st else 0): selector(val_sel),
                 }
             )
         else:
@@ -286,9 +272,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             }
         )
-        return self.async_show_form(
-            step_id=STEP_ORDER_TARGETS, data_schema=schema, errors=errors
-        )
+        return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=schema, errors=errors)
 
     # ---- step: choose_fallback ----------------------------------------------
     async def async_step_choose_fallback(self, user_input=None):
@@ -306,13 +290,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         default_fb = self._targets[0][KEY_SERVICE] if self._targets else None
         schema = vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector({"service": {}})
-            }
+            {vol.Required("fallback", default=default_fb): selector({"service": {}})}
         )
-        return self.async_show_form(
-            step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
-        )
+        return self.async_show_form(step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors)
 
     # ---- options flow (reuse same UI) ---------------------------------------
     @staticmethod
