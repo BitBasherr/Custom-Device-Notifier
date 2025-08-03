@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: bash -euo pipefail   # safer scripting
+        shell: "bash -euo pipefail {0}"
 
     steps:
       # ▸ 1 Check out code
