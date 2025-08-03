@@ -90,21 +90,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_target(self, user_input=None):
         _LOGGER.debug("STEP add_target | input=%s", user_input)
         errors = {}
+        services = sorted(hass.services.get("notify", []))
+
         if user_input is not None:
             svc = user_input["target_service"]
-            domain, _ = svc.split(".", 1)
-            if domain != "notify":
+            if svc not in services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
         schema = vol.Schema(
-            {
-                vol.Required("target_service"): selector(
-                    {"service": {"domain": "notify"}}
-                )
-            }
+            {vol.Required("target_service"): vol.In(services)}
         )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
@@ -298,22 +295,22 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_choose_fallback(self, user_input=None):
         _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
         errors = {}
+        services = sorted(hass.services.get("notify", []))
+
         if user_input is not None:
             fb = user_input["fallback"]
-            if not fb.startswith("notify."):
+            if fb not in services:
                 errors["fallback"] = "must_be_notify"
             else:
-                self._data[CONF_FALLBACK] = fb
+                self._data[CONF_FALLBACK] = f"notify.{fb}"
                 return self.async_create_entry(
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
 
-        default_fb = self._targets[0][KEY_SERVICE] if self._targets else None
+        default_fb = self._targets[0][KEY_SERVICE].replace("notify.", "") if self._targets else None
         schema = vol.Schema(
             {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"service": {"domain": "notify"}}
-                )
+                vol.Required("fallback", default=default_fb): vol.In(services)
             }
         )
         return self.async_show_form(
