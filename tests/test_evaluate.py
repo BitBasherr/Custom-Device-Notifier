@@ -1,46 +1,193 @@
-# custom_components/custom_device_notifier/evaluate.py
-from __future__ import annotations
+"""Unit-test evaluate_condition helper."""
 
-from collections.abc import Awaitable, Mapping
-from typing import Any
-
+import pytest
+from datetime import time as dt_time
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import condition
-from homeassistant.helpers.condition import ConditionCheckerType
-from homeassistant.helpers.template import Template
+
+from custom_components.custom_device_notifier.evaluate import evaluate_condition
+
+pytestmark = pytest.mark.asyncio
 
 
-# ---------------------------------------------------------------------------
-# Public helpers
-# ---------------------------------------------------------------------------
-async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> bool:
-    """Evaluate a Home Assistant condition *immediately*.
+async def test_evaluate_condition_numeric_true(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("sensor.phone_battery", 42)
+    await hass.async_block_till_done()
 
-    Parameters
-    ----------
-    hass:
-        The running Home Assistant instance.
-    cfg:
-        A mapping that represents a condition block exactly as it would appear
-        in YAML / config‐flow (e.g. {"condition": "state", "entity_id": "…", …}).
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.phone_battery"],
+        "above": 20,
+    }
 
-    Returns
-    -------
-    bool
-        ``True`` when the condition matches, otherwise ``False``.
-    """
-    # Home Assistant’s `async_from_config` expects a real dict, _not_ a Mapping.
-    cfg = dict(cfg)
-    if "value_template" in cfg:
-        cfg["value_template"] = Template(cfg["value_template"], hass)
-    checker: ConditionCheckerType = await condition.async_from_config(hass, cfg)
+    assert await evaluate_condition(hass, cond)
 
-    # The checker may be an async function or a plain function returning
-    # `bool | None`.  We have to handle both cases to keep the type-checker happy.
-    raw_result: bool | None | Awaitable[bool | None] = checker(hass, {})
 
-    if isinstance(raw_result, Awaitable):
-        raw_result = await raw_result
+async def test_evaluate_condition_numeric_false(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("sensor.phone_battery", 10)
+    await hass.async_block_till_done()
 
-    # Coerce `None` → `False`
-    return bool(raw_result)
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.phone_battery"],
+        "above": 20,
+    }
+
+    assert not await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_battery_level_above(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test numeric condition for battery level above threshold."""
+    hass.states.async_set("sensor.device_battery", 75)
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.device_battery"],
+        "above": 50,
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_battery_level_below(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test numeric condition for battery level below threshold."""
+    hass.states.async_set("sensor.device_battery", 30)
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.device_battery"],
+        "below": 50,
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_battery_level_equal(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test numeric condition for exact battery level."""
+    hass.states.async_set("sensor.device_battery", 100)
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.device_battery"],
+        "above": 99,
+        "below": 101,
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_string_true(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("binary_sensor.door", "on")
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "state",
+        "entity_id": ["binary_sensor.door"],
+        "state": "on",
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_string_false(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("binary_sensor.door", "off")
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "state",
+        "entity_id": ["binary_sensor.door"],
+        "state": "on",
+    }
+
+    assert not await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_device_tracker(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test state condition for device tracker."""
+    hass.states.async_set("device_tracker.phone", "home")
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "state",
+        "entity_id": ["device_tracker.phone"],
+        "state": "home",
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_unknown_entity(hass: HomeAssistant, enable_custom_integrations: None):
+    cond = {
+        "condition": "state",
+        "entity_id": ["binary_sensor.unknown"],
+        "state": "on",
+    }
+
+    with pytest.raises(Exception):  # Catch ConditionError or similar
+        await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_template(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test template condition."""
+    hass.states.async_set("input_boolean.test", "on")
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "template",
+        "value_template": "{{ is_state('input_boolean.test', 'on') }}",
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_time(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test time condition with parsed times."""
+    cond = {
+        "condition": "time",
+        "after": dt_time(0, 0, 0),
+        "before": dt_time(23, 59, 59),
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_input_select(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("input_select.mode", "auto")
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "state",
+        "entity_id": ["input_select.mode"],
+        "state": "auto",
+    }
+
+    assert await evaluate_condition(hass, cond)
+
+
+async def test_evaluate_condition_multiple_entities(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("sensor.temp1", 25)
+    hass.states.async_set("sensor.temp2", 30)
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.temp1", "sensor.temp2"],
+        "above": 20,
+    }
+
+    assert await evaluate_condition(hass, cond)  # Assuming 'any' match; adjust if 'all'
+
+
+async def test_evaluate_condition_unavailable_state(hass: HomeAssistant, enable_custom_integrations: None):
+    hass.states.async_set("sensor.phone_battery", "unavailable")
+    await hass.async_block_till_done()
+
+    cond = {
+        "condition": "numeric_state",
+        "entity_id": ["sensor.phone_battery"],
+        "above": 20,
+    }
+
+    assert not await evaluate_condition(hass, cond)
