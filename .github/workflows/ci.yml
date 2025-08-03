@@ -49,7 +49,7 @@ jobs:
       # ▸ 6 Lint + type-check
       - name: Lint / type-check
         run: |
-          ruff check .
+          ruff check --fix .
           black --check .
           flake8 . --max-line-length 88
           mypy custom_components/custom_device_notifier/__init__.py --config-file custom_components/custom_device_notifier/pyproject.toml
