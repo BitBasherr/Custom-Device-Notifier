@@ -260,7 +260,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "add", "label": "➕ Add another notify target"},
+                                {
+                                    "value": "add",
+                                    "label": "➕ Add another notify target",
+                                },
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -319,11 +322,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else None
         )
         schema = vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"service": {}}
-                )
-            }
+            {vol.Required("fallback", default=default_fb): selector({"service": {}})}
         )
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
