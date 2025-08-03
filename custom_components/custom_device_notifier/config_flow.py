@@ -98,13 +98,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
-        schema = vol.Schema({vol.Required("target_service"): vol.In(services)})
+        schema = vol.Schema(
+            {vol.Required("target_service"): vol.In(services)}
+        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -208,10 +207,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("choice", default="add"): selector(
                     {
                         "select": {
-                            "options": {
-                                "add": "➕ Add another condition",
-                                "done": "✅ Done this target",
-                            }
+                            "options": [
+                                {"value": "add", "label": "➕ Add another condition"},
+                                {"value": "done", "label": "✅ Done this target"},
+                            ]
                         }
                     }
                 )
@@ -234,8 +233,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                ("Match all conditions", "all"),
-                                ("Match any condition", "any"),
+                                {"label": "Match all conditions", "value": "all"},
+                                {"label": "Match any condition", "value": "any"},
                             ]
                         }
                     }
@@ -257,10 +256,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("next", default="add"): selector(
                     {
                         "select": {
-                            "options": {
-                                "add": "➕ Add another notify target",
-                                "done": "✅ Done targets",
-                            }
+                            "options": [
+                                {"value": "add", "label": "➕ Add another notify target"},
+                                {"value": "done", "label": "✅ Done targets"},
+                            ]
                         }
                     }
                 )
@@ -310,13 +309,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
 
-        default_fb = (
-            self._targets[0][KEY_SERVICE].replace("notify.", "")
-            if self._targets
-            else None
-        )
+        default_fb = self._targets[0][KEY_SERVICE].replace("notify.", "") if self._targets else None
         schema = vol.Schema(
-            {vol.Required("fallback", default=default_fb): vol.In(services)}
+            {
+                vol.Required("fallback", default=default_fb): vol.In(services)
+            }
         )
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
