@@ -55,9 +55,7 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "condition_more"
 
     # Done with conditions
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
     assert result["type"] == "form"
     assert result["step_id"] == "match_mode"
 
@@ -69,9 +67,7 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "target_more"
 
     # Done with targets (single target)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
     assert result["type"] == "form"
     assert result["step_id"] == "order_targets"
 
@@ -93,13 +89,17 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert "targets" in result["data"]
     assert len(result["data"]["targets"]) == 1
     assert result["data"]["targets"][0]["service"] == "notify.test_notify"
-    assert result["data"]["targets"][0]["conditions"] == [{"entity_id": "sensor.test_battery", "operator": ">", "value": 40}]
+    assert result["data"]["targets"][0]["conditions"] == [
+        {"entity_id": "sensor.test_battery", "operator": ">", "value": 40}
+    ]
     assert result["data"]["targets"][0]["match"] == "all"
     assert result["data"]["priority"] == ["notify.test_notify"]
     assert result["data"]["fallback"] == "notify.fallback_notify"
 
 
-async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_user_flow_with_multiple_targets(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test config flow with multiple targets and conditions."""
     # Mock services
     hass.services.async_register("notify", "primary_notify", lambda msg: None)
@@ -133,9 +133,7 @@ async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custo
     )
 
     # More conditions? Done
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
 
     # Match mode
     result = await hass.config_entries.flow.async_configure(
@@ -143,9 +141,7 @@ async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custo
     )
 
     # More targets? Add another
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "add"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "add"})
 
     # Add second target
     result = await hass.config_entries.flow.async_configure(
@@ -161,9 +157,7 @@ async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custo
     )
 
     # Done conditions
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"choice": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
 
     # Match mode for second
     result = await hass.config_entries.flow.async_configure(
@@ -171,9 +165,7 @@ async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custo
     )
 
     # No more targets
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next": "done"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
 
     # Priority order
     result = await hass.config_entries.flow.async_configure(
@@ -190,7 +182,9 @@ async def test_user_flow_with_multiple_targets(hass: HomeAssistant, enable_custo
     # Add more assertions as needed
 
 
-async def test_add_target_error_invalid_service(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_add_target_error_invalid_service(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test error when submitting invalid target service."""
     # Initiate and submit name
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
