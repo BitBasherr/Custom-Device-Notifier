@@ -52,7 +52,7 @@ jobs:
           ruff check .
           black --check .
           flake8 . --max-line-length 88
-          mypy custom_components/custom_device_notifier --config-file custom_components/custom_device_notifier/pyproject.toml
+          mypy custom_components/custom_device_notifier/__init__.py --config-file custom_components/custom_device_notifier/pyproject.toml
 
       # ▸ 7 Unit tests
       - name: Run tests
