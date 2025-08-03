@@ -98,13 +98,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             svc = user_input["target_service"]
-            if svc not in notify_services:
+            domain, _ = svc.split(".", 1)
+            if domain != "notify":
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
         schema = vol.Schema(
@@ -263,10 +261,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {
-                                    "value": "add",
-                                    "label": "➕ Add another notify target",
-                                },
+                                {"value": "add", "label": "➕ Add another notify target"},
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -283,17 +278,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         opts = [t[KEY_SERVICE] for t in self._targets]
 
         if user_input is not None:
-            self._data[CONF_TARGETS] = self._targets
-            self._data[CONF_PRIORITY] = user_input["priority"]
-            return await self.async_step_choose_fallback()
-
-        if not opts:
-            errors["base"] = "no_targets"
+            priority = user_input["priority"]
+            if not isinstance(priority, list) or set(priority) != set(opts):
+                errors["priority"] = "invalid_priority"
+            if not errors:
+                self._data[CONF_TARGETS] = self._targets
+                self._data[CONF_PRIORITY] = priority
+                return await self.async_step_choose_fallback()
 
         schema = vol.Schema(
             {
-                vol.Required("priority", default=opts or [""]): selector(
-                    {"select": {"options": opts, "mode": "list"}}
+                vol.Required("priority"): selector(
+                    {"select": {"options": opts, "mode": "list", "multiple": True}}
                 )
             }
         )
@@ -309,10 +305,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             fb = user_input["fallback"]
-            if fb not in notify_services:
+            domain, service = fb.split(".", 1) if "." in fb else ("", fb)
+            if domain != "notify" or service not in notify_services:
                 errors["fallback"] = "must_be_notify"
             else:
-                self._data[CONF_FALLBACK] = f"notify.{fb}"
+                self._data[CONF_FALLBACK] = fb
                 return self.async_create_entry(
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
@@ -324,9 +321,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         schema = vol.Schema(
             {
-                vol.Required("fallback", default=default_fb): ServiceSelector(
-                    ServiceSelectorConfig()
-                )
+                vol.Required("fallback", default=default_fb): ServiceSelector(ServiceSelectorConfig())
             }
         )
         return self.async_show_form(
