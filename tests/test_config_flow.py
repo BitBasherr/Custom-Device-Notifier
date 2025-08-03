@@ -95,6 +95,8 @@ async def test_add_target_error_invalid_service(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Error Test"}
     )
+
+
 async def test_add_target_error_invalid_service(
     hass: HomeAssistant, enable_custom_integrations: None
 ):
