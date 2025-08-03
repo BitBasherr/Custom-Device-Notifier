@@ -6,7 +6,11 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.selector import selector
+from homeassistant.helpers.selector import (
+    ServiceSelector,
+    ServiceSelectorConfig,
+    selector,
+)
 
 try:
     # ≥2025.7
@@ -101,7 +105,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._working_target = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
-        schema = vol.Schema({vol.Required("target_service"): selector({"service": {}})})
+        schema = vol.Schema(
+            {vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())}
+        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -167,7 +173,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         else:
             opts = [
                 st.state if st else "",
-                "unknown or unavailable",
                 "unknown",
                 "unavailable",
             ]
@@ -255,10 +260,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {
-                                    "value": "add",
-                                    "label": "➕ Add another notify target",
-                                },
+                                {"value": "add", "label": "➕ Add another notify target"},
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -276,7 +278,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             priority = user_input["priority"]
-            if set(priority) != set(opts):
+            if not isinstance(priority, list) or set(priority) != set(opts):
                 errors["priority"] = "invalid_priority"
             if not errors:
                 self._data[CONF_TARGETS] = self._targets
@@ -285,8 +287,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required("priority", default=opts or []): vol.All(
-                    list, [vol.In(opts)]
+                vol.Required("priority"): selector(
+                    {"select": {"options": opts, "multiple": True, "mode": "list"}}
                 )
             }
         )
@@ -317,7 +319,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else None
         )
         schema = vol.Schema(
-            {vol.Required("fallback", default=default_fb): selector({"service": {}})}
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"service": {}}
+                )
+            }
         )
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
