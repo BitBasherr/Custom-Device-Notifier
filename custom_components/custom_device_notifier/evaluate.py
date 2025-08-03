@@ -14,7 +14,8 @@ ConditionDict = Mapping[str, Any]
 
 async def evaluate_condition(hass: HomeAssistant, cfg: ConditionDict) -> bool:
     """Return True if the single YAML condition *cfg* matches."""
-    # Build a checker coroutine once …
-    checker: ConditionCheckerType = await condition.async_from_config(cfg)
-    # … then run it (no template variables needed here).
-    return checker(hass, {})
+    # 1️⃣  cfg goes first, hass second – matches the stub
+    checker: ConditionCheckerType = await condition.async_from_config(cfg, hass)
+
+    # 2️⃣  The checker’s return type is bool | None → force to bool for MyPy.
+    return bool(checker(hass, {}))  # no template variables needed
