@@ -4,8 +4,8 @@ on:
   push:
   pull_request:
 
-concurrency:
-  group: ci-dev-${{ github.head_ref || github.ref_name }}
+concurrency:                # ▸ cancel older runs of this workflow / branch
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -13,17 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: "bash -euo pipefail {0}"
+        shell: "bash -euo pipefail {0}"   # fail fast, show unset-var errors
 
     steps:
-    # 1 ▸ Checkout with credentials **disabled** (we’ll push with PAT)
-    - name: Checkout
-      uses: actions/checkout@v4
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 1 ▸ Checkout (full history so we can push back to the same branch)
+    - uses: actions/checkout@v4
       with:
+        persist-credentials: false        # we’ll push with GH_PAT instead
         fetch-depth: 0
-        persist-credentials: false
 
-    # 2 ▸ Python + built-in pip cache
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 2 ▸ Set up Python (+ pip cache handled by setup-python)
     - uses: actions/setup-python@v5
       with:
         python-version: "3.13"
@@ -33,58 +34,69 @@ jobs:
           .tools/constraints.txt
           pyproject.toml
 
-    # 3 ▸ Install project + tooling deps
-    - name: Install dependencies
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 3 ▸ Phase-1: *only* the formatters / linters we need for auto-fix
+    - name: Install formatters
       run: |
         python -m pip install --upgrade pip
-        pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
-        # ensure the formatters/linters exist
-        pip install black ruff flake8 mypy
+        pip install black ruff flake8
 
-    # 4 ▸ Cache mypy
-    - uses: actions/cache@v4
-      with:
-        path: .mypy_cache
-        key: >-
-          mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt',
-                                             '.tools/constraints.txt',
-                                             'pyproject.toml') }}-v1
-        restore-keys: mypy-${{ runner.os }}-
-
-    # 5 ▸ Run formatters (write mode)
-    - name: Format code
+    - name: Run formatters (write-mode)
       run: |
         black .
         ruff format .
 
-    # 6 ▸ Commit & push any fixes using GH_PAT
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 4 ▸ Commit & push formatting fixes (PAT needed for forks / PRs)
     - name: Commit & push formatting fixes
-      id: push
+      id: push_back
       env:
-        GH_PAT: ${{ secrets.GH_PAT }}   # ← your personal access token
+        GH_PAT: ${{ secrets.GH_PAT }}
       run: |
         git config user.name  "ci-bot"
         git config user.email "ci-bot@users.noreply.github.com"
+
         git add -u
         if git diff --cached --quiet; then
           echo "pushed=false" >> "$GITHUB_OUTPUT"
         else
           git commit -m "style: auto-format via CI"
-          # figure out the branch to push to (PR branch or direct)
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          git push "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git" \
-                   HEAD:"${BRANCH}"
+          # push back to the same branch (handles PRs or direct pushes)
+          git push "https://${GH_PAT}@github.com/${{ github.repository }}.git" \
+                   HEAD:${{ github.head_ref || github.ref_name }}
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
 
-    # 7 ▸ If we just pushed, stop & let the new run take over
-    - name: Skip remainder (formatting just pushed)
-      if: steps.push.outputs.pushed == 'true'
-      run: echo "Run stopped after auto-format push."
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 5 ▸ Skip the heavy part if we just pushed style fixes
+    - name: Stop job — style fixes were pushed
+      if: steps.push_back.outputs.pushed == 'true'
+      run: |
+        echo "Formatting changes pushed; skipping lint/type-check/tests."
+        exit 0
 
-    # 8 ▸ Lint / type-check
-    - name: Lint & type-check
-      if: steps.push.outputs.pushed != 'true'
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 6 ▸ Phase-2: full dependency install (only runs when no push occurred)
+    - name: Install project requirements
+      run: |
+        pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
+        pip install mypy             # mypy isn’t in reqs but we need it here
+
+    # Optional: show pip-cache size
+    - name: Show pip-cache size
+      run: |
+        [[ -d ~/.cache/pip ]] && du -sh ~/.cache/pip || echo "No pip cache yet"
+
+    # Cache mypy incremental data
+    - uses: actions/cache@v4
+      with:
+        path: .mypy_cache
+        key: mypy-${{ runner.os }}-${{ hashFiles('**/*.py') }}-v1
+        restore-keys: mypy-${{ runner.os }}-
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    # 7 ▸ Lint / type-check / tests  (verify-only)
+    - name: Lint & static checks
       run: |
         ruff check .
         black --check .
@@ -92,7 +104,5 @@ jobs:
         mypy custom_components/custom_device_notifier/__init__.py \
              --config-file custom_components/custom_device_notifier/pyproject.toml
 
-    # 9 ▸ Unit tests
-    - name: Run tests
-      if: steps.push.outputs.pushed != 'true'
+    - name: Run unit tests
       run: pytest -q
