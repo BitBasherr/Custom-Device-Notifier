@@ -6,7 +6,6 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
 
-
 # The callable type returned by async_from_config
 ConditionChecker = (
     condition.ConditionCheckerType  # available in HA ≥2023.9
