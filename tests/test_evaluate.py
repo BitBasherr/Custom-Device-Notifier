@@ -11,10 +11,11 @@ pytestmark = pytest.mark.asyncio
 async def test_evaluate_condition_numeric(hass: HomeAssistant, enable_custom_integrations: None):
     # Pretend we have a battery sensor at 42 %
     hass.states.async_set("sensor.phone_battery", 42)
+    await hass.async_block_till_done()
 
     cond = {
         "condition": "numeric_state",
-        "entity_id": "sensor.phone_battery",
+        "entity_id": ["sensor.phone_battery"],
         "above": 20,
     }
 
@@ -24,10 +25,11 @@ async def test_evaluate_condition_numeric(hass: HomeAssistant, enable_custom_int
 async def test_evaluate_condition_string(hass: HomeAssistant, enable_custom_integrations: None):
     # Binary-sensor that is currently "on"
     hass.states.async_set("binary_sensor.door", "on")
+    await hass.async_block_till_done()
 
     cond = {
         "condition": "state",
-        "entity_id": "binary_sensor.door",
+        "entity_id": ["binary_sensor.door"],
         "state": "on",
     }
 
