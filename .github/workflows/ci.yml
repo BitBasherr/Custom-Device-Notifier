@@ -52,7 +52,7 @@ jobs:
           ruff check .
           black --check .
           flake8 . --max-line-length 88
-          mypy -p custom_device_notifier     # config auto-discovered
+          mypy
 
       # ▸ 7 Unit tests
       - name: Run tests
