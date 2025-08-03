@@ -21,9 +21,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false     # needed for pushing via GH_PAT
+          persist-credentials: false
 
-      # 2 ▸ Python + pip-cache
+      # 2 ▸ Python + built-in pip cache
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -34,7 +34,7 @@ jobs:
             .tools/constraints.txt
             pyproject.toml
 
-      # -- PHASE 1: format/write --
+      # ─── PHASE 1: FORMAT & AUTO-FIX ────────────────────────────────────
       - name: Install formatters
         run: |
           python -m pip install --upgrade pip
@@ -61,13 +61,13 @@ jobs:
                      HEAD:${{ github.head_ref }}
           fi
 
-      # -- PHASE 2: full deps & checks --
+      # ─── PHASE 2: FULL DEPS & VERIFIED CHECKS ────────────────────────
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
 
-      - name: Cache mypy
+      - name: Cache Mypy incremental results
         uses: actions/cache@v4
         with:
           path: .mypy_cache
