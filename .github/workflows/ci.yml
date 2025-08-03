@@ -4,8 +4,8 @@ on:
   push:
   pull_request:
 
-concurrency:                        # ① never run two copies in parallel
-  group: ${{ github.workflow }}-${{ github.ref }}
+concurrency:
+  group: ci-dev-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -16,45 +16,81 @@ jobs:
         shell: "bash -euo pipefail {0}"
 
     steps:
-    # 0 ▸ Checkout (no credentials → we’ll push with PAT)
+    # 1 ▸ Checkout full history so we can push back fixes
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        persist-credentials: false
+        persist-credentials: false  # we’ll push with GH_PAT, not the default token
 
-    # 1 ▸ setup-python … caches … install deps (unchanged)
-    # -----------------------------------------------------------------
+    # 2 ▸ Python + built-in pip cache
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        cache: "pip"
+        cache-dependency-path: |
+          .tools/requirements-ci.txt
+          .tools/constraints.txt
+          pyproject.toml
 
-    # 2 ▸ Run formatters **in write mode**
-    - name: Run formatters
+    # 3 ▸ Install deps (incl. black & ruff)
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
+        # Ensure formatters are present even if not pinned above
+        pip install "black>=24" "ruff[format]>=0.4"
+
+    # 4 ▸ (Optional) show current pip-cache size
+    - name: Show pip-cache size
+      run: |
+        [[ -d ~/.cache/pip ]] && du -sh ~/.cache/pip || echo "No pip cache yet"
+
+    # 5 ▸ Cache mypy’s incremental data
+    - uses: actions/cache@v4
+      with:
+        path: .mypy_cache
+        key: >-
+          mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt',
+                                             '.tools/constraints.txt',
+                                             'pyproject.toml') }}-v1
+        restore-keys: mypy-${{ runner.os }}-
+
+    # 6 ▸ Format code in write mode
+    - name: Run formatters (write mode)
+      id: fmt
       run: |
         black .
         ruff format .
 
-    # 3 ▸ Commit & push any changes, then **exit 0** to end the job
-    - name: Auto-commit formatting fixes
-      id: autofix
+    # 7 ▸ Auto-commit & push formatting fixes (only on PRs / branches)
+    - name: Commit & push formatting fixes
+      if: github.event_name != 'merge_group'       # keep merge-queue quiet
       env:
-        GH_PAT:  ${{ secrets.GH_PAT }}      # your PAT
-        REPO:    ${{ github.repository }}
-        BRANCH:  ${{ github.head_ref || github.ref_name }}
+        GH_PAT: ${{ secrets.GH_PAT }}
       run: |
         git config user.name  "ci-bot"
         git config user.email "ci-bot@users.noreply.github.com"
-
         git add -u
         if git diff --cached --quiet; then
-          echo "Nothing to commit"
+          echo "No formatting changes to commit"
         else
           git commit -m "style: auto-format via CI"
-          git push "https://x-access-token:${GH_PAT}@github.com/${REPO}.git" "HEAD:${BRANCH}"
+          git push "https://${GH_PAT}@github.com/${{ github.repository }}.git" \
+                   HEAD:${{ github.head_ref || github.ref_name }}
+          # Mark so later steps can decide to skip
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
+      outputs:
+        pushed: ${{ steps.fmt.outcome }}
 
-        # ▸ If we just pushed, stop here; a *new* run will start on the fresh commit.
-        [[ "$(grep -o 'pushed=true' "$GITHUB_OUTPUT" || true)" == "pushed=true" ]] && exit 0
+    # 8 ▸ Skip lint/tests if we just pushed (new run will start with clean tree)
+    - name: Decide whether to continue
+      if: steps.fmt.outcome == 'success' && steps.fmt.outputs.pushed == 'true'
+      run: |
+        echo "Formatting fixes pushed – skipping lint/tests in this run."
+        exit 0
 
-    # 4 ▸ Lint / type-check / tests – only runs when no push occurred
+    # 9 ▸ Lint + type-check (read-only)
     - name: Lint / type-check
       run: |
         ruff check .
@@ -63,5 +99,6 @@ jobs:
         mypy custom_components/custom_device_notifier/__init__.py \
              --config-file custom_components/custom_device_notifier/pyproject.toml
 
+    # 10 ▸ Unit tests
     - name: Run tests
       run: pytest -q
