@@ -78,7 +78,10 @@ jobs:
     # 6 ▸ phase-2: install full deps
     - name: Install project requirements
       run: |
-        pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
+# snippet inside the “Install project requirements” step
+        pip install -r .tools/requirements-ci.txt \
+                    -c .tools/constraints.txt \
+                    -c .tools/constraints-pytest7.txt
         pip install mypy
 
     - name: Show pip-cache size
