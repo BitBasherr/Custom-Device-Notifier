@@ -1,28 +1,19 @@
-"""Helpers to evaluate Home-Assistant condition configs."""
+"""Helpers to evaluate Home Assistant condition dictionaries."""
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Mapping
-from typing import Any
+from typing import Any, Mapping
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
+from homeassistant.helpers.condition import ConditionCheckerType
 
-ConditionConfig = Mapping[str, Any]
+ConditionDict = Mapping[str, Any]
 
 
-async def evaluate_condition(hass: HomeAssistant, cfg: ConditionConfig) -> bool:
-    """Return True if *cfg* matches for the current HA state."""
-    # Build a callable from the YAML/UI condition config
-    check = condition.async_from_config(cfg, validate_config=False)
-
-    # Invalid config ⇒ treat as not-matched instead of raising
-    if check is None:
-        return False
-
-    result = check(hass)
-    if asyncio.iscoroutine(result):
-        result = await result
-
-    return bool(result)
+async def evaluate_condition(hass: HomeAssistant, cfg: ConditionDict) -> bool:
+    """Return True if the single YAML condition *cfg* matches."""
+    # Build a checker coroutine once …
+    checker: ConditionCheckerType = await condition.async_from_config(cfg)
+    # … then run it (no template variables needed here).
+    return checker(hass, {})
