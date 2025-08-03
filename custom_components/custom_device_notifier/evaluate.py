@@ -1,4 +1,5 @@
-"""Helpers to evaluate Home Assistant condition dictionaries."""
+# custom_components/custom_device_notifier/evaluate.py
+"""Helpers to evaluate a single HA condition dict."""
 
 from __future__ import annotations
 
@@ -13,9 +14,9 @@ ConditionDict = Mapping[str, Any]
 
 
 async def evaluate_condition(hass: HomeAssistant, cfg: ConditionDict) -> bool:
-    """Return True if the single YAML condition *cfg* matches."""
-    # 1️⃣  cfg goes first, hass second – matches the stub
+    """Return True if *cfg* matches in the current HA context."""
+    # cfg (dict) ➜ hass (instance)  ✅
     checker: ConditionCheckerType = await condition.async_from_config(cfg, hass)
 
-    # 2️⃣  The checker’s return type is bool | None → force to bool for MyPy.
+    # checker returns bool | None; coerce to bool for MyPy
     return bool(checker(hass, {}))  # no template variables needed
