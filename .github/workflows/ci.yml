@@ -46,6 +46,9 @@ jobs:
                                                'pyproject.toml') }}-v1
           restore-keys: mypy-${{ runner.os }}-
 
+      - name: Format code with Black
+        run: black .
+
       # ▸ 6 Lint + type-check
       - name: Lint / type-check
         run: |
