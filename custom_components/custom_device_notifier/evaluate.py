@@ -1,24 +1,43 @@
+# custom_components/custom_device_notifier/evaluate.py
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, Union, cast
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
+from homeassistant.helpers.condition import ConditionCheckerType
 
-# The callable type returned by async_from_config().
-ConditionChecker = (
-    condition.ConditionCheckerType
-    if hasattr(condition, "ConditionCheckerType")
-    else Any  # Fallback for very old HA versions
-)
-
-
+# --------------------------------------------------------------------------- #
+# Public helpers
+# --------------------------------------------------------------------------- #
 async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> bool:
-    """Validate one Home-Assistant *condition* block and return True/False."""
-    # 1. Build the checker from the raw config.
-    checker: ConditionChecker = await condition.async_from_config(hass, cfg)
+    """Evaluate a Home Assistant condition *immediately*.
 
-    # 2. Run the checker (no template vars needed for plain conditions).
-    #    async_from_config() returns `bool | None`, coerce to strict bool.
-    return bool(checker(hass, {}))
+    Parameters
+    ----------
+    hass:
+        The running Home Assistant instance.
+    cfg:
+        A mapping that represents a condition block exactly as it would appear
+        in YAML / config‐flow (e.g. `{"condition": "state", "entity_id": "…", …}`).
+
+    Returns
+    -------
+    bool
+        ``True`` when the condition matches, otherwise ``False``.
+    """
+    # Home Assistant’s `async_from_config` expects a real dict, _not_ a Mapping.
+    checker: ConditionCheckerType = await condition.async_from_config(
+        hass, dict(cfg)
+    )
+
+    # The checker may be an async function or a plain function returning
+    # `bool | None`.  We have to handle both cases to keep the type-checker happy.
+    raw_result: Union[bool, None, Awaitable[bool | None]] = checker(hass, {})
+
+    if isinstance(raw_result, Awaitable):
+        raw_result = await raw_result
+
+    # Coerce `None` → `False`
+    return bool(raw_result)
