@@ -100,9 +100,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._working_target = {KEY_SERVICE: svc, KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
-        schema = vol.Schema(
-            {vol.Required("target_service"): str}
-        )
+        schema = vol.Schema({vol.Required("target_service"): str})
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -256,7 +254,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "add", "label": "➕ Add another notify target"},
+                                {
+                                    "value": "add",
+                                    "label": "➕ Add another notify target",
+                                },
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -283,7 +284,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("priority"): selector(
-                    {"select": {"options": [{"value": o, "label": o} for o in opts], "multiple": True, "mode": "list"}}
+                    {
+                        "select": {
+                            "options": [{"value": o, "label": o} for o in opts],
+                            "multiple": True,
+                            "mode": "list",
+                        }
+                    }
                 )
             }
         )
@@ -307,9 +314,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
 
-        schema = vol.Schema(
-            {vol.Required("fallback"): str}
-        )
+        schema = vol.Schema({vol.Required("fallback"): str})
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
         )
