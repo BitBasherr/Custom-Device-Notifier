@@ -6,11 +6,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.selector import (
-    ServiceSelector,
-    ServiceSelectorConfig,
-    selector,
-)
+from homeassistant.helpers.selector import selector
 
 try:
     # ≥2025.7
@@ -104,7 +100,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_add_condition_entity()
 
         schema = vol.Schema(
-            {vol.Required("target_service"): ServiceSelector(ServiceSelectorConfig())}
+            {vol.Required("target_service"): selector({"service": {"domain": "notify"}})}
         )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
@@ -311,9 +307,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         default_fb = self._targets[0][KEY_SERVICE] if self._targets else None
         schema = vol.Schema(
             {
-                vol.Required("fallback", default=default_fb): ServiceSelector(
-                    ServiceSelectorConfig()
-                )
+                vol.Required("fallback", default=default_fb): selector({"service": {"domain": "notify"}})
             }
         )
         return self.async_show_form(
