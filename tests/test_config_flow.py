@@ -1,7 +1,6 @@
 """Test config flow for custom_device_notifier integration."""
 
 import pytest
-from homeassistant import data_entry_flow
 from homeassistant.core import HomeAssistant
 
 from custom_components.custom_device_notifier.const import DOMAIN
