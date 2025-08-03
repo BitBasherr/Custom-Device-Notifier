@@ -98,13 +98,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_add_condition_entity()
 
-        schema = vol.Schema({vol.Required("target_service"): vol.In(services)})
+        schema = vol.Schema(
+            {vol.Required("target_service"): vol.In(services)}
+        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -205,16 +204,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required("choice", default="add"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "add", "label": "➕ Add another condition"},
-                                {"value": "done", "label": "✅ Done this target"},
-                            ]
-                        }
-                    }
-                )
+                vol.Required("choice", default="add"): vol.In({
+                    "add": "➕ Add another condition",
+                    "done": "✅ Done this target",
+                })
             }
         )
         return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
@@ -230,16 +223,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_MATCH_MODE, default="all"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "all", "label": "Match all conditions"},
-                                {"value": "any", "label": "Match any condition"},
-                            ]
-                        }
-                    }
-                )
+                vol.Required(CONF_MATCH_MODE, default="all"): vol.In({
+                    "all": "Match all conditions",
+                    "any": "Match any condition",
+                })
             }
         )
         return self.async_show_form(step_id=STEP_MATCH_MODE, data_schema=schema)
@@ -254,19 +241,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required("next", default="add"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {
-                                    "value": "add",
-                                    "label": "➕ Add another notify target",
-                                },
-                                {"value": "done", "label": "✅ Done targets"},
-                            ]
-                        }
-                    }
-                )
+                vol.Required("next", default="add"): vol.In({
+                    "add": "➕ Add another notify target",
+                    "done": "✅ Done targets",
+                })
             }
         )
         return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=schema)
@@ -288,9 +266,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required("priority"): selector(
-                    {"select": {"options": opts, "mode": "list", "multiple": True}}
-                )
+                vol.Required("priority", default=opts or []): vol.All(vol.List(vol.In(opts)), vol.Length(len(opts)))
             }
         )
         return self.async_show_form(
@@ -314,13 +290,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
 
-        default_fb = (
-            self._targets[0][KEY_SERVICE].replace("notify.", "")
-            if self._targets
-            else None
-        )
+        default_fb = self._targets[0][KEY_SERVICE].replace("notify.", "") if self._targets else None
         schema = vol.Schema(
-            {vol.Required("fallback", default=default_fb): vol.In(services)}
+            {
+                vol.Required("fallback", default=default_fb): vol.In(services)
+            }
         )
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
