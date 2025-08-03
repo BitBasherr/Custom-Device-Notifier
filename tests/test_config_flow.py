@@ -9,7 +9,7 @@ from custom_components.custom_device_notifier.const import DOMAIN
 pytestmark = pytest.mark.asyncio
 
 
-async def test_user_flow_minimal(hass: HomeAssistant):
+async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations: None):
     """Walk through the shortest happy path."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
