@@ -101,7 +101,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_add_condition_entity()
 
         schema = vol.Schema(
@@ -260,7 +263,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "add", "label": "➕ Add another notify target"},
+                                {
+                                    "value": "add",
+                                    "label": "➕ Add another notify target",
+                                },
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -311,10 +317,16 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
 
-        default_fb = self._targets[0][KEY_SERVICE].replace("notify.", "") if self._targets else None
+        default_fb = (
+            self._targets[0][KEY_SERVICE].replace("notify.", "")
+            if self._targets
+            else None
+        )
         schema = vol.Schema(
             {
-                vol.Required("fallback", default=default_fb): ServiceSelector(ServiceSelectorConfig())
+                vol.Required("fallback", default=default_fb): ServiceSelector(
+                    ServiceSelectorConfig()
+                )
             }
         )
         return self.async_show_form(
