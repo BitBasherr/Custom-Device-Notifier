@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
 
-concurrency:                # ▸ cancel older runs of this workflow / branch
+concurrency:                           # cancel older runs of this workflow/branch
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -13,18 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: "bash -euo pipefail {0}"   # fail fast, show unset-var errors
+        shell: "bash -euo pipefail {0}"
 
     steps:
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 1 ▸ Checkout (full history so we can push back to the same branch)
+    # ────────────────────────────────────────────────────────────────────────────
+    # 1 ▸ checkout
     - uses: actions/checkout@v4
       with:
-        persist-credentials: false        # we’ll push with GH_PAT instead
         fetch-depth: 0
+        persist-credentials: false      # we’ll push with the PAT instead
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 2 ▸ Set up Python (+ pip cache handled by setup-python)
+    # ────────────────────────────────────────────────────────────────────────────
+    # 2 ▸ python + pip cache
     - uses: actions/setup-python@v5
       with:
         python-version: "3.13"
@@ -34,20 +34,20 @@ jobs:
           .tools/constraints.txt
           pyproject.toml
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 3 ▸ Phase-1: *only* the formatters / linters we need for auto-fix
+    # ────────────────────────────────────────────────────────────────────────────
+    # 3 ▸ phase-1: only formatters
     - name: Install formatters
       run: |
         python -m pip install --upgrade pip
-        pip install black ruff flake8
+        pip install ruff black flake8
 
     - name: Run formatters (write-mode)
       run: |
-        black .
-        ruff format .
+        ruff format .      # ← run Ruff FIRST
+        black .            # ← Black LAST so it “wins”
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 4 ▸ Commit & push formatting fixes (PAT needed for forks / PRs)
+    # ────────────────────────────────────────────────────────────────────────────
+    # 4 ▸ commit + push fixes
     - name: Commit & push formatting fixes
       id: push_back
       env:
@@ -58,45 +58,43 @@ jobs:
 
         git add -u
         if git diff --cached --quiet; then
-          echo "pushed=false" >> "$GITHUB_OUTPUT"
+          echo "pushed=false" >>"$GITHUB_OUTPUT"
         else
           git commit -m "style: auto-format via CI"
-          # push back to the same branch (handles PRs or direct pushes)
           git push "https://${GH_PAT}@github.com/${{ github.repository }}.git" \
                    HEAD:${{ github.head_ref || github.ref_name }}
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "pushed=true" >>"$GITHUB_OUTPUT"
         fi
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 5 ▸ Skip the heavy part if we just pushed style fixes
+    # ────────────────────────────────────────────────────────────────────────────
+    # 5 ▸ stop early if we just pushed style fixes
     - name: Stop job — style fixes were pushed
       if: steps.push_back.outputs.pushed == 'true'
       run: |
-        echo "Formatting changes pushed; skipping lint/type-check/tests."
+        echo "Formatting changes pushed. Skipping the heavy steps."
         exit 0
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 6 ▸ Phase-2: full dependency install (only runs when no push occurred)
+    # ────────────────────────────────────────────────────────────────────────────
+    # 6 ▸ phase-2: install full deps
     - name: Install project requirements
       run: |
         pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
-        pip install mypy             # mypy isn’t in reqs but we need it here
+        pip install mypy
 
-    # Optional: show pip-cache size
     - name: Show pip-cache size
       run: |
         [[ -d ~/.cache/pip ]] && du -sh ~/.cache/pip || echo "No pip cache yet"
 
-    # Cache mypy incremental data
+    # cache mypy
     - uses: actions/cache@v4
       with:
         path: .mypy_cache
         key: mypy-${{ runner.os }}-${{ hashFiles('**/*.py') }}-v1
         restore-keys: mypy-${{ runner.os }}-
 
-    # ──────────────────────────────────────────────────────────────────────────────
-    # 7 ▸ Lint / type-check / tests  (verify-only)
-    - name: Lint & static checks
+    # ────────────────────────────────────────────────────────────────────────────
+    # 7 ▸ lint, type-check, tests
+    - name: Lint / type-check
       run: |
         ruff check .
         black --check .
