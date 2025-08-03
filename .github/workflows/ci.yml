@@ -9,53 +9,78 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
+        # fail fast, show unset-var errors, and print each cmd
         shell: "bash -euo pipefail {0}"
 
     steps:
-      # 1 Checkout
-      - uses: actions/checkout@v4
+    # 1 ▸ Checkout
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0        # so we can push back fixes
 
-      # 2 Python + pip cache
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: "pip"
-          cache-dependency-path: |
-            .tools/requirements-ci.txt
-            .tools/constraints.txt
-            pyproject.toml
+    # 2 ▸ Python + built-in pip-cache
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        cache: "pip"
+        cache-dependency-path: |
+          .tools/requirements-ci.txt
+          .tools/constraints.txt
+          pyproject.toml
 
-      # 3 Install deps
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
+    # 3 ▸ Install dependencies
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
 
-      # 4 Show pip-cache size (optional)
-      - name: Show pip-cache size
-        run: |
-          [[ -d ~/.cache/pip ]] && du -sh ~/.cache/pip || echo "No pip cache yet"
+    # 4 ▸ Optional: show current pip-cache size
+    - name: Show pip-cache size
+      run: |
+        [[ -d ~/.cache/pip ]] && du -sh ~/.cache/pip || echo "No pip cache yet"
 
-      # 5 Cache mypy
-      - uses: actions/cache@v4
-        with:
-          path: .mypy_cache
-          key: mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt', '.tools/constraints.txt', 'pyproject.toml') }}-v1
-          restore-keys: mypy-${{ runner.os }}-
+    # 5 ▸ Cache mypy’s incremental results
+    - uses: actions/cache@v4
+      with:
+        path: .mypy_cache
+        key: >-
+          mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt',
+                                             '.tools/constraints.txt',
+                                             'pyproject.toml') }}-v1
+        restore-keys: mypy-${{ runner.os }}-
 
-      # 6 FORMAT & LINT CHECKS (verify-only)
-      - name: Formatting / lint / type-check
-        run: |
-          # Ruff (lint only)
-          ruff check .
-          # Black (verify only)
-          black --check .
-          # Flake-8 extra rules
-          flake8 . --max-line-length 88
-          # mypy – point at the package, keep your custom config
-          mypy -p custom_device_notifier \
-               --config-file custom_components/custom_device_notifier/pyproject.toml
+    # 6 ▸ Format code (write mode)
+    - name: Run formatters (write mode)
+      run: |
+        black .
+        ruff format .
 
-      # 7 Unit tests
-      - name: Run tests
-        run: pytest -q
+    # 6b ▸ Auto-commit any formatting fixes (only for PRs)
+    - name: Commit & push formatting fixes
+      if: github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config user.name  "ci-bot"
+        git config user.email "ci-bot@users.noreply.github.com"
+        git add -u
+        if git diff --cached --quiet; then
+          echo "No formatting changes to commit"
+        else
+          git commit -m "style: auto-format via CI"
+          git push "https://${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+                   HEAD:${{ github.head_ref }}
+        fi
+
+    # 7 ▸ Lint + type-check (verify only)
+    - name: Lint / type-check
+      run: |
+        ruff check .
+        black --check .
+        flake8 . --max-line-length 88
+        mypy custom_components/custom_device_notifier/__init__.py \
+             --config-file custom_components/custom_device_notifier/pyproject.toml
+
+    # 8 ▸ Unit tests
+    - name: Run tests
+      run: pytest -q
