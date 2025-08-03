@@ -8,7 +8,7 @@ from custom_components.custom_device_notifier.evaluate import evaluate_condition
 pytestmark = pytest.mark.asyncio
 
 
-async def test_evaluate_condition_numeric(hass: HomeAssistant):
+async def test_evaluate_condition_numeric(hass: HomeAssistant, enable_custom_integrations: None):
     # Pretend we have a battery sensor at 42 %
     hass.states.async_set("sensor.phone_battery", 42)
 
@@ -21,7 +21,7 @@ async def test_evaluate_condition_numeric(hass: HomeAssistant):
     assert evaluate_condition(hass, cond)  # 42 > 20 so True
 
 
-async def test_evaluate_condition_string(hass: HomeAssistant):
+async def test_evaluate_condition_string(hass: HomeAssistant, enable_custom_integrations: None):
     # Binary-sensor that is currently "on"
     hass.states.async_set("binary_sensor.door", "on")
 
