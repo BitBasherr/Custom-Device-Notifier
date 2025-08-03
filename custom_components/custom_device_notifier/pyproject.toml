@@ -22,5 +22,5 @@ line-length = 88
 skip-magic-trailing-comma = false       # Black defaults
 docstring-code-format      = true
 
-[pytest]
-asyncio_mode = auto
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
