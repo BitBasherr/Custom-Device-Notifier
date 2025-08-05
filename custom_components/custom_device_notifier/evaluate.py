@@ -6,7 +6,6 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
-from homeassistant.helpers.template import Template
 
 
 async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> bool:
@@ -84,7 +83,10 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
 
             # ----- Numeric comparisons --------------------------------------
             else:
-                ha_cfg: dict[str, Any] = {"condition": "numeric_state", "entity_id": [eid]}
+                ha_cfg: dict[str, Any] = {
+                    "condition": "numeric_state",
+                    "entity_id": [eid],
+                }
                 if operator == "==":
                     ha_cfg = {
                         "condition": "state",

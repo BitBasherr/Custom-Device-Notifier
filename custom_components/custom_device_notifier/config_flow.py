@@ -85,7 +85,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("service_name_raw"): str,
             }
         )
-        return self.async_show_form(step_id=STEP_USER, data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id=STEP_USER, data_schema=schema, errors=errors
+        )
 
     # ---- step: add_target ----------------------------------------------------
     async def async_step_add_target(self, user_input: dict[str, Any] | None = None):
@@ -104,7 +106,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {vol.Required("target_service"): vol.In(services, msg="must_be_notify")}
         )
-        return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
+        )
 
     # ---- step: add_condition_entity -----------------------------------------
     async def async_step_add_condition_entity(
@@ -228,7 +232,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "add", "label": "➕ Add another notify target"},
+                                {
+                                    "value": "add",
+                                    "label": "➕ Add another notify target",
+                                },
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -284,7 +291,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
         default_fb = (
-            self._targets[0][KEY_SERVICE].replace("notify.", "") if self._targets else None
+            self._targets[0][KEY_SERVICE].replace("notify.", "")
+            if self._targets
+            else None
         )
         schema = vol.Schema(
             {
