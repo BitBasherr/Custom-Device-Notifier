@@ -41,6 +41,7 @@ jobs:
       - name: Run formatters (write mode)
         run: |
           ruff format .
+          ruff --fix .
 
       - name: Commit & push formatting fixes (if any)
         id: commit
