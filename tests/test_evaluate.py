@@ -17,11 +17,10 @@ async def test_evaluate_condition_numeric_true(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "numeric_state",
-        "entity_id": ["sensor.phone_battery"],
-        "above": 20,
+        "entity_id": "sensor.phone_battery",
+        "operator": ">",
+        "value": "20"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -32,11 +31,10 @@ async def test_evaluate_condition_numeric_false(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "numeric_state",
-        "entity_id": ["sensor.phone_battery"],
-        "above": 20,
+        "entity_id": "sensor.phone_battery",
+        "operator": ">",
+        "value": "20"
     }
-
     assert not await evaluate_condition(hass, cond)
 
 
@@ -48,11 +46,10 @@ async def test_evaluate_condition_battery_level_above(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "numeric_state",
-        "entity_id": ["sensor.device_battery"],
-        "above": 50,
+        "entity_id": "sensor.device_battery",
+        "operator": ">",
+        "value": "50"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -64,11 +61,10 @@ async def test_evaluate_condition_battery_level_below(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "numeric_state",
-        "entity_id": ["sensor.device_battery"],
-        "below": 50,
+        "entity_id": "sensor.device_battery",
+        "operator": "<",
+        "value": "50"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -80,12 +76,10 @@ async def test_evaluate_condition_battery_level_equal(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "numeric_state",
-        "entity_id": ["sensor.device_battery"],
-        "above": 99,
-        "below": 101,
+        "entity_id": "sensor.device_battery",
+        "operator": "==",
+        "value": "100"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -96,11 +90,10 @@ async def test_evaluate_condition_string_true(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "state",
-        "entity_id": ["binary_sensor.door"],
-        "state": "on",
+        "entity_id": "binary_sensor.door",
+        "operator": "==",
+        "value": "on"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -111,11 +104,10 @@ async def test_evaluate_condition_string_false(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "state",
-        "entity_id": ["binary_sensor.door"],
-        "state": "on",
+        "entity_id": "binary_sensor.door",
+        "operator": "==",
+        "value": "on"
     }
-
     assert not await evaluate_condition(hass, cond)
 
 
@@ -127,11 +119,10 @@ async def test_evaluate_condition_device_tracker(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "state",
-        "entity_id": ["device_tracker.phone"],
-        "state": "home",
+        "entity_id": "device_tracker.phone",
+        "operator": "==",
+        "value": "home"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -183,11 +174,10 @@ async def test_evaluate_condition_input_select(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "state",
-        "entity_id": ["input_select.mode"],
-        "state": "auto",
+        "entity_id": "input_select.mode",
+        "operator": "==",
+        "value": "auto"
     }
-
     assert await evaluate_condition(hass, cond)
 
 
@@ -214,9 +204,8 @@ async def test_evaluate_condition_unavailable_state(
     await hass.async_block_till_done()
 
     cond = {
-        "condition": "numeric_state",
-        "entity_id": ["sensor.phone_battery"],
-        "above": 20,
+        "entity_id": "sensor.phone_battery",
+        "operator": ">",
+        "value": "20"
     }
-
     assert not await evaluate_condition(hass, cond)
