@@ -51,40 +51,17 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
                 }
         else:
             if operator == "==":
-                ha_cfg = {
-                    "condition": "numeric_state",
-                    "entity_id": entity_id,
-                    "value": value,
-                }
+                ha_cfg = {"condition": "numeric_state", "entity_id": entity_id, "value": str(value)}
             elif operator == ">":
-                ha_cfg = {
-                    "condition": "numeric_state",
-                    "entity_id": entity_id,
-                    "above": value,
-                }
+                ha_cfg = {"condition": "numeric_state", "entity_id": entity_id, "above": str(value)}
             elif operator == "<":
-                ha_cfg = {
-                    "condition": "numeric_state",
-                    "entity_id": entity_id,
-                    "below": value,
-                }
+                ha_cfg = {"condition": "numeric_state", "entity_id": entity_id, "below": str(value)}
             elif operator == ">=":
-                ha_cfg = {
-                    "condition": "numeric_state",
-                    "entity_id": entity_id,
-                    "above": float(value) - 0.0001,
-                }  # Approximate >=
+                ha_cfg = {"condition": "numeric_state", "entity_id": entity_id, "above": str(float(value) - 0.0001)}  # Approximate >=
             elif operator == "<=":
-                ha_cfg = {
-                    "condition": "numeric_state",
-                    "entity_id": entity_id,
-                    "below": float(value) + 0.0001,
-                }  # Approximate <=
+                ha_cfg = {"condition": "numeric_state", "entity_id": entity_id, "below": str(float(value) + 0.0001)}  # Approximate <=
             elif operator == "!=":
-                ha_cfg = {
-                    "condition": "template",
-                    "value_template": f"{{{{ states('{entity_id}') | float != {value} | float }}}}",
-                }
+                ha_cfg = {"condition": "template", "value_template": f"{{{{ states('{entity_id}') | float != {value} | float }}}}"}
             else:
                 raise ValueError("Invalid operator for numeric")
 
