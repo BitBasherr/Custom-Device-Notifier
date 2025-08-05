@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -42,28 +43,30 @@ class CurrentTargetSensor(SensorEntity):
         self._state = None
 
     async def async_added_to_hass(self):
-        entities = {
-            cond["entity"]
-            for tgt in self._targets
-            for cond in tgt[KEY_CONDITIONS]
-            if self.hass.states.get(cond["entity"]) is not None
-        }
-        async_track_state_change_event(self.hass, list(entities), self._update)
-        self._update(None)
+        entities = {cond["entity_id"] for tgt in self._targets for cond in tgt[KEY_CONDITIONS] if self.hass.states.get(cond["entity_id"]) is not None}
+        self._unsub = async_track_state_change_event(self.hass, list(entities), self._update)
+        await self._async_evaluate_and_update()  # Initial update
+
+    async def async_will_remove_from_hass(self):
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
 
     @callback
     def _update(self, _):
+        self.hass.async_create_task(self._async_evaluate_and_update())
+
+    async def _async_evaluate_and_update(self):
         for svc_id in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            results = [evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]]
+            results = await asyncio.gather(*(evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]))
             matched = all(results) if mode == "all" else any(results)
             if matched:
                 self._state = svc_id
                 break
         else:
             self._state = self._fallback
-
         self.async_write_ha_state()

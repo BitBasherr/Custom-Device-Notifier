@@ -15,7 +15,8 @@
         "title": "Condition match mode"
       },
       "condition_more": {
-        "title": "Add more conditions?"
+        "title": "Add more conditions?",
+        "description": "Current conditions:\n{current_conditions}"
       },
       "target_more": {
         "title": "Add more targets?"

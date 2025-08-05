@@ -208,7 +208,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Prepopulate current conditions in description
         current_conditions = self._working_target[KEY_CONDITIONS]
         cond_list = "\n".join([f"- {c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]) or "No conditions yet"
-        description_placeholder = f"Current conditions:\n{cond_list}"
+        description_placeholders={"current_conditions": cond_list}
 
         schema = vol.Schema(
             {
@@ -225,7 +225,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             }
         )
-        return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema, description_placeholder=description_placeholder)
+        return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema, description_placeholders={"current_conditions": cond_list})
 
     # ---- step: remove_condition ----------------------------------------------
     async def async_step_remove_condition(self, user_input=None):
