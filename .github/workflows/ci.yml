@@ -74,7 +74,7 @@ jobs:
           pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
 
       - name: Cache mypy incremental results
-        if: ${{ steps.commit.outputs.pushed != 'true' }}
+        if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
         uses: actions/cache@v4
         with:
           path: .mypy_cache
@@ -83,7 +83,7 @@ jobs:
             mypy-${{ runner.os }}-
 
       - name: Lint & type-check (verify-only)
-        if: ${{ steps.commit.outputs.pushed != 'true' }}
+        if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
         run: |
           ruff check .
           ruff format --check .
@@ -91,5 +91,5 @@ jobs:
                --config-file custom_components/custom_device_notifier/pyproject.toml
 
       - name: Run pytest
-        if: ${{ steps.commit.outputs.pushed != 'true' }}
+        if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
         run: pytest -q
