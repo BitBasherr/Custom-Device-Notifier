@@ -81,7 +81,11 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
                     results.append(False)
                     continue
                 if operator == "==":
-                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
+                    ha_cfg = {
+                        "condition": "state",
+                        "entity_id": [eid],
+                        "state": str(value),
+                    }
                 elif operator == "!=":
                     ha_cfg = {
                         "condition": "template",
@@ -92,7 +96,11 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
             else:
                 # Numbers
                 if operator == "==":
-                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
+                    ha_cfg = {
+                        "condition": "state",
+                        "entity_id": [eid],
+                        "state": str(value),
+                    }
                 elif operator == "!=":
                     ha_cfg = {
                         "condition": "template",
@@ -101,9 +109,17 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
                         ),
                     }
                 elif operator == ">":
-                    ha_cfg = {"condition": "numeric_state", "entity_id": [eid], "above": str(value)}
+                    ha_cfg = {
+                        "condition": "numeric_state",
+                        "entity_id": [eid],
+                        "above": str(value),
+                    }
                 elif operator == "<":
-                    ha_cfg = {"condition": "numeric_state", "entity_id": [eid], "below": str(value)}
+                    ha_cfg = {
+                        "condition": "numeric_state",
+                        "entity_id": [eid],
+                        "below": str(value),
+                    }
                 elif operator == ">=":
                     ha_cfg = {
                         "condition": "numeric_state",
