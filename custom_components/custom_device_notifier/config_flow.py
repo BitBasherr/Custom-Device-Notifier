@@ -95,17 +95,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         services = sorted(notify_services)
 
         if user_input is not None:
-            svc = user_input["target_service"]
-            if svc not in notify_services:
-                errors["target_service"] = "must_be_notify"
-            if not errors:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
-                return await self.async_step_condition_more()
+            self._working_target = {KEY_SERVICE: f"notify.{user_input['target_service']}", KEY_CONDITIONS: []}
+            return await self.async_step_condition_more()
 
-        schema = vol.Schema({vol.Required("target_service"): vol.In(services)})
+        schema = vol.Schema(
+            {vol.Required("target_service"): vol.In(services, msg="must_be_notify")}
+        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -208,15 +203,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Prepopulate current conditions in description
         current_conditions = self._working_target[KEY_CONDITIONS]
-        cond_list = (
-            "\n".join(
-                [
-                    f"- {c['entity_id']} {c['operator']} {c['value']}"
-                    for c in current_conditions
-                ]
-            )
-            or "No conditions yet"
-        )
+        cond_list = "\n".join([f"- {c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]) or "No conditions yet"
 
         schema = vol.Schema(
             {
@@ -233,26 +220,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             }
         )
-        return self.async_show_form(
-            step_id=STEP_COND_MORE,
-            data_schema=schema,
-            description_placeholders={"current_conditions": cond_list},
-        )
+        return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema, description_placeholders={"current_conditions": cond_list})
 
     # ---- step: remove_condition ----------------------------------------------
     async def async_step_remove_condition(self, user_input=None):
         _LOGGER.debug("STEP remove_condition | input=%s", user_input)
         errors = {}
         current_conditions = self._working_target[KEY_CONDITIONS]
-        opts = [
-            f"{c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions
-        ]
+        opts = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]
 
         if user_input is not None:
             to_remove = user_input["conditions_to_remove"]
-            self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(current_conditions) if opts[i] not in to_remove
-            ]
+            self._working_target[KEY_CONDITIONS] = [c for i, c in enumerate(current_conditions) if opts[i] not in to_remove]
             return await self.async_step_condition_more()
 
         schema = vol.Schema(
@@ -305,10 +284,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {
-                                    "value": "add",
-                                    "label": "➕ Add another notify target",
-                                },
+                                {"value": "add", "label": "➕ Add another notify target"},
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }
@@ -359,16 +335,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
 
-        default_fb = (
-            self._targets[0][KEY_SERVICE].replace("notify.", "")
-            if self._targets
-            else None
-        )
+        default_fb = self._targets[0][KEY_SERVICE].replace("notify.", "") if self._targets else None
         schema = vol.Schema(
             {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"service": {"domain": "notify"}}
-                )
+                vol.Required("fallback", default=default_fb): selector({"service": {"domain": "notify"}})
             }
         )
         return self.async_show_form(

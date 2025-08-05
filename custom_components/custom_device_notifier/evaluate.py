@@ -96,4 +96,4 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
             raw_result = await raw_result
         matches.append(bool(raw_result))
 
-    return any(matches)  # OR logic for multiple
+    return any(matches)
