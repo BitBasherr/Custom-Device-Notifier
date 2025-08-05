@@ -45,7 +45,12 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
         )
         if operator == "!=":
             template_str = f"{{ not ({template_str[3:-3]}) }}"
-        ha_cfg = {"condition": "template", "value_template": template_str.replace("entity_id", "'%s'" % entity_ids[0]) if len(entity_ids) == 1 else template_str}  # Simplify for single
+        ha_cfg = {
+            "condition": "template",
+            "value_template": template_str.replace("entity_id", "'%s'" % entity_ids[0])
+            if len(entity_ids) == 1
+            else template_str,
+        }  # Simplify for single
     else:
         # Check if numeric (sample first state)
         state = hass.states.get(entity_ids[0]) if entity_ids else None
@@ -67,7 +72,11 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
             if operator == "!=":
                 ha_cfg = {
                     "condition": "template",
-                    "value_template": "{{ not is_state(entity_id, value) }}".replace("entity_id", "'%s'" % entity_ids[0]).replace("value", "'%s'" % value) if len(entity_ids) == 1 else "{{ not is_state(entity_id, value) }}",
+                    "value_template": "{{ not is_state(entity_id, value) }}".replace(
+                        "entity_id", "'%s'" % entity_ids[0]
+                    ).replace("value", "'%s'" % value)
+                    if len(entity_ids) == 1
+                    else "{{ not is_state(entity_id, value) }}",
                 }
         else:
             ha_cfg["condition"] = "numeric_state"
@@ -84,7 +93,11 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
             elif operator == "!=":
                 ha_cfg = {
                     "condition": "template",
-                    "value_template": "{{ states(entity_id) | float != value | float }}".replace("entity_id", "'%s'" % entity_ids[0]).replace("value", value) if len(entity_ids) == 1 else "{{ states(entity_id) | float != value | float }}",
+                    "value_template": "{{ states(entity_id) | float != value | float }}".replace(
+                        "entity_id", "'%s'" % entity_ids[0]
+                    ).replace("value", value)
+                    if len(entity_ids) == 1
+                    else "{{ states(entity_id) | float != value | float }}",
                 }
             else:
                 raise ValueError("Invalid operator for numeric")
