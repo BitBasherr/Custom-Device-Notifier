@@ -15,7 +15,9 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
     # Initiate flow
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     assert result["type"] == "form"
     assert result["step_id"] == "user"
     assert not result["errors"]
@@ -53,7 +55,9 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "condition_more"
 
     # Step 5: Done with conditions
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"choice": "done"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"choice": "done"}
+    )
     assert result["type"] == "form"
     assert result["step_id"] == "match_mode"
 
@@ -65,7 +69,9 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "target_more"
 
     # Step 7: Done with targets (single target)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next": "done"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next": "done"}
+    )
     assert result["type"] == "form"
     assert result["step_id"] == "order_targets"
 
@@ -77,7 +83,9 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["step_id"] == "choose_fallback"
 
     # Step 9: Submit fallback
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"fallback": "fallback_notify"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"fallback": "fallback_notify"}
+    )
     assert result["type"] == "create_entry"
     assert result["title"] == "Test Notifier"
     assert result["data"]["service_name_raw"] == "Test Notifier"
@@ -85,10 +93,14 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["data"]["fallback"] == "notify.fallback_notify"
 
 
-async def test_add_target_error_invalid_service(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_add_target_error_invalid_service(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test error when submitting invalid target service."""
     # Initiate flow
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
 
     # Submit name
     result = await hass.config_entries.flow.async_configure(
