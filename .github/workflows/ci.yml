@@ -55,7 +55,8 @@ jobs:
           if git diff --cached --quiet ; then
             echo "pushed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "style: auto-format via CI"
+            last_title=$(git log -1 --pretty=%s)
+            git commit -m "$last_title style: auto-format via CI"
             git push "https://${GH_PAT}@github.com/${{ github.repository }}" HEAD:${{ github.ref_name }}
             echo "pushed=true" >> "$GITHUB_OUTPUT"
           fi
