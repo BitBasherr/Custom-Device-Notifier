@@ -77,7 +77,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["service_name_raw"] = "required"
 
         schema = vol.Schema({vol.Required("service_name_raw"): str})
-        return self.async_show_form(step_id=STEP_USER, data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id=STEP_USER, data_schema=schema, errors=errors
+        )
 
     # ──────────────────────── STEP: add_target ───────────────────────────────
     async def async_step_add_target(self, user_input: dict[str, Any] | None = None):
@@ -90,12 +92,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_condition_more()
 
         # Accept *any* string here; we do the real validation above
         schema = vol.Schema({vol.Required("target_service"): str})
-        return self.async_show_form(step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
+        )
 
     # ────────────────── STEP: add_condition_entity ───────────────────────────
     async def async_step_add_condition_entity(
@@ -208,7 +215,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "add", "label": "➕ Add another notify target"},
+                                {
+                                    "value": "add",
+                                    "label": "➕ Add another notify target",
+                                },
                                 {"value": "done", "label": "✅ Done targets"},
                             ]
                         }

@@ -84,11 +84,13 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
                     continue
 
                 if operator == "==":
-                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
+                    ha_cfg = {
+                        "condition": "state",
+                        "entity_id": [eid],
+                        "state": str(value),
+                    }
                 elif operator == "!=":
-                    tmpl = Template(
-                        f"{{{{ not is_state('{eid}', '{value}') }}}}", hass
-                    )
+                    tmpl = Template(f"{{{{ not is_state('{eid}', '{value}') }}}}", hass)
                     ha_cfg = {"condition": "template", "value_template": tmpl}
                 else:
                     raise ValueError("Invalid operator for string comparison")
@@ -96,10 +98,15 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
             # ── Numeric state comparisons ------------------------------------
             else:
                 if operator == "==":
-                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
+                    ha_cfg = {
+                        "condition": "state",
+                        "entity_id": [eid],
+                        "state": str(value),
+                    }
                 elif operator == "!=":
                     tmpl = Template(
-                        f"{{{{ (states('{eid}') | float) != ({value} | float) }}}}", hass
+                        f"{{{{ (states('{eid}') | float) != ({value} | float) }}}}",
+                        hass,
                     )
                     ha_cfg = {"condition": "template", "value_template": tmpl}
                 elif operator == ">":
