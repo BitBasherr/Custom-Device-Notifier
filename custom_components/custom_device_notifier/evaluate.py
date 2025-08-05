@@ -1,4 +1,3 @@
-# custom_components/custom_device_notifier/evaluate.py
 from __future__ import annotations
 
 from collections.abc import Awaitable, Mapping
@@ -6,49 +5,49 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import condition
+from homeassistant.helpers.template import Template
 
 
 async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> bool:
     """
-    Evaluate a condition (custom or native HA format).
+    Evaluate either a native Home-Assistant condition dict or a compact custom dict.
 
-    Supports:
-      - Native HA condition dicts (contain 'condition' key)
-      - Compact custom dicts:
-          {
-            'entity_id': <str|list[str]>,
-            'operator': '==','!=','>','<','>=','<=',
-            'value': <str|num|special>
-          }
-      - Special values: 'unknown', 'unavailable', 'unknown or unavailable'
+    Compact format example:
+        {
+            "entity_id": "sensor.phone_battery",
+            "operator": ">",
+            "value": 20
+        }
+    Special values: "unknown", "unavailable", "unknown or unavailable"
     """
     data = dict(cfg)
 
-    # ── Native Home Assistant format: delegate directly ───────────────────────
+    # ── Native HA condition ───────────────────────────────────────────────────
     if "condition" in data:
         checker = await condition.async_from_config(hass, data)
-        ret = checker(hass, {})
-        if isinstance(ret, Awaitable):
-            ret = await ret
-        return bool(ret)
+        result = checker(hass, {})
+        if isinstance(result, Awaitable):
+            result = await result
+        return bool(result)
 
-    # ── Compact custom format ─────────────────────────────────────────────────
+    # ── Compact format ────────────────────────────────────────────────────────
     entity_id = data["entity_id"]
-    operator = data["operator"]
-    value = data["value"]
+    operator: str = data["operator"]
+    value: str | int | float = data["value"]
 
     ids = entity_id if isinstance(entity_id, list) else [entity_id]
-    results: list[bool] = []
+    outcomes: list[bool] = []
 
     for eid in ids:
-        st = hass.states.get(eid)
-        if st is None:
-            results.append(False)
+        state_obj = hass.states.get(eid)
+        if state_obj is None:
+            outcomes.append(False)
             continue
 
-        ha_cfg: dict[str, Any]  # single annotation; assign in branches below
+        # Build a proper HA condition dict
+        ha_cfg: dict[str, Any]
 
-        # ---------- Special-state handling -----------------------------------
+        # ── Special strings ---------------------------------------------------
         if isinstance(value, str) and value in (
             "unknown",
             "unavailable",
@@ -65,81 +64,76 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
             if operator == "!=":
                 expr = f"not ({expr})"
 
-            ha_cfg = {"condition": "template", "value_template": f"{{{{ {expr} }}}}"}
+            ha_cfg = {
+                "condition": "template",
+                "value_template": Template(f"{{{{ {expr} }}}}", hass),
+            }
 
+        # ── Determine numeric vs string path ---------------------------------
         else:
-            # ---------- Decide numeric vs string based on current state -------
             try:
-                float(st.state)
-                is_numeric = True
+                float(state_obj.state)
+                is_numeric_state = True
             except ValueError:
-                is_numeric = False
+                is_numeric_state = False
 
-            if not is_numeric:
-                # Strings: only == / != are meaningful
+            # ── String state comparisons -------------------------------------
+            if not is_numeric_state:
                 if operator in (">", "<", ">=", "<="):
-                    results.append(False)
+                    outcomes.append(False)
                     continue
+
                 if operator == "==":
-                    ha_cfg = {
-                        "condition": "state",
-                        "entity_id": [eid],
-                        "state": str(value),
-                    }
+                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
                 elif operator == "!=":
-                    ha_cfg = {
-                        "condition": "template",
-                        "value_template": f"{{{{ not is_state('{eid}', '{value}') }}}}",
-                    }
+                    tmpl = Template(
+                        f"{{{{ not is_state('{eid}', '{value}') }}}}", hass
+                    )
+                    ha_cfg = {"condition": "template", "value_template": tmpl}
                 else:
                     raise ValueError("Invalid operator for string comparison")
+
+            # ── Numeric state comparisons ------------------------------------
             else:
-                # Numbers
                 if operator == "==":
-                    ha_cfg = {
-                        "condition": "state",
-                        "entity_id": [eid],
-                        "state": str(value),
-                    }
+                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
                 elif operator == "!=":
-                    ha_cfg = {
-                        "condition": "template",
-                        "value_template": (
-                            f"{{{{ (states('{eid}') | float) != ({value} | float) }}}}"
-                        ),
-                    }
+                    tmpl = Template(
+                        f"{{{{ (states('{eid}') | float) != ({value} | float) }}}}", hass
+                    )
+                    ha_cfg = {"condition": "template", "value_template": tmpl}
                 elif operator == ">":
                     ha_cfg = {
                         "condition": "numeric_state",
                         "entity_id": [eid],
-                        "above": str(value),
+                        "above": float(value),
                     }
                 elif operator == "<":
                     ha_cfg = {
                         "condition": "numeric_state",
                         "entity_id": [eid],
-                        "below": str(value),
+                        "below": float(value),
                     }
                 elif operator == ">=":
                     ha_cfg = {
                         "condition": "numeric_state",
                         "entity_id": [eid],
-                        "above": str(float(value) - 1e-7),
+                        "above": float(value),
                     }
                 elif operator == "<=":
                     ha_cfg = {
                         "condition": "numeric_state",
                         "entity_id": [eid],
-                        "below": str(float(value) + 1e-7),
+                        "below": float(value),
                     }
                 else:
                     raise ValueError("Invalid operator for numeric comparison")
 
-        # ---------- Execute the compiled HA condition ------------------------
+        # ── Run the compiled HA condition ------------------------------------
         checker = await condition.async_from_config(hass, ha_cfg)
-        rv = checker(hass, {})
-        if isinstance(rv, Awaitable):
-            rv = await rv
-        results.append(bool(rv))
+        result = checker(hass, {})
+        if isinstance(result, Awaitable):
+            result = await result
+        outcomes.append(bool(result))
 
-    return any(results)
+    return any(outcomes)
