@@ -64,14 +64,14 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
                     continue
                 if operator not in ["==", "!="]:
                     raise ValueError("String conditions only support == or !=")
-                ha_cfg = {"condition": "state", "entity_id": [eid], "state": value}
+                ha_cfg = {"condition": "state", "entity_id": eid, "state": value}
                 if operator == "!=":
                     ha_cfg = {
                         "condition": "template",
                         "value_template": f"{{{{ not is_state('{eid}', '{value}') }}}}",
                     }
             else:
-                ha_cfg = {"condition": "numeric_state", "entity_id": [eid]}
+                ha_cfg = {"condition": "numeric_state", "entity_id": eid}
                 if operator == "==":
                     ha_cfg["value"] = str(value)
                 elif operator == ">":
