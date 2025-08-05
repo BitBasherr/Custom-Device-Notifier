@@ -55,6 +55,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "notify", slug, service.async_send_message, schema=SERVICE_SCHEMA
         )
 
+        async def handle_evaluate(call):
+            entry_id = call.data.get("entry_id")
+            _LOGGER.debug("Evaluating conditions for entry %s...", entry_id or "all")
+            if entry_id and entry_id != entry.entry_id:
+                return
+            # Log evaluation without sending
+            for svc in priority:
+                tgt = next((t for t in targets if t[KEY_SERVICE] == svc), None)
+                if not tgt:
+                    continue
+                mode = tgt.get(KEY_MATCH, "all")
+                results = await asyncio.gather(
+                    *(evaluate_condition(hass, c) for c in tgt[KEY_CONDITIONS])
+                )
+                matched = all(results) if mode == "all" else any(results)
+                _LOGGER.debug("  target %s match=%s (conditions: %s)", svc, matched, results)
+                if matched:
+                    _LOGGER.debug("  → would forward to %s", svc)
+                    return
+            _LOGGER.debug("  → would fallback to %s", fallback)
+
+        hass.services.async_register(DOMAIN, "evaluate", handle_evaluate, vol.Schema({vol.Optional("entry_id"): str}))
+
         # Forward any companion platforms (e.g. sensor/)
         await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
         return True
