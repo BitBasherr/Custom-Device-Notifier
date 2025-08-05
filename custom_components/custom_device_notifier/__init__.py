@@ -70,13 +70,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     *(evaluate_condition(hass, c) for c in tgt[KEY_CONDITIONS])
                 )
                 matched = all(results) if mode == "all" else any(results)
-                _LOGGER.debug("  target %s match=%s (conditions: %s)", svc, matched, results)
+                _LOGGER.debug(
+                    "  target %s match=%s (conditions: %s)", svc, matched, results
+                )
                 if matched:
                     _LOGGER.debug("  → would forward to %s", svc)
                     return
             _LOGGER.debug("  → would fallback to %s", fallback)
 
-        hass.services.async_register(DOMAIN, "evaluate", handle_evaluate, vol.Schema({vol.Optional("entry_id"): str}))
+        hass.services.async_register(
+            DOMAIN,
+            "evaluate",
+            handle_evaluate,
+            vol.Schema({vol.Optional("entry_id"): str}),
+        )
 
         # Forward any companion platforms (e.g. sensor/)
         await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])

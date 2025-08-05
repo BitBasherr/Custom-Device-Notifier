@@ -50,7 +50,9 @@ class CurrentTargetSensor(SensorEntity):
             for cond in tgt[KEY_CONDITIONS]
             if self.hass.states.get(cond["entity_id"]) is not None
         }
-        self._unsub = async_track_state_change_event(self.hass, list(entities), self._update)
+        self._unsub = async_track_state_change_event(
+            self.hass, list(entities), self._update
+        )
         await self._async_evaluate_and_update()  # Initial update
 
     async def async_will_remove_from_hass(self):
@@ -68,7 +70,9 @@ class CurrentTargetSensor(SensorEntity):
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
-            results = await asyncio.gather(*(evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS]))
+            results = await asyncio.gather(
+                *(evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS])
+            )
             matched = all(results) if mode == "all" else any(results)
             if matched:
                 self._state = svc_id

@@ -1,7 +1,8 @@
 """Unit-test evaluate_condition helper."""
 
-import pytest
 from datetime import time as dt_time
+
+import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.custom_device_notifier.evaluate import evaluate_condition
@@ -109,7 +110,9 @@ async def test_evaluate_condition_unknown_entity(
     assert not await evaluate_condition(hass, cond)
 
 
-async def test_evaluate_condition_template(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_template(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test template condition."""
     hass.states.async_set("input_boolean.test", "on")
     await hass.async_block_till_done()
@@ -122,12 +125,14 @@ async def test_evaluate_condition_template(hass: HomeAssistant, enable_custom_in
     assert await evaluate_condition(hass, cond)
 
 
-async def test_evaluate_condition_time(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_evaluate_condition_time(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test time condition with parsed times."""
     cond = {
         "condition": "time",
         "after": dt_time(0, 0, 0),
-        "before": dt_time(23, 59, 59)
+        "before": dt_time(23, 59, 59),
     }
 
     assert await evaluate_condition(hass, cond)
