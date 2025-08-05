@@ -56,7 +56,7 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
           else
             last_title=$(git log -1 --pretty=%s)
-            git commit -m "$last_title style: auto-format via CI"
+            git commit -m "Bot: $last_title CI auto-format"
             git push "https://${GH_PAT}@github.com/${{ github.repository }}" HEAD:${{ github.ref_name }}
             echo "pushed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -74,7 +74,7 @@ jobs:
           pip install -r .tools/requirements-ci.txt -c .tools/constraints.txt
 
       - name: Cache mypy incremental results
-        if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
+        if: ${{ steps.commit.outputs.pushed != 'true' }}
         uses: actions/cache@v4
         with:
           path: .mypy_cache
@@ -83,7 +83,7 @@ jobs:
             mypy-${{ runner.os }}-
 
       - name: Lint & type-check (verify-only)
-        if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
+        if: ${{ steps.commit.outputs.pushed != 'true' }}
         run: |
           ruff check .
           ruff format --check .
@@ -91,5 +91,4 @@ jobs:
                --config-file custom_components/custom_device_notifier/pyproject.toml
 
       - name: Run pytest
-        if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
         run: pytest -q
