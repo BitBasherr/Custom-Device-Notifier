@@ -16,11 +16,7 @@ async def test_evaluate_condition_numeric_true(
     hass.states.async_set("sensor.phone_battery", 42)
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "sensor.phone_battery",
-        "operator": ">",
-        "value": "20"
-    }
+    cond = {"entity_id": "sensor.phone_battery", "operator": ">", "value": "20"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -30,11 +26,7 @@ async def test_evaluate_condition_numeric_false(
     hass.states.async_set("sensor.phone_battery", 10)
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "sensor.phone_battery",
-        "operator": ">",
-        "value": "20"
-    }
+    cond = {"entity_id": "sensor.phone_battery", "operator": ">", "value": "20"}
     assert not await evaluate_condition(hass, cond)
 
 
@@ -45,11 +37,7 @@ async def test_evaluate_condition_battery_level_above(
     hass.states.async_set("sensor.device_battery", 75)
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "sensor.device_battery",
-        "operator": ">",
-        "value": "50"
-    }
+    cond = {"entity_id": "sensor.device_battery", "operator": ">", "value": "50"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -60,11 +48,7 @@ async def test_evaluate_condition_battery_level_below(
     hass.states.async_set("sensor.device_battery", 30)
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "sensor.device_battery",
-        "operator": "<",
-        "value": "50"
-    }
+    cond = {"entity_id": "sensor.device_battery", "operator": "<", "value": "50"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -75,11 +59,7 @@ async def test_evaluate_condition_battery_level_equal(
     hass.states.async_set("sensor.device_battery", 100)
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "sensor.device_battery",
-        "operator": "==",
-        "value": "100"
-    }
+    cond = {"entity_id": "sensor.device_battery", "operator": "==", "value": "100"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -89,11 +69,7 @@ async def test_evaluate_condition_string_true(
     hass.states.async_set("binary_sensor.door", "on")
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "binary_sensor.door",
-        "operator": "==",
-        "value": "on"
-    }
+    cond = {"entity_id": "binary_sensor.door", "operator": "==", "value": "on"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -103,11 +79,7 @@ async def test_evaluate_condition_string_false(
     hass.states.async_set("binary_sensor.door", "off")
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "binary_sensor.door",
-        "operator": "==",
-        "value": "on"
-    }
+    cond = {"entity_id": "binary_sensor.door", "operator": "==", "value": "on"}
     assert not await evaluate_condition(hass, cond)
 
 
@@ -118,11 +90,7 @@ async def test_evaluate_condition_device_tracker(
     hass.states.async_set("device_tracker.phone", "home")
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "device_tracker.phone",
-        "operator": "==",
-        "value": "home"
-    }
+    cond = {"entity_id": "device_tracker.phone", "operator": "==", "value": "home"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -173,11 +141,7 @@ async def test_evaluate_condition_input_select(
     hass.states.async_set("input_select.mode", "auto")
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "input_select.mode",
-        "operator": "==",
-        "value": "auto"
-    }
+    cond = {"entity_id": "input_select.mode", "operator": "==", "value": "auto"}
     assert await evaluate_condition(hass, cond)
 
 
@@ -203,9 +167,5 @@ async def test_evaluate_condition_unavailable_state(
     hass.states.async_set("sensor.phone_battery", "unavailable")
     await hass.async_block_till_done()
 
-    cond = {
-        "entity_id": "sensor.phone_battery",
-        "operator": ">",
-        "value": "20"
-    }
+    cond = {"entity_id": "sensor.phone_battery", "operator": ">", "value": "20"}
     assert not await evaluate_condition(hass, cond)
