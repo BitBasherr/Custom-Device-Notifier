@@ -81,7 +81,7 @@ class CurrentTargetSensor(SensorEntity):
                 break
 
         if new_value.startswith("notify."):
-            new_value = new_value[len("notify."):]
+            new_value = new_value[len("notify.") :]
 
         self._attr_native_value = new_value
         self.async_write_ha_state()
