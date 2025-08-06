@@ -416,13 +416,16 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(config_entry):
         return CustomDeviceNotifierOptionsFlowHandler(config_entry)
 
+
 # ─────────────── OPTIONS FLOW HANDLER ───────────────
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
         self._data: dict[str, Any] = dict(config_entry.data)
         self._options: dict[str, Any] = config_entry.options or {}
-        self._targets: list[dict[str, Any]] = list(config_entry.data.get(CONF_TARGETS, []))
+        self._targets: list[dict[str, Any]] = list(
+            config_entry.data.get(CONF_TARGETS, [])
+        )
         self._working_target: dict[str, Any] | None = None
         self._working_condition: dict[str, Any] | None = None
 
@@ -441,58 +444,78 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._working_target = flow._working_target
         self._working_condition = flow._working_condition
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         return await self.async_step_target_more()
 
-    async def async_step_target_more(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_target_more(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_target_more(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_add_target(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_add_target(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_add_target(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_condition_more(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_condition_more(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_condition_more(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_add_condition_entity(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_add_condition_entity(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_add_condition_entity(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_add_condition_value(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_add_condition_value(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_add_condition_value(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_remove_condition(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_remove_condition(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_remove_condition(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_match_mode(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_match_mode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_match_mode(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_order_targets(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_order_targets(user_input)
         self._sync_flow(flow)
         return result
 
-    async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> config_entries.FlowResult:
+    async def async_step_choose_fallback(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
         flow = self._create_flow()
         result = await flow.async_step_choose_fallback(user_input)
         self._sync_flow(flow)
