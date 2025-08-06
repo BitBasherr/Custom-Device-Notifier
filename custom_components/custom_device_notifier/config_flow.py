@@ -85,26 +85,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_target(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         notify_services = self.hass.services.async_services().get("notify", {})
+        services = sorted(notify_services)
 
         if user_input is not None:
             svc = user_input["target_service"]
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_condition_more()
 
-        schema = vol.Schema(
-            {
-                # service selector gives a dropdown but still lets tests send arbitrary strings
-                vol.Required("target_service"): selector(
-                    {"service": {"domain": "notify"}}
-                )
-            }
-        )
+        schema = vol.Schema({vol.Required("target_service"): vol.In(services)})
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -134,7 +125,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 pass
 
         if user_input is not None:
-            # store condition, keep value as *string* so voluptuous is happy
             self._working_condition["operator"] = user_input["operator"]
             self._working_condition["value"] = str(user_input["value"])
             self._working_target[KEY_CONDITIONS].append(self._working_condition)
@@ -142,15 +132,19 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_condition_more()
 
         if is_numeric:
+            val_sel = (
+                {"number": {"min": 0, "max": 100, "step": 1}}
+                if "battery" in ent_id
+                else {"number": {}}
+            )
             schema = vol.Schema(
                 {
                     vol.Required("operator", default=">"): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    # number picker in UI, coercion → str to match tests
                     vol.Required(
                         "value", default=float(st.state) if st else 0
-                    ): vol.All(selector({"number": {}}), vol.Coerce(str)),
+                    ): vol.All(selector(val_sel), vol.Coerce(str)),
                 }
             )
         else:
@@ -160,13 +154,19 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "unknown",
                 "unavailable",
             ]
+            final = []
+            seen = set()
+            for o in opts:
+                if o not in seen:
+                    final.append(o)
+                    seen.add(o)
             schema = vol.Schema(
                 {
                     vol.Required("operator", default="=="): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value", default=opts[0]): selector(
-                        {"select": {"options": opts}}
+                    vol.Required("value", default=final[0]): selector(
+                        {"select": {"options": final}}
                     ),
                 }
             )
@@ -178,9 +178,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if user_input["choice"] == "add":
                 return await self.async_step_add_condition_entity()
-            # choice == done  → proceed, but **keep** _working_target for match_mode
+            if user_input["choice"] == "remove":
+                return await self.async_step_remove_condition()
             return await self.async_step_match_mode()
 
+        current_conditions = self._working_target[KEY_CONDITIONS]
+        cond_list = (
+            "\n".join(
+                [f"- {c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]
+            )
+            or "No conditions yet"
+        )
         schema = vol.Schema(
             {
                 vol.Required("choice", default="add"): selector(
@@ -188,6 +196,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "select": {
                             "options": [
                                 {"value": "add", "label": "➕ Add another condition"},
+                                {"value": "remove", "label": "➖ Remove condition"},
                                 {"value": "done", "label": "✅ Done conditions"},
                             ]
                         }
@@ -195,12 +204,40 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             }
         )
-        return self.async_show_form(step_id=STEP_COND_MORE, data_schema=schema)
+        return self.async_show_form(
+            step_id=STEP_COND_MORE,
+            data_schema=schema,
+            description_placeholders={"current_conditions": cond_list},
+        )
+
+    # ──────────────────── STEP: remove_condition ──────────────────────────
+    async def async_step_remove_condition(self, user_input=None):
+        errors = {}
+        current_conditions = self._working_target[KEY_CONDITIONS]
+        opts = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]
+
+        if user_input is not None:
+            to_remove = user_input.get("conditions_to_remove", [])
+            self._working_target[KEY_CONDITIONS] = [
+                c for i, c in enumerate(current_conditions) if opts[i] not in to_remove
+            ]
+            return await self.async_step_condition_more()
+
+        schema = vol.Schema(
+            {
+                vol.Optional("conditions_to_remove", default=[]): selector(
+                    {"select": {"options": opts, "multiple": True}}
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id=STEP_REMOVE_COND, data_schema=schema, errors=errors
+        )
 
     # ───────────────────────── STEP: match_mode ──────────────────────────
     async def async_step_match_mode(self, user_input=None):
         if user_input is not None:
-            if self._working_target is None:  # should never happen
+            if self._working_target is None:
                 return self.async_abort(reason="no_active_target")
 
             self._working_target[CONF_MATCH_MODE] = user_input["match_mode"]
