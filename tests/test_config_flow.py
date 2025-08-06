@@ -145,39 +145,31 @@ async def test_add_target_error_invalid_service(
     assert result["step_id"] == "add_target"
     assert result["errors"]["target_service"] == "must_be_notify"
 
-
 async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test that the options flow preserves and updates config."""
     hass.services.async_register("notify", "mobile_app", lambda msg: None)
     hass.services.async_register("notify", "persistent_notification", lambda msg: None)
 
-    entry = make_entry()
-
+    entry = make_entry()  # version=0
     entry.add_to_hass(hass)
 
-    # Load entry into hass
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Start options flow
+    # 🔒 Make sure migration succeeded
+    assert entry.version == 1, "Migration did not complete before options flow"
+
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == "form"
     assert result["step_id"] == STEP_TARGET_MORE
-    assert "flow_id" in result, f"Flow failed unexpectedly: {result}"
-    flow_id = result["flow_id"]  # ✅ Save flow_id here
+    flow_id = result["flow_id"]
 
-    # Continue through options flow to validate prepopulated data
-    result = await hass.config_entries.options.async_configure(
-        flow_id, {"next": "done"}
-    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"next": "done"})
     assert result["step_id"] == "order_targets"
 
-    result = await hass.config_entries.options.async_configure(
-        flow_id, {"priority": ["notify.mobile_app"]}
-    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"priority": ["notify.mobile_app"]})
     assert result["step_id"] == "choose_fallback"
 
-    result = await hass.config_entries.options.async_configure(
-        flow_id, {"fallback": "persistent_notification"}
-    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"fallback": "persistent_notification"})
     assert result["type"] == "create_entry"
     assert entry.options[CONF_FALLBACK] == "notify.persistent_notification"
