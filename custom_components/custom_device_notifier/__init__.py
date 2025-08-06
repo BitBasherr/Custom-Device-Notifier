@@ -154,7 +154,9 @@ class _NotifierService(BaseNotificationService):
 
     async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Always normalize and migrate config entry data, regardless of version."""
-        _LOGGER.debug("Running unconditional migration for %s (v%s)", entry.title, entry.version)
+        _LOGGER.debug(
+            "Running unconditional migration for %s (v%s)", entry.title, entry.version
+        )
 
         data = {**entry.data}  # mutable copy
 
@@ -180,5 +182,7 @@ class _NotifierService(BaseNotificationService):
 
         # Save back even if version is unchanged
         hass.config_entries.async_update_entry(entry, data=data)
-        _LOGGER.info("Config entry for %s migrated/normalized successfully", entry.title)
+        _LOGGER.info(
+            "Config entry for %s migrated/normalized successfully", entry.title
+        )
         return True
