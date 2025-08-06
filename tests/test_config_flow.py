@@ -16,6 +16,7 @@ from custom_components.custom_device_notifier.const import (
 
 pytestmark = pytest.mark.asyncio
 
+
 def make_entry() -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
@@ -29,6 +30,7 @@ def make_entry() -> MockConfigEntry:
             CONF_FALLBACK: "notify.persistent_notification",
         },
     )
+
 
 async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations: None):
     """Walk through a simulated full config flow with minimal inputs (single target, one condition)."""
@@ -143,9 +145,8 @@ async def test_add_target_error_invalid_service(
     assert result["step_id"] == "add_target"
     assert result["errors"]["target_service"] == "must_be_notify"
 
-async def test_options_flow(
-    hass: HomeAssistant, enable_custom_integrations: None
-):
+
+async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: None):
     hass.services.async_register("notify", "mobile_app", lambda msg: None)
     hass.services.async_register("notify", "persistent_notification", lambda msg: None)
 
