@@ -416,7 +416,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         return CustomDeviceNotifierOptionsFlowHandler(config_entry)
-    
+
+
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Custom Device Notifier."""
 
@@ -432,28 +433,46 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     # Copy or delegate to existing step methods from your main config flow:
     async def async_step_add_target(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_add_target(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_add_target(
+            self, user_input
+        )
 
     async def async_step_condition_more(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_condition_more(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_condition_more(
+            self, user_input
+        )
 
     async def async_step_add_condition_entity(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_entity(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_entity(
+            self, user_input
+        )
 
     async def async_step_add_condition_value(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_value(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_value(
+            self, user_input
+        )
 
     async def async_step_remove_condition(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_remove_condition(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_remove_condition(
+            self, user_input
+        )
 
     async def async_step_match_mode(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_match_mode(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_match_mode(
+            self, user_input
+        )
 
     async def async_step_target_more(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_target_more(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_target_more(
+            self, user_input
+        )
 
     async def async_step_order_targets(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_order_targets(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_order_targets(
+            self, user_input
+        )
 
     async def async_step_choose_fallback(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_choose_fallback(self, user_input)
+        return await CustomDeviceNotifierConfigFlow.async_step_choose_fallback(
+            self, user_input
+        )
