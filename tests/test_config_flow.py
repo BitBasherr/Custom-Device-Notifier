@@ -135,6 +135,7 @@ async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: Non
     """Test the options flow for Custom Device Notifier."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=1,
         title="Test Notifier",
         data={
             CONF_SERVICE_NAME: "test_notifier",
@@ -164,6 +165,8 @@ async def test_options_flow_reuses_existing_config(
 
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=1,
+        title="Test Notifier",
         data={
             CONF_SERVICE_NAME: "test_notifier",
             CONF_SERVICE_NAME_RAW: "Test Notifier",
