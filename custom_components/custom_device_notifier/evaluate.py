@@ -78,7 +78,11 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
                     continue
 
                 if operator == "==":
-                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
+                    ha_cfg = {
+                        "condition": "state",
+                        "entity_id": [eid],
+                        "state": str(value),
+                    }
                 elif operator == "!=":
                     ha_cfg = {
                         "condition": "template",
@@ -91,12 +95,17 @@ async def evaluate_condition(hass: HomeAssistant, cfg: Mapping[str, Any]) -> boo
 
             else:
                 if operator == "==":
-                    ha_cfg = {"condition": "state", "entity_id": [eid], "state": str(value)}
+                    ha_cfg = {
+                        "condition": "state",
+                        "entity_id": [eid],
+                        "state": str(value),
+                    }
                 elif operator == "!=":
                     ha_cfg = {
                         "condition": "template",
                         "value_template": Template(
-                            f"{{{{ (states('{eid}') | float) != ({value} | float) }}}}", hass
+                            f"{{{{ (states('{eid}') | float) != ({value} | float) }}}}",
+                            hass,
                         ),
                     }
                 elif operator == ">":
