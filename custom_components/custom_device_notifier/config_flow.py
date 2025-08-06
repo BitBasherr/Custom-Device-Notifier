@@ -95,7 +95,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_condition_more()
 
         schema = vol.Schema(
