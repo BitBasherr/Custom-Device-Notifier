@@ -8,7 +8,6 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.config_entries import ConfigEntry
 
 try:  # ≥2025.7
     from homeassistant.helpers.text import slugify
@@ -140,14 +139,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: add_condition_value ───
     async def async_step_add_condition_value(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         eid = self._working_condition["entity_id"]
         st = self.hass.states.get(eid)
 
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
             self._working_condition.update(
-                operator=user_input["operator"],
-                value=str(final_value)
+                operator=user_input["operator"], value=str(final_value)
             )
             self._working_target[KEY_CONDITIONS].append(self._working_condition)
             self._working_condition = None
@@ -173,17 +172,33 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {"select": {"options": _OPS_NUM}}
                     ),
                     vol.Required("value_choice", default="current"): selector(
-                        {"select": {"options": [
-                            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
-                            {"value": "manual", "label": "Enter manually"},
-                        ]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {
+                                        "value": "current",
+                                        "label": f"Current state: {st.state}"
+                                        if st
+                                        else "Current (unknown)",
+                                    },
+                                    {"value": "manual", "label": "Enter manually"},
+                                ]
+                            }
+                        }
                     ),
-                    vol.Optional("value", default=float(st.state) if st else 0): selector(num_sel),
+                    vol.Optional(
+                        "value", default=float(st.state) if st else 0
+                    ): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
         else:
-            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
+            opts = [
+                st.state if st else "",
+                "unknown or unavailable",
+                "unknown",
+                "unavailable",
+            ]
             uniq = list(dict.fromkeys(opts))  # remove dups, keep order
             schema = vol.Schema(
                 {
@@ -191,12 +206,23 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {"select": {"options": _OPS_STR}}
                     ),
                     vol.Required("value_choice", default="current"): selector(
-                        {"select": {"options": [
-                            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
-                            {"value": "manual", "label": "Enter manually"},
-                        ]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {
+                                        "value": "current",
+                                        "label": f"Current state: {st.state}"
+                                        if st
+                                        else "Current (unknown)",
+                                    },
+                                    {"value": "manual", "label": "Enter manually"},
+                                ]
+                            }
+                        }
                     ),
-                    vol.Optional("value", default=uniq[0]): selector({"select": {"options": uniq}}),
+                    vol.Optional("value", default=uniq[0]): selector(
+                        {"select": {"options": uniq}}
+                    ),
                     vol.Optional("manual_value"): str,
                 }
             )
