@@ -85,7 +85,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_target(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         notify_services = self.hass.services.async_services().get("notify", {})
-        services = sorted(notify_services)
 
         if user_input is not None:
             svc = user_input["target_service"]
