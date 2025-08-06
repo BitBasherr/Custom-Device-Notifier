@@ -40,7 +40,7 @@ class CurrentTargetSensor(SensorEntity):
         slug = data[CONF_SERVICE_NAME]
         self._attr_name = f"{raw_name} Current Target"
         self._attr_unique_id = f"{slug}_current_target"
-        self._state = None
+        self._attr_native_value = None  # Correct attribute for state
         self._unsub = None
 
     async def async_added_to_hass(self):
@@ -65,6 +65,8 @@ class CurrentTargetSensor(SensorEntity):
         self.hass.async_create_task(self._async_evaluate_and_update())
 
     async def _async_evaluate_and_update(self):
+        new_value = self._fallback  # Default to fallback initially
+
         for svc_id in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:
@@ -75,9 +77,11 @@ class CurrentTargetSensor(SensorEntity):
             )
             matched = all(results) if mode == "all" else any(results)
             if matched:
-                self._state = svc_id
+                new_value = svc_id
                 break
-        else:
-            self._state = self._fallback
 
+        if new_value.startswith("notify."):
+            new_value = new_value[len("notify."):]
+
+        self._attr_native_value = new_value
         self.async_write_ha_state()
