@@ -106,7 +106,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": service_options,
-                            "custom_value": True,  # ← allows test’s “invalid_service”
+                            "custom_value": True,
                         }
                     }
                 )
@@ -199,7 +199,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "unknown",
                 "unavailable",
             ]
-            uniq = list(dict.fromkeys(opts))  # remove dups, keep order
+            uniq = list(dict.fromkeys(opts))
             schema = vol.Schema(
                 {
                     vol.Required("operator", default="=="): selector(
@@ -417,21 +417,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return CustomDeviceNotifierOptionsFlowHandler(config_entry)
 
 
+# ─────────────── OPTIONS FLOW HANDLER ───────────────
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
-    """Options flow to edit existing Custom Device Notifier entries."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry):
-        self.config_entry = config_entry
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self._config_entry = config_entry
         self._data = dict(config_entry.data)
         self._targets = list(config_entry.data.get(CONF_TARGETS, []))
         self._working_target = None
         self._working_condition = None
 
-    async def async_step_init(self, user_input=None):
-        """Start the options flow."""
-        return await self.async_step_target_more()
-
-    # Delegate and reuse existing methods from your main flow by instantiating it internally
     def _create_flow(self):
         flow = CustomDeviceNotifierConfigFlow()
         flow.hass = self.hass
@@ -440,6 +434,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         flow._working_target = self._working_target
         flow._working_condition = self._working_condition
         return flow
+
+    def _sync_flow(self, flow):
+        self._data = flow._data
+        self._targets = flow._targets
+        self._working_target = flow._working_target
+        self._working_condition = flow._working_condition
+
+    async def async_step_init(self, user_input=None):
+        return await self.async_step_target_more()
 
     async def async_step_target_more(self, user_input=None):
         flow = self._create_flow()
@@ -493,16 +496,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         flow = self._create_flow()
         result = await flow.async_step_choose_fallback(user_input)
         self._sync_flow(flow)
-
-        # Detect final create entry step and update options instead of creating new entry
         if result["type"] == "create_entry":
             return self.async_create_entry(title="", data=self._data)
-
         return result
-
-    def _sync_flow(self, flow):
-        """Synchronize data from internal flow back to options flow."""
-        self._data = flow._data
-        self._targets = flow._targets
-        self._working_target = flow._working_target
-        self._working_condition = flow._working_condition
