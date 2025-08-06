@@ -8,6 +8,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.config_entries import ConfigEntry
 
 try:  # ≥2025.7
     from homeassistant.helpers.text import slugify
@@ -414,8 +415,45 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        flow = CustomDeviceNotifierConfigFlow()
-        flow.hass = config_entry.hass  # type: ignore[assignment]
-        flow._data = dict(config_entry.data)
-        flow._targets = list(config_entry.data.get(CONF_TARGETS, []))
-        return flow
+        return CustomDeviceNotifierOptionsFlowHandler(config_entry)
+    
+class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for Custom Device Notifier."""
+
+    def __init__(self, config_entry: ConfigEntry):
+        self.config_entry = config_entry
+        self._data = dict(config_entry.data)
+        self._targets = list(config_entry.data.get(CONF_TARGETS, []))
+
+    async def async_step_init(self, user_input=None):
+        """Start the options flow by delegating to main config flow."""
+        # Reuse your main flow logic here:
+        return await self.async_step_add_target(user_input)
+
+    # Copy or delegate to existing step methods from your main config flow:
+    async def async_step_add_target(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_add_target(self, user_input)
+
+    async def async_step_condition_more(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_condition_more(self, user_input)
+
+    async def async_step_add_condition_entity(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_entity(self, user_input)
+
+    async def async_step_add_condition_value(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_value(self, user_input)
+
+    async def async_step_remove_condition(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_remove_condition(self, user_input)
+
+    async def async_step_match_mode(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_match_mode(self, user_input)
+
+    async def async_step_target_more(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_target_more(self, user_input)
+
+    async def async_step_order_targets(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_order_targets(self, user_input)
+
+    async def async_step_choose_fallback(self, user_input=None):
+        return await CustomDeviceNotifierConfigFlow.async_step_choose_fallback(self, user_input)
