@@ -99,7 +99,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_condition_more()
 
         schema = vol.Schema(
@@ -119,9 +122,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
         if not user_input:
             schema = vol.Schema(
-                {vol.Required("entity"): selector({"entity": {"domain": ENTITY_DOMAINS}})}
+                {
+                    vol.Required("entity"): selector(
+                        {"entity": {"domain": ENTITY_DOMAINS}}
+                    )
+                }
             )
-            return self.async_show_form(step_id=STEP_ADD_COND_ENTITY, data_schema=schema)
+            return self.async_show_form(
+                step_id=STEP_ADD_COND_ENTITY, data_schema=schema
+            )
         self._working_condition = {"entity_id": user_input["entity"]}
         return await self.async_step_add_condition_value()
 
@@ -163,7 +172,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             )
         else:
-            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
+            opts = [
+                st.state if st else "",
+                "unknown or unavailable",
+                "unknown",
+                "unavailable",
+            ]
             final: list[str] = []
             seen: set[str] = set()
             for o in opts:
@@ -194,7 +208,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 case "done":
                     return await self.async_step_match_mode()
         conds = self._working_target[KEY_CONDITIONS]
-        cond_list = "\n".join(f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds) or "No conditions yet"
+        cond_list = (
+            "\n".join(f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds)
+            or "No conditions yet"
+        )
         schema = vol.Schema(
             {
                 vol.Required("choice", default="add"): selector(
