@@ -470,7 +470,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-
         if user_input:
             next_choice = user_input["next"]
             if next_choice == "add":
@@ -568,7 +567,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_choose_fallback(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-
         notify_svcs = self.hass.services.async_services().get("notify", {})
         errors: dict[str, str] = {}
 
@@ -1002,7 +1000,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-
         if user_input:
             next_choice = user_input["next"]
             if next_choice == "add":
@@ -1100,7 +1097,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_choose_fallback(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-
         notify_svcs = self.hass.services.async_services().get("notify", {})
         errors: dict[str, str] = {}
 
