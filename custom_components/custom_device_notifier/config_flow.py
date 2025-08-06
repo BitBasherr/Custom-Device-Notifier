@@ -140,14 +140,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: add_condition_value ───
     async def async_step_add_condition_value(self, user_input=None):
         from homeassistant.helpers.selector import selector
-
         eid = self._working_condition["entity_id"]
         st = self.hass.states.get(eid)
 
         if user_input:
+            val_choice = user_input["value_choice"]
             final_value = user_input.get("manual_value") or user_input.get("value")
             self._working_condition.update(
-                operator=user_input["operator"], value=str(final_value)
+                operator=user_input["operator"],
+                value=str(final_value)
             )
             self._working_target[KEY_CONDITIONS].append(self._working_condition)
             self._working_condition = None
@@ -173,33 +174,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {"select": {"options": _OPS_NUM}}
                     ),
                     vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                        {"select": {"options": [
+                            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                            {"value": "manual", "label": "Enter manually"},
+                        ]}}
                     ),
-                    vol.Optional(
-                        "value", default=float(st.state) if st else 0
-                    ): selector(num_sel),
+                    vol.Optional("value", default=float(st.state) if st else 0): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
+            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
             uniq = list(dict.fromkeys(opts))  # remove dups, keep order
             schema = vol.Schema(
                 {
@@ -207,23 +192,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {"select": {"options": _OPS_STR}}
                     ),
                     vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                        {"select": {"options": [
+                            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                            {"value": "manual", "label": "Enter manually"},
+                        ]}}
                     ),
-                    vol.Optional("value", default=uniq[0]): selector(
-                        {"select": {"options": uniq}}
-                    ),
+                    vol.Optional("value", default=uniq[0]): selector({"select": {"options": uniq}}),
                     vol.Optional("manual_value"): str,
                 }
             )
@@ -419,60 +393,91 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for Custom Device Notifier."""
+    """Options flow to edit existing Custom Device Notifier entries."""
 
-    def __init__(self, config_entry: ConfigEntry):
+    def __init__(self, config_entry: config_entries.ConfigEntry):
         self.config_entry = config_entry
         self._data = dict(config_entry.data)
         self._targets = list(config_entry.data.get(CONF_TARGETS, []))
+        self._working_target = None
+        self._working_condition = None
 
     async def async_step_init(self, user_input=None):
-        """Start the options flow by delegating to main config flow."""
-        # Reuse your main flow logic here:
-        return await self.async_step_add_target(user_input)
+        """Start the options flow."""
+        return await self.async_step_target_more()
 
-    # Copy or delegate to existing step methods from your main config flow:
-    async def async_step_add_target(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_add_target(
-            self, user_input
-        )
-
-    async def async_step_condition_more(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_condition_more(
-            self, user_input
-        )
-
-    async def async_step_add_condition_entity(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_entity(
-            self, user_input
-        )
-
-    async def async_step_add_condition_value(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_add_condition_value(
-            self, user_input
-        )
-
-    async def async_step_remove_condition(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_remove_condition(
-            self, user_input
-        )
-
-    async def async_step_match_mode(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_match_mode(
-            self, user_input
-        )
+    # Delegate and reuse existing methods from your main flow by instantiating it internally
+    def _create_flow(self):
+        flow = CustomDeviceNotifierConfigFlow()
+        flow.hass = self.hass
+        flow._data = self._data
+        flow._targets = self._targets
+        flow._working_target = self._working_target
+        flow._working_condition = self._working_condition
+        return flow
 
     async def async_step_target_more(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_target_more(
-            self, user_input
-        )
+        flow = self._create_flow()
+        result = await flow.async_step_target_more(user_input)
+        self._sync_flow(flow)
+        return result
+
+    async def async_step_add_target(self, user_input=None):
+        flow = self._create_flow()
+        result = await flow.async_step_add_target(user_input)
+        self._sync_flow(flow)
+        return result
+
+    async def async_step_condition_more(self, user_input=None):
+        flow = self._create_flow()
+        result = await flow.async_step_condition_more(user_input)
+        self._sync_flow(flow)
+        return result
+
+    async def async_step_add_condition_entity(self, user_input=None):
+        flow = self._create_flow()
+        result = await flow.async_step_add_condition_entity(user_input)
+        self._sync_flow(flow)
+        return result
+
+    async def async_step_add_condition_value(self, user_input=None):
+        flow = self._create_flow()
+        result = await flow.async_step_add_condition_value(user_input)
+        self._sync_flow(flow)
+        return result
+
+    async def async_step_remove_condition(self, user_input=None):
+        flow = self._create_flow()
+        result = await flow.async_step_remove_condition(user_input)
+        self._sync_flow(flow)
+        return result
+
+    async def async_step_match_mode(self, user_input=None):
+        flow = self._create_flow()
+        result = await flow.async_step_match_mode(user_input)
+        self._sync_flow(flow)
+        return result
 
     async def async_step_order_targets(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_order_targets(
-            self, user_input
-        )
+        flow = self._create_flow()
+        result = await flow.async_step_order_targets(user_input)
+        self._sync_flow(flow)
+        return result
 
     async def async_step_choose_fallback(self, user_input=None):
-        return await CustomDeviceNotifierConfigFlow.async_step_choose_fallback(
-            self, user_input
-        )
+        flow = self._create_flow()
+        result = await flow.async_step_choose_fallback(user_input)
+        self._sync_flow(flow)
+
+        # Detect final create entry step and update options instead of creating new entry
+        if result["type"] == "create_entry":
+            return self.async_create_entry(title="", data=self._data)
+
+        return result
+
+    def _sync_flow(self, flow):
+        """Synchronize data from internal flow back to options flow."""
+        self._data = flow._data
+        self._targets = flow._targets
+        self._working_target = flow._working_target
+        self._working_condition = flow._working_condition
