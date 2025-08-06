@@ -92,7 +92,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:  # pragma: no cover – log & signal failure
         _LOGGER.exception("Error setting up %s", DOMAIN)
         return False
+    
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Always normalize and migrate config entry data, regardless of version."""
+    _LOGGER.debug("Running unconditional migration for %s (v%s)", entry.title, entry.version)
 
+    data = {**entry.data}  # mutable copy
+
+    # Normalize fallback
+    fallback = data.get(CONF_FALLBACK)
+    if isinstance(fallback, str) and "." in fallback:
+        domain, name = fallback.split(".", 1)
+        data[CONF_FALLBACK] = f"{domain.strip().lower()}.{name.strip()}"
+
+    # Normalize priority list
+    if CONF_PRIORITY in data:
+        data[CONF_PRIORITY] = [svc.strip().lower() for svc in data[CONF_PRIORITY]]
+
+    # Normalize targets
+    normalized_targets = []
+    for tgt in data.get(CONF_TARGETS, []):
+        new_tgt = dict(tgt)
+        new_tgt.setdefault(KEY_MATCH, "all")
+        new_tgt.setdefault(KEY_CONDITIONS, [])
+        new_tgt[KEY_SERVICE] = new_tgt[KEY_SERVICE].strip().lower()
+        normalized_targets.append(new_tgt)
+    data[CONF_TARGETS] = normalized_targets
+
+    # Save back even if version is unchanged
+    hass.config_entries.async_update_entry(entry, data=data)
+    _LOGGER.info("Config entry for %s migrated/normalized successfully", entry.title)
+    return True
 
 # ---------- service implementation ----------------------------------------
 
@@ -151,38 +181,3 @@ class _NotifierService(BaseNotificationService):
         dom, name = self._fallback.split(".", 1)
         _LOGGER.debug("  → fallback to %s.%s", dom, name)
         await self.hass.services.async_call(dom, name, data, blocking=True)
-
-    async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-        """Always normalize and migrate config entry data, regardless of version."""
-        _LOGGER.debug(
-            "Running unconditional migration for %s (v%s)", entry.title, entry.version
-        )
-
-        data = {**entry.data}  # mutable copy
-
-        # Normalize fallback
-        fallback = data.get(CONF_FALLBACK)
-        if isinstance(fallback, str) and "." in fallback:
-            domain, name = fallback.split(".", 1)
-            data[CONF_FALLBACK] = f"{domain.strip().lower()}.{name.strip()}"
-
-        # Normalize priority list
-        if CONF_PRIORITY in data:
-            data[CONF_PRIORITY] = [svc.strip().lower() for svc in data[CONF_PRIORITY]]
-
-        # Normalize targets
-        normalized_targets = []
-        for tgt in data.get(CONF_TARGETS, []):
-            new_tgt = dict(tgt)
-            new_tgt.setdefault(KEY_MATCH, "all")
-            new_tgt.setdefault(KEY_CONDITIONS, [])
-            new_tgt[KEY_SERVICE] = new_tgt[KEY_SERVICE].strip().lower()
-            normalized_targets.append(new_tgt)
-        data[CONF_TARGETS] = normalized_targets
-
-        # Save back even if version is unchanged
-        hass.config_entries.async_update_entry(entry, data=data)
-        _LOGGER.info(
-            "Config entry for %s migrated/normalized successfully", entry.title
-        )
-        return True
