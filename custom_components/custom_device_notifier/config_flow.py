@@ -92,13 +92,16 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_condition_more()
 
-        schema = vol.Schema({vol.Required("target_service"): vol.In(services)})
+        schema = vol.Schema(
+            {
+                vol.Required("target_service"): selector(
+                    {"service": {"domain": "notify"}}
+                )
+            }
+        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
@@ -188,10 +191,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         current_conditions = self._working_target[KEY_CONDITIONS]
         cond_list = (
             "\n".join(
-                [
-                    f"- {c['entity_id']} {c['operator']} {c['value']}"
-                    for c in current_conditions
-                ]
+                [f"- {c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]
             )
             or "No conditions yet"
         )
@@ -220,9 +220,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_remove_condition(self, user_input=None):
         errors = {}
         current_conditions = self._working_target[KEY_CONDITIONS]
-        opts = [
-            f"{c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions
-        ]
+        opts = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in current_conditions]
 
         if user_input is not None:
             to_remove = user_input.get("conditions_to_remove", [])
@@ -304,7 +302,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("priority", default=opts): selector(
-                    {"multi_select": {"options": opts}}
+                    {"select": {"options": opts, "multiple": True}}
                 )
             }
         )
