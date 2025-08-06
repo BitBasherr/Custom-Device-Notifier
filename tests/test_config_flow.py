@@ -145,6 +145,7 @@ async def test_add_target_error_invalid_service(
     assert result["step_id"] == "add_target"
     assert result["errors"]["target_service"] == "must_be_notify"
 
+
 async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: None):
     """Test that the options flow preserves and updates config."""
     hass.services.async_register("notify", "mobile_app", lambda msg: None)
@@ -164,12 +165,18 @@ async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: Non
     assert result["step_id"] == STEP_TARGET_MORE
     flow_id = result["flow_id"]
 
-    result = await hass.config_entries.options.async_configure(flow_id, {"next": "done"})
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"next": "done"}
+    )
     assert result["step_id"] == "order_targets"
 
-    result = await hass.config_entries.options.async_configure(flow_id, {"priority": ["notify.mobile_app"]})
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"priority": ["notify.mobile_app"]}
+    )
     assert result["step_id"] == "choose_fallback"
 
-    result = await hass.config_entries.options.async_configure(flow_id, {"fallback": "persistent_notification"})
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"fallback": "persistent_notification"}
+    )
     assert result["type"] == "create_entry"
     assert entry.options[CONF_FALLBACK] == "notify.persistent_notification"
