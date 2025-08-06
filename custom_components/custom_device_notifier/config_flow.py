@@ -143,7 +143,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         st = self.hass.states.get(eid)
 
         if user_input:
-            val_choice = user_input["value_choice"]
             final_value = user_input.get("manual_value") or user_input.get("value")
             self._working_condition.update(
                 operator=user_input["operator"],
