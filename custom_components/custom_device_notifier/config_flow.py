@@ -92,7 +92,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_condition_more()
 
         target_field = vol.Any(  # dropdown for UI, plain str for tests
@@ -108,9 +111,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_condition_entity(self, user_input=None):
         if not user_input:
             schema = vol.Schema(
-                {vol.Required("entity"): selector({"entity": {"domain": ENTITY_DOMAINS}})}
+                {
+                    vol.Required("entity"): selector(
+                        {"entity": {"domain": ENTITY_DOMAINS}}
+                    )
+                }
             )
-            return self.async_show_form(step_id=STEP_ADD_COND_ENTITY, data_schema=schema)
+            return self.async_show_form(
+                step_id=STEP_ADD_COND_ENTITY, data_schema=schema
+            )
 
         self._working_condition = {"entity_id": user_input["entity"]}
         return await self.async_step_add_condition_value()
@@ -152,7 +161,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             )
         else:
-            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
+            opts = [
+                st.state if st else "",
+                "unknown or unavailable",
+                "unknown",
+                "unavailable",
+            ]
             seen: set[str] = set()
             final = [o for o in opts if not (o in seen or seen.add(o))]
             schema = vol.Schema(
@@ -179,9 +193,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_match_mode()
 
         conds = self._working_target[KEY_CONDITIONS]
-        cond_list = "\n".join(
-            f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-        ) or "No conditions yet"
+        cond_list = (
+            "\n".join(f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds)
+            or "No conditions yet"
+        )
 
         schema = vol.Schema(
             {
@@ -304,7 +319,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 fb_field = vol.Any(selector({"select": {"options": svc_opts}}), str)
                 return self.async_show_form(
                     step_id=STEP_CHOOSE_FALLBACK,
-                    data_schema=vol.Schema({vol.Required("fallback", default=fb): fb_field}),
+                    data_schema=vol.Schema(
+                        {vol.Required("fallback", default=fb): fb_field}
+                    ),
                     errors={"fallback": "must_be_notify"},
                 )
 
@@ -314,7 +331,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         default_fb = (
-            self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else None
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else None
         )
         fb_field = vol.Any(selector({"select": {"options": svc_opts}}), str)
         schema = vol.Schema({vol.Required("fallback", default=default_fb): fb_field})
