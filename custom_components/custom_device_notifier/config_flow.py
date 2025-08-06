@@ -91,13 +91,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             if not errors:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_condition_more()
 
         schema = vol.Schema(
             {
                 # service selector gives a dropdown but still lets tests send arbitrary strings
-                vol.Required("target_service"): selector({"service": {"domain": "notify"}})
+                vol.Required("target_service"): selector(
+                    {"service": {"domain": "notify"}}
+                )
             }
         )
         return self.async_show_form(
