@@ -320,7 +320,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("fallback", default=default_fb): selector({"text": {}})
-                )
             }
         )
         return self.async_show_form(
