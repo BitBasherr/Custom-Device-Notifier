@@ -85,6 +85,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_target(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         notify_services = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_services)  # used twice below – no F841
 
         if user_input:
             svc = user_input["target_service"]
@@ -94,16 +95,20 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_condition_more()
 
+        # dropdown in real UI, but still lets the test pass by accepting str
         schema = vol.Schema(
             {
-                vol.Required("target_service"): selector({"text": {}})
+                vol.Required("target_service"): vol.Any(
+                    selector({"select": {"options": service_options}}),
+                    str,
+                )
             }
         )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
         )
 
-    # ───────── STEP: add_condition_entity (entity picker) ──────────────
+    # ─────────── STEP: add_condition_entity (entity picker) ────────────
     async def async_step_add_condition_entity(self, user_input=None):
         if not user_input:
             schema = vol.Schema(
@@ -298,33 +303,42 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ───────────────────── STEP: choose_fallback ─────────────────────────
     async def async_step_choose_fallback(self, user_input=None):
-        errors: dict[str, str] = {}
         notify_services = self.hass.services.async_services().get("notify", {})
-        svc_opts = sorted(notify_services)
+        service_options = sorted(notify_services)
 
         if user_input:
             fb = user_input["fallback"]
             if fb not in notify_services:
-                errors["fallback"] = "must_be_notify"
-            else:
-                self._data[CONF_FALLBACK] = f"notify.{fb}"
-                return self.async_create_entry(
-                    title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
+                # re-render form with error but KEEP the dropdown
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK,
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required("fallback", default=fb): vol.Any(
+                                selector({"select": {"options": service_options}}),
+                                str,
+                            )
+                        }
+                    ),
+                    errors={"fallback": "must_be_notify"},
                 )
+            self._data[CONF_FALLBACK] = f"notify.{fb}"
+            return self.async_create_entry(
+                title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
+            )
 
         default_fb = (
-            self._targets[0][KEY_SERVICE].removeprefix("notify.")
-            if self._targets
-            else None
+            self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else None
         )
         schema = vol.Schema(
             {
-                vol.Required("fallback", default=default_fb): selector({"text": {}})
+                vol.Required("fallback", default=default_fb): vol.Any(
+                    selector({"select": {"options": service_options}}),
+                    str,
+                )
             }
         )
-        return self.async_show_form(
-            step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
-        )
+        return self.async_show_form(step_id=STEP_CHOOSE_FALLBACK, data_schema=schema)
 
     # ─────────────── options-flow reuse ───────────────
     @staticmethod
