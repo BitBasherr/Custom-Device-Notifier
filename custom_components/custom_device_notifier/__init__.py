@@ -24,6 +24,7 @@ from .const import (
     KEY_SERVICE,
 )
 from .evaluate import evaluate_condition
+from .config_flow import CustomDeviceNotifierOptionsFlowHandler  # ✅ Add this import
 
 _LOGGER: Final = logging.getLogger(DOMAIN)
 
@@ -84,6 +85,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             handle_evaluate,
             vol.Schema({vol.Optional("entry_id"): str}),
         )
+
+        # ✅ Enable options flow support
+        entry.options_flow_class = CustomDeviceNotifierOptionsFlowHandler
 
         # Forward any companion platforms (e.g. sensor/)
         await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
