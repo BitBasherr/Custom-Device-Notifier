@@ -3,10 +3,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "Create a custom notify service"
+        "title": "Create a custom notify service",
+        "data": {
+          "service_name_raw": "Notifier name"
+        }
       },
       "add_target": {
-        "title": "Add a notify target"
+        "title": "Add a notify target",
+        "data": {
+          "target_service": "Notify service"
+        }
       },
       "add_condition": {
         "title": "Add a condition to this target"
@@ -25,11 +31,14 @@
         "title": "Set priority of notify targets"
       },
       "choose_fallback": {
-        "title": "Choose fallback service"
+        "title": "Choose fallback service",
+        "data": {
+          "fallback": "Fallback notify service"
+        }
       }
     },
     "error": {
-      "must_be_notify": "Must be a notify service (e.g., notify.mobile_app_phone).",
+      "must_be_notify": "Must be a notify service (e.g. notify.mobile_app_phone).",
       "no_targets": "At least one target is required.",
       "unknown": "An unexpected error occurred. Check the logs for details."
     }

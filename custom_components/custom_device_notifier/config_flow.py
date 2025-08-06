@@ -83,25 +83,27 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ───────────────────────── STEP: add_target ─────────────────────────
     async def async_step_add_target(self, user_input: dict[str, Any] | None = None):
-        notify_services = self.hass.services.async_services().get("notify", {})
         errors: dict[str, str] = {}
+        notify_services = self.hass.services.async_services().get("notify", {})
 
         if user_input:
             svc = user_input["target_service"]
             if svc not in notify_services:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return await self.async_step_condition_more()
 
-        # NOTE: use plain `str` so even an invalid entry passes schema
-        # validation and we can surface a friendly “must_be_notify” error.
-        schema = vol.Schema({vol.Required("target_service"): str})
-        return self.async_show_form(
-            step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
+        schema = vol.Schema(
+            {
+                vol.Required("target_service"): selector(
+                    {
+                        "text": {
+                            "suggestions": sorted(notify_services)
+                        }
+                    }
+                )
+            }
         )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET, data_schema=schema, errors=errors
@@ -111,15 +113,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_condition_entity(self, user_input=None):
         if not user_input:
             schema = vol.Schema(
-                {
-                    vol.Required("entity"): selector(
-                        {"entity": {"domain": ENTITY_DOMAINS}}
-                    )
-                }
+                {vol.Required("entity"): selector({"entity": {"domain": ENTITY_DOMAINS}})}
             )
-            return self.async_show_form(
-                step_id=STEP_ADD_COND_ENTITY, data_schema=schema
-            )
+            return self.async_show_form(step_id=STEP_ADD_COND_ENTITY, data_schema=schema)
 
         self._working_condition = {"entity_id": user_input["entity"]}
         return await self.async_step_add_condition_value()
@@ -155,18 +151,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default=">"): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required(
-                        "value", default=float(st.state) if st else 0
-                    ): vol.All(selector(num_sel), vol.Coerce(str)),
+                    vol.Required("value", default=float(st.state) if st else 0): vol.All(
+                        selector(num_sel), vol.Coerce(str)
+                    ),
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
+            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
             final: list[str] = []
             seen: set[str] = set()
             for o in opts:
@@ -198,10 +189,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self.async_step_match_mode()
 
         conds = self._working_target[KEY_CONDITIONS]
-        cond_list = (
-            "\n".join(f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds)
-            or "No conditions yet"
-        )
+        cond_list = "\n".join(
+            f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
+        ) or "No conditions yet"
 
         schema = vol.Schema(
             {
@@ -314,28 +304,19 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ───────────────────── STEP: choose_fallback ─────────────────────────
     async def async_step_choose_fallback(self, user_input=None):
+        errors: dict[str, str] = {}
         notify_services = self.hass.services.async_services().get("notify", {})
         svc_opts = sorted(notify_services)
 
         if user_input:
             fb = user_input["fallback"]
             if fb not in notify_services:
-                return self.async_show_form(
-                    step_id=STEP_CHOOSE_FALLBACK,
-                    data_schema=vol.Schema(
-                        {
-                            vol.Required("fallback", default=fb): selector(
-                                {"select": {"options": svc_opts}}
-                            )
-                        }
-                    ),
-                    errors={"fallback": "must_be_notify"},
+                errors["fallback"] = "must_be_notify"
+            else:
+                self._data[CONF_FALLBACK] = f"notify.{fb}"
+                return self.async_create_entry(
+                    title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
-            # store the full service id just like we did for targets
-            self._data[CONF_FALLBACK] = f"notify.{fb}"
-            return self.async_create_entry(
-                title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
-            )
 
         default_fb = (
             self._targets[0][KEY_SERVICE].removeprefix("notify.")
@@ -345,11 +326,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("fallback", default=default_fb): selector(
-                    {"select": {"options": svc_opts}}
+                    {
+                        "text": {
+                            "suggestions": svc_opts
+                        }
+                    }
                 )
             }
         )
-        return self.async_show_form(step_id=STEP_CHOOSE_FALLBACK, data_schema=schema)
+        return self.async_show_form(
+            step_id=STEP_CHOOSE_FALLBACK, data_schema=schema, errors=errors
+        )
 
     # ─────────────── options-flow reuse ───────────────
     @staticmethod
