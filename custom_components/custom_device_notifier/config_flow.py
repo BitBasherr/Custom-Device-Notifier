@@ -1,4 +1,5 @@
 """Config flow for Custom Device Notifier."""
+
 from __future__ import annotations
 
 import logging
@@ -93,7 +94,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 return await self.async_step_condition_more()
 
         schema = vol.Schema(
@@ -102,7 +106,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": service_options,
-                            "custom_value": True,   # ← allows test’s “invalid_service”
+                            "custom_value": True,  # ← allows test’s “invalid_service”
                         }
                     }
                 )
@@ -117,11 +121,16 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: add_condition_entity ───
     async def async_step_add_condition_entity(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         if not user_input:
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
-                    {vol.Required("entity"): selector({"entity": {"domain": ENTITY_DOMAINS}})}
+                    {
+                        vol.Required("entity"): selector(
+                            {"entity": {"domain": ENTITY_DOMAINS}}
+                        )
+                    }
                 ),
             )
         self._working_condition = {"entity_id": user_input["entity"]}
@@ -130,6 +139,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: add_condition_value ───
     async def async_step_add_condition_value(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         eid = self._working_condition["entity_id"]
         st = self.hass.states.get(eid)
 
@@ -160,9 +170,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default=">"): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value", default=float(st.state) if st else 0): vol.All(
-                        selector(num_sel), vol.Coerce(str)
-                    ),
+                    vol.Required(
+                        "value", default=float(st.state) if st else 0
+                    ): vol.All(selector(num_sel), vol.Coerce(str)),
                 }
             )
         else:
@@ -189,6 +199,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: condition_more ───
     async def async_step_condition_more(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         if user_input:
             match user_input["choice"]:
                 case "add":
@@ -228,6 +239,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: remove_condition ───
     async def async_step_remove_condition(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         conds = self._working_target[KEY_CONDITIONS]
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
 
@@ -241,15 +253,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id=STEP_REMOVE_COND,
             data_schema=vol.Schema(
-                {vol.Optional("conditions_to_remove", default=[]): selector(
-                    {"select": {"options": labels, "multiple": True}}
-                )}
+                {
+                    vol.Optional("conditions_to_remove", default=[]): selector(
+                        {"select": {"options": labels, "multiple": True}}
+                    )
+                }
             ),
         )
 
     # ─── STEP: match_mode ───
     async def async_step_match_mode(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             self._targets.append(self._working_target)
@@ -259,18 +274,25 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
-                {vol.Required(CONF_MATCH_MODE, default="all"): selector(
-                    {"select": {"options": [
-                        {"value": "all", "label": "Match all"},
-                        {"value": "any", "label": "Match any"},
-                    ]}}
-                )}
+                {
+                    vol.Required(CONF_MATCH_MODE, default="all"): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "all", "label": "Match all"},
+                                    {"value": "any", "label": "Match any"},
+                                ]
+                            }
+                        }
+                    )
+                }
             ),
         )
 
     # ─── STEP: target_more ───
     async def async_step_target_more(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         if user_input:
             return (
                 await self.async_step_add_target()
@@ -281,36 +303,48 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=vol.Schema(
-                {vol.Required("next", default="add"): selector(
-                    {"select": {"options": [
-                        {"value": "add", "label": "➕ Add target"},
-                        {"value": "done", "label": "✅ Done"},
-                    ]}}
-                )}
+                {
+                    vol.Required("next", default="add"): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "add", "label": "➕ Add target"},
+                                    {"value": "done", "label": "✅ Done"},
+                                ]
+                            }
+                        }
+                    )
+                }
             ),
         )
 
     # ─── STEP: order_targets ───
     async def async_step_order_targets(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         opts = [t[KEY_SERVICE] for t in self._targets]
 
         if user_input:
-            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
+            self._data.update(
+                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
+            )
             return await self.async_step_choose_fallback()
 
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
             data_schema=vol.Schema(
-                {vol.Required("priority", default=opts): selector(
-                    {"select": {"options": opts, "multiple": True}}
-                )}
+                {
+                    vol.Required("priority", default=opts): selector(
+                        {"select": {"options": opts, "multiple": True}}
+                    )
+                }
             ),
         )
 
     # ─── STEP: choose_fallback ───
     async def async_step_choose_fallback(self, user_input=None):
         from homeassistant.helpers.selector import selector
+
         notify_svcs = self.hass.services.async_services().get("notify", {})
         svc_opts = sorted(notify_svcs)
         errors: dict[str, str] = {}
@@ -331,9 +365,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else None
         )
         schema = vol.Schema(
-            {vol.Required("fallback", default=default_fb): selector(
-                {"select": {"options": svc_opts, "custom_value": True}}
-            )}
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": svc_opts, "custom_value": True}}
+                )
+            }
         )
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK,
