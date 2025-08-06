@@ -139,13 +139,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ─── STEP: add_condition_value ───
     async def async_step_add_condition_value(self, user_input=None):
         from homeassistant.helpers.selector import selector
-
         eid = self._working_condition["entity_id"]
         st = self.hass.states.get(eid)
 
         if user_input:
+            val_choice = user_input["value_choice"]
+            final_value = user_input.get("manual_value") or user_input.get("value")
             self._working_condition.update(
-                operator=user_input["operator"], value=str(user_input["value"])
+                operator=user_input["operator"],
+                value=str(final_value)
             )
             self._working_target[KEY_CONDITIONS].append(self._working_condition)
             self._working_condition = None
@@ -170,27 +172,32 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default=">"): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required(
-                        "value", default=float(st.state) if st else 0
-                    ): vol.All(selector(num_sel), vol.Coerce(str)),
+                    vol.Required("value_choice", default="current"): selector(
+                        {"select": {"options": [
+                            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                            {"value": "manual", "label": "Enter manually"},
+                        ]}}
+                    ),
+                    vol.Optional("value", default=float(st.state) if st else 0): selector(num_sel),
+                    vol.Optional("manual_value"): str,
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
-            uniq = list(dict.fromkeys(opts))  # keep order, remove dups
+            opts = [st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]
+            uniq = list(dict.fromkeys(opts))  # remove dups, keep order
             schema = vol.Schema(
                 {
                     vol.Required("operator", default="=="): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value", default=uniq[0]): selector(
-                        {"select": {"options": uniq}}
+                    vol.Required("value_choice", default="current"): selector(
+                        {"select": {"options": [
+                            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                            {"value": "manual", "label": "Enter manually"},
+                        ]}}
                     ),
+                    vol.Optional("value", default=uniq[0]): selector({"select": {"options": uniq}}),
+                    vol.Optional("manual_value"): str,
                 }
             )
 
