@@ -5,13 +5,22 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.custom_device_notifier.const import (
-    CONF_FALLBACK,
-    CONF_PRIORITY,
+    DOMAIN,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
     CONF_TARGETS,
-    DOMAIN,
+    CONF_PRIORITY,
+    CONF_FALLBACK,
+    STEP_USER,
+    STEP_ADD_TARGET,
+    STEP_ADD_COND_ENTITY,
+    STEP_ADD_COND_VALUE,
+    STEP_COND_MORE,
+    STEP_REMOVE_COND,
+    STEP_MATCH_MODE,
     STEP_TARGET_MORE,
+    STEP_ORDER_TARGETS,
+    STEP_CHOOSE_FALLBACK,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -130,7 +139,6 @@ async def test_add_target_error_invalid_service(
     assert result["step_id"] == "add_target"
     assert result["errors"]["target_service"] == "must_be_notify"
 
-
 async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: None):
     """Test the options flow for Custom Device Notifier."""
     entry = MockConfigEntry(
@@ -143,9 +151,11 @@ async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: Non
             CONF_PRIORITY: ["notify.mobile_app"],
             CONF_FALLBACK: "notify.persistent_notification",
         },
-        entry_id="test_entry_id",
+        entry_id="test_entry_id"
     )
     entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
     # Initiate options flow
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -153,10 +163,7 @@ async def test_options_flow(hass: HomeAssistant, enable_custom_integrations: Non
     assert result["type"] == "form"
     assert result["step_id"] == STEP_TARGET_MORE
 
-
-async def test_options_flow_reuses_existing_config(
-    hass: HomeAssistant, enable_custom_integrations: None
-):
+async def test_options_flow_reuses_existing_config(hass: HomeAssistant, enable_custom_integrations: None):
     hass.services.async_register("notify", "mobile_app", lambda msg: None)
     hass.services.async_register("notify", "persistent_notification", lambda msg: None)
 
@@ -165,7 +172,9 @@ async def test_options_flow_reuses_existing_config(
         data={
             CONF_SERVICE_NAME: "test_notifier",
             CONF_SERVICE_NAME_RAW: "Test Notifier",
-            CONF_TARGETS: [{"service": "notify.mobile_app", "conditions": []}],
+            CONF_TARGETS: [
+                {"service": "notify.mobile_app", "conditions": []}
+            ],
             CONF_PRIORITY: ["notify.mobile_app"],
             CONF_FALLBACK: "notify.persistent_notification",
         },
@@ -180,21 +189,16 @@ async def test_options_flow_reuses_existing_config(
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == "form"
     assert result["step_id"] == STEP_TARGET_MORE
+    assert "flow_id" in result, f"Flow failed unexpectedly: {result}"
     flow_id = result["flow_id"]  # ✅ Save flow_id here
 
     # Continue through options flow to validate prepopulated data
-    result = await hass.config_entries.options.async_configure(
-        flow_id, {"next": "done"}
-    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"next": "done"})
     assert result["step_id"] == "order_targets"
 
-    result = await hass.config_entries.options.async_configure(
-        flow_id, {"priority": ["notify.mobile_app"]}
-    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"priority": ["notify.mobile_app"]})
     assert result["step_id"] == "choose_fallback"
 
-    result = await hass.config_entries.options.async_configure(
-        flow_id, {"fallback": "persistent_notification"}
-    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"fallback": "persistent_notification"})
     assert result["type"] == "create_entry"
     assert entry.data[CONF_FALLBACK] == "notify.persistent_notification"
