@@ -208,12 +208,20 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _get_choose_fallback_schema(self) -> vol.Schema:
         """Return the schema for the choose fallback step."""
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
         default_fb = (
             self._targets[0][KEY_SERVICE].removeprefix("notify.")
             if self._targets
             else ""
         )
-        return vol.Schema({vol.Required("fallback", default=default_fb): str})
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": service_options, "custom_value": True}}
+                )
+            }
+        )
 
     # ───────── STEP: user ─────────
     async def async_step_user(
@@ -247,10 +255,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -259,7 +264,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id=STEP_ADD_TARGET,
-            data_schema=vol.Schema({vol.Required("target_service"): str}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("target_service"): selector(
+                        {"select": {"options": service_options, "custom_value": True}}
+                    )
+                }
+            ),
             errors=errors,
             description_placeholders={"available_services": ", ".join(service_options)},
         )
@@ -756,12 +767,20 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     def _get_choose_fallback_schema(self) -> vol.Schema:
         """Return the schema for the choose fallback step."""
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
         default_fb = (
             self._targets[0][KEY_SERVICE].removeprefix("notify.")
             if self._targets
             else ""
         )
-        return vol.Schema({vol.Required("fallback", default=default_fb): str})
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": service_options, "custom_value": True}}
+                )
+            }
+        )
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -786,10 +805,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -798,7 +814,13 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id=STEP_ADD_TARGET,
-            data_schema=vol.Schema({vol.Required("target_service"): str}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("target_service"): selector(
+                        {"select": {"options": service_options, "custom_value": True}}
+                    )
+                }
+            ),
             errors=errors,
             description_placeholders={"available_services": ", ".join(service_options)},
         )
