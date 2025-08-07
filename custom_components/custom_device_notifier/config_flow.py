@@ -1,5 +1,3 @@
-"""Config flow for Custom Device Notifier."""
-
 from __future__ import annotations
 
 import logging
@@ -174,7 +172,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         """Return the placeholders for the condition more step."""
-        conds = self._working_target[KEY_CONDITIONS]
+        conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
             "current_conditions": "\n".join(
                 f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
@@ -227,17 +225,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else ""
         )
         return vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"select": {"options": svc_opts, "custom_value": True}}
-                )
-            }
+            {vol.Required("fallback", default=default_fb): str}
         )
 
     # ───────── STEP: user ─────────
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP user | input=%s", user_input)
         if user_input:
             raw = user_input["service_name_raw"].strip()
             slug = slugify(raw) or "custom_notifier"
@@ -245,7 +240,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             self._data.update({CONF_SERVICE_NAME_RAW: raw, CONF_SERVICE_NAME: slug})
             return await self.async_step_add_target()
-
         return self.async_show_form(
             step_id=STEP_USER,
             data_schema=vol.Schema({vol.Required("service_name_raw"): str}),
@@ -255,51 +249,34 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_target(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP add_target | input=%s", user_input)
+        errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
         service_options = sorted(notify_svcs)
-        errors: dict[str, str] = {}
 
         if user_input:
             svc = user_input["target_service"]
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
                     description_placeholders=self._get_condition_more_placeholders(),
                 )
-
-        schema = vol.Schema(
-            {
-                vol.Required("target_service"): selector(
-                    {
-                        "select": {
-                            "options": service_options,
-                            "custom_value": True,
-                        }
-                    }
-                )
-            }
-        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET,
-            data_schema=schema,
+            data_schema=vol.Schema({vol.Required("target_service"): str}),
             errors=errors,
+            description_placeholders={"available_services": ", ".join(service_options)},
         )
 
     # ─── STEP: add_condition_entity ───
     async def async_step_add_condition_entity(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
         if not user_input:
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
@@ -321,6 +298,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_condition_value(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
             self._working_condition.update(
@@ -339,7 +317,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=self._get_condition_more_schema(),
                 description_placeholders=self._get_condition_more_placeholders(),
             )
-
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
             data_schema=self._get_condition_value_schema(
@@ -351,8 +328,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_condition_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP condition_more | input=%s", user_input)
         if user_input:
             choice = user_input["choice"]
             if choice == "add":
@@ -401,7 +377,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         }
                     ),
                 )
-
         return self.async_show_form(
             step_id=STEP_COND_MORE,
             data_schema=self._get_condition_more_schema(),
@@ -412,11 +387,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_select_condition_to_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
         conds = self._working_target[KEY_CONDITIONS]
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
-
         if user_input:
             selected = user_input["condition"]
             index = labels.index(selected)
@@ -428,7 +401,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._working_condition["entity_id"]
                 ),
             )
-
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
             data_schema=vol.Schema(
@@ -440,11 +412,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_remove_condition(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP remove_condition | input=%s", user_input)
         conds = self._working_target[KEY_CONDITIONS]
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
-
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
@@ -455,7 +425,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=self._get_condition_more_schema(),
                 description_placeholders=self._get_condition_more_placeholders(),
             )
-
         return self.async_show_form(
             step_id=STEP_REMOVE_COND,
             data_schema=vol.Schema(
@@ -471,8 +440,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_match_mode(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP match_mode | input=%s", user_input)
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             if self._editing_target_index is not None:
@@ -485,7 +453,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id=STEP_TARGET_MORE,
                 data_schema=self._get_target_more_schema(),
             )
-
         return self.async_show_form(
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
@@ -508,6 +475,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP target_more | input=%s", user_input)
         if user_input:
             next_choice = user_input["next"]
             if next_choice == "add":
@@ -521,7 +489,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_ORDER_TARGETS,
                     data_schema=self._get_order_targets_schema(),
                 )
-
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
@@ -531,10 +498,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_select_target_to_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP select_target_to_edit | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
-
         if user_input:
             selected = user_input["target"]
             index = targets.index(selected)
@@ -545,7 +510,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=self._get_condition_more_schema(),
                 description_placeholders=self._get_condition_more_placeholders(),
             )
-
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_EDIT,
             data_schema=vol.Schema(
@@ -557,10 +521,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_select_target_to_remove(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP select_target_to_remove | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
-
         if user_input:
             to_remove = set(user_input.get("targets", []))
             self._targets = [
@@ -570,7 +532,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id=STEP_TARGET_MORE,
                 data_schema=self._get_target_more_schema(),
             )
-
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_REMOVE,
             data_schema=vol.Schema(
@@ -586,6 +547,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP order_targets | input=%s", user_input)
         if user_input:
             self._data.update(
                 {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
@@ -595,7 +557,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
             )
-
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
             data_schema=self._get_order_targets_schema(),
@@ -605,8 +566,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_choose_fallback(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        notify_svcs = self.hass.services.async_services().get("notify", {})
+        _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
         errors: dict[str, str] = {}
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
 
         if user_input:
             fb = user_input["fallback"]
@@ -617,11 +580,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
                 )
-
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK,
             data_schema=self._get_choose_fallback_schema(),
             errors=errors,
+            description_placeholders={"available_services": ", ".join(service_options)},
         )
 
     # ─── options-flow reuse ───
@@ -633,14 +596,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return CustomDeviceNotifierOptionsFlowHandler(config_entry)
 
 
-# ─────────────── OPTIONS FLOW HANDLER ───────────────
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
+    """Options flow for Custom Device Notifier."""
+
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
-        self._data: dict[str, Any] = dict(config_entry.data).copy()
-        self._options: dict[str, Any] = dict(config_entry.options or {}).copy()
+        self._data: dict[str, Any] = dict(config_entry.options or config_entry.data).copy()
         self._targets: list[dict[str, Any]] = list(
-            config_entry.data.get(CONF_TARGETS, [])
+            self._data.get(CONF_TARGETS, [])
         ).copy()
         self._working_target: dict[str, Any] = {}
         self._working_condition: dict[str, Any] = {}
@@ -749,7 +712,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         """Return the placeholders for the condition more step."""
-        conds = self._working_target[KEY_CONDITIONS]
+        conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
             "current_conditions": "\n".join(
                 f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
@@ -802,17 +765,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             else ""
         )
         return vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"select": {"options": svc_opts, "custom_value": True}}
-                )
-            }
+            {vol.Required("fallback", default=default_fb): str}
         )
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Initialize the options flow."""
+        _LOGGER.debug("STEP init | input=%s", user_input)
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
@@ -822,51 +782,34 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_add_target(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP add_target | input=%s", user_input)
+        errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
         service_options = sorted(notify_svcs)
-        errors: dict[str, str] = {}
 
         if user_input:
             svc = user_input["target_service"]
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
                     description_placeholders=self._get_condition_more_placeholders(),
                 )
-
-        schema = vol.Schema(
-            {
-                vol.Required("target_service"): selector(
-                    {
-                        "select": {
-                            "options": service_options,
-                            "custom_value": True,
-                        }
-                    }
-                )
-            }
-        )
         return self.async_show_form(
             step_id=STEP_ADD_TARGET,
-            data_schema=schema,
+            data_schema=vol.Schema({vol.Required("target_service"): str}),
             errors=errors,
+            description_placeholders={"available_services": ", ".join(service_options)},
         )
 
     # ─── STEP: add_condition_entity ───
     async def async_step_add_condition_entity(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
         if not user_input:
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
@@ -888,6 +831,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_add_condition_value(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
             self._working_condition.update(
@@ -906,7 +850,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=self._get_condition_more_schema(),
                 description_placeholders=self._get_condition_more_placeholders(),
             )
-
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
             data_schema=self._get_condition_value_schema(
@@ -918,8 +861,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_condition_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP condition_more | input=%s", user_input)
         if user_input:
             choice = user_input["choice"]
             if choice == "add":
@@ -968,7 +910,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         }
                     ),
                 )
-
         return self.async_show_form(
             step_id=STEP_COND_MORE,
             data_schema=self._get_condition_more_schema(),
@@ -979,11 +920,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_select_condition_to_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
         conds = self._working_target[KEY_CONDITIONS]
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
-
         if user_input:
             selected = user_input["condition"]
             index = labels.index(selected)
@@ -995,7 +934,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     self._working_condition["entity_id"]
                 ),
             )
-
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
             data_schema=vol.Schema(
@@ -1007,11 +945,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_remove_condition(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP remove_condition | input=%s", user_input)
         conds = self._working_target[KEY_CONDITIONS]
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
-
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
@@ -1022,7 +958,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=self._get_condition_more_schema(),
                 description_placeholders=self._get_condition_more_placeholders(),
             )
-
         return self.async_show_form(
             step_id=STEP_REMOVE_COND,
             data_schema=vol.Schema(
@@ -1038,8 +973,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_match_mode(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP match_mode | input=%s", user_input)
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             if self._editing_target_index is not None:
@@ -1052,7 +986,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 step_id=STEP_TARGET_MORE,
                 data_schema=self._get_target_more_schema(),
             )
-
         return self.async_show_form(
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
@@ -1075,6 +1008,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP target_more | input=%s", user_input)
         if user_input:
             next_choice = user_input["next"]
             if next_choice == "add":
@@ -1088,7 +1022,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     step_id=STEP_ORDER_TARGETS,
                     data_schema=self._get_order_targets_schema(),
                 )
-
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
@@ -1098,10 +1031,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_select_target_to_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP select_target_to_edit | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
-
         if user_input:
             selected = user_input["target"]
             index = targets.index(selected)
@@ -1112,7 +1043,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=self._get_condition_more_schema(),
                 description_placeholders=self._get_condition_more_placeholders(),
             )
-
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_EDIT,
             data_schema=vol.Schema(
@@ -1124,10 +1054,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_select_target_to_remove(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        from homeassistant.helpers.selector import selector
-
+        _LOGGER.debug("STEP select_target_to_remove | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
-
         if user_input:
             to_remove = set(user_input.get("targets", []))
             self._targets = [
@@ -1137,7 +1065,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 step_id=STEP_TARGET_MORE,
                 data_schema=self._get_target_more_schema(),
             )
-
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_REMOVE,
             data_schema=vol.Schema(
@@ -1153,6 +1080,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        _LOGGER.debug("STEP order_targets | input=%s", user_input)
         if user_input:
             self._data.update(
                 {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
@@ -1162,7 +1090,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
             )
-
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
             data_schema=self._get_order_targets_schema(),
@@ -1172,8 +1099,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_choose_fallback(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        notify_svcs = self.hass.services.async_services().get("notify", {})
+        _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
         errors: dict[str, str] = {}
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
 
         if user_input:
             fb = user_input["fallback"]
@@ -1181,10 +1110,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 errors["fallback"] = "must_be_notify"
             else:
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                return self.async_create_entry(title="", data=self._data)
-
+                return self.async_create_entry(
+                    title=self._data[CONF_SERVICE_NAME_RAW], data=self._data
+                )
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK,
             data_schema=self._get_choose_fallback_schema(),
             errors=errors,
+            description_placeholders={"available_services": ", ".join(service_options)},
         )
