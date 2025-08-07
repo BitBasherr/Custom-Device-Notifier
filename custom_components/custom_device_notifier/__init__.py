@@ -1,5 +1,4 @@
 """Custom Device Notifier integration."""
-
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +38,6 @@ SERVICE_SCHEMA = vol.Schema(
 )
 
 # ---------- setup ----------------------------------------------------------
-
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Create the notify service from a ConfigEntry."""
