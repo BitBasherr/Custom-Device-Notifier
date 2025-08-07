@@ -72,8 +72,20 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._editing_condition_index: int | None = None
 
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
-        """Return the schema for the condition value step."""
+        """Return the schema for the condition value step.
+
+        When editing an existing condition (``self._editing_condition_index`` is
+        set and ``self._working_condition`` contains a prior condition), this
+        method will pre-fill the operator and value fields with the existing
+        values. It also reorders the ``value_choice`` options so that
+        ``"manual"`` comes first and ``"current"`` comes second. For
+        string-based sensors, the list of selectable values is also reordered
+        to move the current state out of the first slot. In all cases the
+        previously selected value is used as the default when editing.
+        """
+        # Look up the current state of the entity to infer numeric vs string
         st = self.hass.states.get(entity_id)
+
         is_num = False
         if st:
             try:
@@ -82,67 +94,112 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError:
                 pass
 
+        # Determine if we are editing an existing condition for this entity
+        prev_op: str | None = None
+        prev_value: str | None = None
+        use_prev = False
+        if self._working_condition:
+            # Only use previous values when editing the same entity
+            if self._working_condition.get("entity_id") == entity_id:
+                prev_op = self._working_condition.get("operator")
+                prev_value = self._working_condition.get("value")
+                use_prev = prev_op is not None and prev_value is not None
+
         if is_num:
+            # Numeric sensors: build number selector (battery gets special range)
             num_sel = (
                 {"number": {"min": 0, "max": 100, "step": 1}}
                 if "battery" in entity_id
                 else {"number": {}}
             )
+
+            # Options for value selection: manual first, current second
+            num_value_options = [
+                {"value": "manual", "label": "Enter manually"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+            ]
+
+            # Default operator is the previously selected operator if editing
+            default_operator = prev_op if use_prev else ">"
+
+            # Determine whether the previous value matches the current state
+            # to decide the default for value_choice
+            if use_prev and st and str(prev_value) == str(st.state):
+                default_value_choice = "current"
+            else:
+                default_value_choice = "manual"
+
+            # Default numeric value: previously entered value or current state
+            default_value = 0.0
+            if use_prev and prev_value is not None:
+                try:
+                    default_value = float(prev_value)
+                except (TypeError, ValueError):
+                    default_value = float(st.state) if st else 0.0
+            else:
+                default_value = float(st.state) if st else 0.0
+
             return vol.Schema(
                 {
-                    vol.Required("operator", default=">"): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": num_value_options}}
                     ),
-                    vol.Optional(
-                        "value", default=float(st.state) if st else 0
-                    ): selector(num_sel),
+                    vol.Optional("value", default=default_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
+            # Build list of selectable string states. The current state is placed
+            # after a more generic "unknown or unavailable" option, followed by
+            # the standard "unknown" and "unavailable" entries. Deduplicate while
+            # preserving order.
+            opts: list[str] = ["unknown or unavailable"]
+            if st:
+                opts.append(st.state)
+            opts.extend(["unknown", "unavailable"])
             uniq = list(dict.fromkeys(opts))
+
+            # Default operator comes from the existing condition when editing
+            default_operator = prev_op if use_prev else "=="
+
+            # Reorder the value_choice options for strings similarly to numeric
+            str_value_options = [
+                {"value": "manual", "label": "Enter manually"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+            ]
+
+            # Choose default value_choice based on whether previous value matches current state
+            if use_prev and st and str(prev_value) == str(st.state):
+                default_value_choice = "current"
+            else:
+                default_value_choice = "manual"
+
+            # Default string value: use the previously stored value if it exists
+            # and is available in the list of options; otherwise fall back to the
+            # first option in the list.
+            if use_prev and prev_value in uniq:
+                default_value = prev_value
+            else:
+                default_value = uniq[0] if uniq else ""
+
             return vol.Schema(
                 {
-                    vol.Required("operator", default="=="): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": str_value_options}}
                     ),
-                    vol.Optional("value", default=uniq[0]): selector(
+                    vol.Optional("value", default=default_value): selector(
                         {"select": {"options": uniq}}
                     ),
                     vol.Optional("manual_value"): str,
@@ -636,8 +693,16 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._editing_condition_index: int | None = None
 
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
-        """Return the schema for the condition value step."""
+        """Return the schema for the condition value step.
+
+        During an options flow (editing an existing configuration), this helper
+        pre-fills operator and value fields using previously saved values. It
+        also reorders value choice options to place "manual" ahead of
+        "current" and moves the current state out of the first position in the
+        list of selectable values for string-based sensors.
+        """
         st = self.hass.states.get(entity_id)
+
         is_num = False
         if st:
             try:
@@ -646,67 +711,95 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             except ValueError:
                 pass
 
+        # Determine if we are editing an existing condition for this entity
+        prev_op: str | None = None
+        prev_value: str | None = None
+        use_prev = False
+        if self._working_condition:
+            if self._working_condition.get("entity_id") == entity_id:
+                prev_op = self._working_condition.get("operator")
+                prev_value = self._working_condition.get("value")
+                use_prev = prev_op is not None and prev_value is not None
+
         if is_num:
             num_sel = (
                 {"number": {"min": 0, "max": 100, "step": 1}}
                 if "battery" in entity_id
                 else {"number": {}}
             )
+
+            num_value_options = [
+                {"value": "manual", "label": "Enter manually"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+            ]
+
+            default_operator = prev_op if use_prev else ">"
+
+            if use_prev and st and str(prev_value) == str(st.state):
+                default_value_choice = "current"
+            else:
+                default_value_choice = "manual"
+
+            default_value = 0.0
+            if use_prev and prev_value is not None:
+                try:
+                    default_value = float(prev_value)
+                except (TypeError, ValueError):
+                    default_value = float(st.state) if st else 0.0
+            else:
+                default_value = float(st.state) if st else 0.0
+
             return vol.Schema(
                 {
-                    vol.Required("operator", default=">"): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": num_value_options}}
                     ),
-                    vol.Optional(
-                        "value", default=float(st.state) if st else 0
-                    ): selector(num_sel),
+                    vol.Optional("value", default=default_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
+            opts: list[str] = ["unknown or unavailable"]
+            if st:
+                opts.append(st.state)
+            opts.extend(["unknown", "unavailable"])
             uniq = list(dict.fromkeys(opts))
+
+            default_operator = prev_op if use_prev else "=="
+
+            str_value_options = [
+                {"value": "manual", "label": "Enter manually"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+            ]
+
+            if use_prev and st and str(prev_value) == str(st.state):
+                default_value_choice = "current"
+            else:
+                default_value_choice = "manual"
+
+            if use_prev and prev_value in uniq:
+                default_value = prev_value
+            else:
+                default_value = uniq[0] if uniq else ""
+
             return vol.Schema(
                 {
-                    vol.Required("operator", default="=="): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": str_value_options}}
                     ),
-                    vol.Optional("value", default=uniq[0]): selector(
+                    vol.Optional("value", default=default_value): selector(
                         {"select": {"options": uniq}}
                     ),
                     vol.Optional("manual_value"): str,
