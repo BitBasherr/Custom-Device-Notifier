@@ -247,10 +247,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -293,8 +290,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
+            # Convert numeric values to string, removing .0 for integers
+            if isinstance(final_value, (int, float)) and final_value.is_integer():
+                final_value = str(int(final_value))
+            else:
+                final_value = str(final_value)
             self._working_condition.update(
-                operator=user_input["operator"], value=str(final_value)
+                operator=user_input["operator"], value=final_value
             )
             if self._editing_condition_index is not None:
                 self._working_target[KEY_CONDITIONS][self._editing_condition_index] = (
@@ -781,10 +783,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -825,8 +824,13 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
+            # Convert numeric values to string, removing .0 for integers
+            if isinstance(final_value, (int, float)) and final_value.is_integer():
+                final_value = str(int(final_value))
+            else:
+                final_value = str(final_value)
             self._working_condition.update(
-                operator=user_input["operator"], value=str(final_value)
+                operator=user_input["operator"], value=final_value
             )
             if self._editing_condition_index is not None:
                 self._working_target[KEY_CONDITIONS][self._editing_condition_index] = (
