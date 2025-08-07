@@ -373,3 +373,70 @@ async def test_target_edit_and_retention(hass: HomeAssistant, enable_custom_inte
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == "form"
     assert result["step_id"] == "target_more"
+
+
+async def test_target_removal(hass: HomeAssistant, enable_custom_integrations: None):
+    """Test removing a target."""
+    hass.services.async_register("notify", "phone_notify", lambda msg: None)
+    hass.services.async_register("notify", "tablet_notify", lambda msg: None)
+    hass.services.async_register("notify", "fallback_notify", lambda msg: None)
+
+    # Initial setup with two targets
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"service_name_raw": "Remove Target Test"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"target_service": "phone_notify"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"choice": "done"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"match_mode": "all"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next": "add"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"target_service": "tablet_notify"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"choice": "done"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"match_mode": "all"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next": "done"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"priority": ["notify.phone_notify", "notify.tablet_notify"]}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"fallback": "fallback_notify"}
+    )
+    assert result["type"] == "create_entry"
+    assert len(result["data"][CONF_TARGETS]) == 2
+
+    # Remove one target
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next": "remove"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"targets": ["notify.tablet_notify"]}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next": "done"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"priority": ["notify.phone_notify"]}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"fallback": "fallback_notify"}
+    )
+    assert result["type"] == "create_entry"
+    assert len(result["data"][CONF_TARGETS]) == 1
+    assert result["data"][CONF_TARGETS][0][KEY_SERVICE] == "notify.phone_notify"
