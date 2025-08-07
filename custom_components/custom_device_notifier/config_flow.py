@@ -118,9 +118,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
 
@@ -135,24 +133,26 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default_value_choice = "manual"
 
             # Default numeric value: previously entered value or current state
-            default_value = 0.0
+            # Use a separate variable name so that mypy infers a float type
+            default_num_value = 0.0
             if use_prev and prev_value is not None:
                 try:
-                    default_value = float(prev_value)
+                    default_num_value = float(prev_value)
                 except (TypeError, ValueError):
-                    default_value = float(st.state) if st else 0.0
+                    default_num_value = float(st.state) if st else 0.0
             else:
-                default_value = float(st.state) if st else 0.0
+                default_num_value = float(st.state) if st else 0.0
 
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": num_value_options}}),
-                    vol.Optional("value", default=default_value): selector(num_sel),
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": num_value_options}}
+                    ),
+                    # Use default_num_value to ensure a float default
+                    vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
@@ -175,9 +175,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
 
@@ -189,21 +187,23 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Default string value: use the previously stored value if it exists
             # and is available in the list of options; otherwise fall back to the
-            # first option in the list.
+            # first option in the list. Use a separate variable name from
+            # numeric defaults so type checkers don't infer conflicting types.
             if use_prev and prev_value in uniq:
-                default_value = prev_value
+                default_str_value = prev_value
             else:
-                default_value = uniq[0] if uniq else ""
+                default_str_value = uniq[0] if uniq else ""
 
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": str_value_options}}),
-                    vol.Optional("value", default=default_value): selector(
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": str_value_options}}
+                    ),
+                    # Use default_str_value to ensure a string default
+                    vol.Optional("value", default=default_str_value): selector(
                         {"select": {"options": uniq}}
                     ),
                     vol.Optional("manual_value"): str,
@@ -736,9 +736,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
 
@@ -749,24 +747,29 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 default_value_choice = "manual"
 
-            default_value = 0.0
+            # Default numeric value: use a dedicated variable name so type
+            # inference treats it as a float. When editing an existing
+            # condition, attempt to cast the previous value to float,
+            # otherwise fall back to the current state or 0.0.
+            default_num_value = 0.0
             if use_prev and prev_value is not None:
                 try:
-                    default_value = float(prev_value)
+                    default_num_value = float(prev_value)
                 except (TypeError, ValueError):
-                    default_value = float(st.state) if st else 0.0
+                    default_num_value = float(st.state) if st else 0.0
             else:
-                default_value = float(st.state) if st else 0.0
+                default_num_value = float(st.state) if st else 0.0
 
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": num_value_options}}),
-                    vol.Optional("value", default=default_value): selector(num_sel),
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": num_value_options}}
+                    ),
+                    # Use default_num_value here to avoid assigning a string later
+                    vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
@@ -783,9 +786,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
 
@@ -794,20 +795,24 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 default_value_choice = "manual"
 
+            # Default string value: use the previously stored value when editing
+            # the same entity if it exists in the list. Otherwise choose the
+            # first option. Use a distinct name from the numeric default.
             if use_prev and prev_value in uniq:
-                default_value = prev_value
+                default_str_value = prev_value
             else:
-                default_value = uniq[0] if uniq else ""
+                default_str_value = uniq[0] if uniq else ""
 
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": str_value_options}}),
-                    vol.Optional("value", default=default_value): selector(
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": str_value_options}}
+                    ),
+                    # Use default_str_value here to ensure a string default
+                    vol.Optional("value", default=default_str_value): selector(
                         {"select": {"options": uniq}}
                     ),
                     vol.Optional("manual_value"): str,
