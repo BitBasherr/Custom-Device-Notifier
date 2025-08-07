@@ -72,7 +72,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._editing_condition_index: int | None = None
 
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
-        """Return the schema for the condition value step."""
+        """Return the schema for the condition value step, prepopulating if editing."""
         st = self.hass.states.get(entity_id)
         is_num = False
         if st:
@@ -82,6 +82,35 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError:
                 pass
 
+        # Check if editing
+        if self._working_condition.get("operator"):
+            default_operator = self._working_condition["operator"]
+            default_value_choice = "manual"
+            default_manual_value = self._working_condition["value"]
+            default_value = ""  # Not used for manual
+            options = [
+                {"value": "manual", "label": f"Set condition value: {default_operator} {default_manual_value}"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+                {"value": "manual", "label": "Enter manually"},
+            ]
+        else:
+            default_operator = ">" if is_num else "=="
+            default_value_choice = "current"
+            default_manual_value = ""
+            default_value = float(st.state) if st and is_num else (uniq[0] if not is_num and uniq else "")
+            options = [
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+                {"value": "manual", "label": "Enter manually"},
+            ]
+
+        uniq = [] if is_num else list(dict.fromkeys([st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]))
+
         if is_num:
             num_sel = (
                 {"number": {"min": 0, "max": 100, "step": 1}}
@@ -90,62 +119,29 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             return vol.Schema(
                 {
-                    vol.Required("operator", default=">"): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": options}}
                     ),
-                    vol.Optional(
-                        "value", default=float(st.state) if st else 0
-                    ): selector(num_sel),
-                    vol.Optional("manual_value"): str,
+                    vol.Optional("value", default=default_value): selector(num_sel),
+                    vol.Optional("manual_value", default=default_manual_value): str,
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
-            uniq = list(dict.fromkeys(opts))
             return vol.Schema(
                 {
-                    vol.Required("operator", default="=="): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": options}}
                     ),
-                    vol.Optional("value", default=uniq[0]): selector(
+                    vol.Optional("value", default=default_value): selector(
                         {"select": {"options": uniq}}
                     ),
-                    vol.Optional("manual_value"): str,
+                    vol.Optional("manual_value", default=default_manual_value): str,
                 }
             )
 
@@ -255,10 +251,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -461,9 +454,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             if self._editing_target_index is not None:
-                self._targets[cast(int, self._editing_target_index)] = (
-                    self._working_target
-                )
+                self._targets[cast(int, self._editing_target_index)] = self._working_target
                 self._editing_target_index = None
             else:
                 self._targets.append(self._working_target)
@@ -636,7 +627,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._editing_condition_index: int | None = None
 
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
-        """Return the schema for the condition value step."""
+        """Return the schema for the condition value step, prepopulating if editing."""
         st = self.hass.states.get(entity_id)
         is_num = False
         if st:
@@ -646,6 +637,35 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             except ValueError:
                 pass
 
+        # Check if editing
+        if self._working_condition.get("operator"):
+            default_operator = self._working_condition["operator"]
+            default_value_choice = "manual"
+            default_manual_value = self._working_condition["value"]
+            default_value = ""  # Not used for manual
+            options = [
+                {"value": "manual", "label": f"Set condition value: {default_operator} {default_manual_value}"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+                {"value": "manual", "label": "Enter manually"},
+            ]
+        else:
+            default_operator = ">" if is_num else "=="
+            default_value_choice = "current"
+            default_manual_value = ""
+            default_value = float(st.state) if st and is_num else (uniq[0] if not is_num and uniq else "")
+            options = [
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
+                {"value": "manual", "label": "Enter manually"},
+            ]
+
+        uniq = [] if is_num else list(dict.fromkeys([st.state if st else "", "unknown or unavailable", "unknown", "unavailable"]))
+
         if is_num:
             num_sel = (
                 {"number": {"min": 0, "max": 100, "step": 1}}
@@ -654,62 +674,29 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             )
             return vol.Schema(
                 {
-                    vol.Required("operator", default=">"): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": options}}
                     ),
-                    vol.Optional(
-                        "value", default=float(st.state) if st else 0
-                    ): selector(num_sel),
-                    vol.Optional("manual_value"): str,
+                    vol.Optional("value", default=default_value): selector(num_sel),
+                    vol.Optional("manual_value", default=default_manual_value): str,
                 }
             )
         else:
-            opts = [
-                st.state if st else "",
-                "unknown or unavailable",
-                "unknown",
-                "unavailable",
-            ]
-            uniq = list(dict.fromkeys(opts))
             return vol.Schema(
                 {
-                    vol.Required("operator", default="=="): selector(
+                    vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default="current"): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {
-                                        "value": "current",
-                                        "label": f"Current state: {st.state}"
-                                        if st
-                                        else "Current (unknown)",
-                                    },
-                                    {"value": "manual", "label": "Enter manually"},
-                                ]
-                            }
-                        }
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": options}}
                     ),
-                    vol.Optional("value", default=uniq[0]): selector(
+                    vol.Optional("value", default=default_value): selector(
                         {"select": {"options": uniq}}
                     ),
-                    vol.Optional("manual_value"): str,
+                    vol.Optional("manual_value", default=default_manual_value): str,
                 }
             )
 
@@ -810,10 +797,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -1003,6 +987,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             ),
         )
 
+    # ─── STEP: match_mode ───
     async def async_step_match_mode(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1010,9 +995,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             if self._editing_target_index is not None:
-                self._targets[cast(int, self._editing_target_index)] = (
-                    self._working_target
-                )
+                self._targets[cast(int, self._editing_target_index)] = self._working_target
                 self._editing_target_index = None
             else:
                 self._targets.append(self._working_target)
@@ -1040,6 +1023,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             ),
         )
 
+    # ─── STEP: target_more ───
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1063,6 +1047,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=self._get_target_more_schema(),
         )
 
+    # ─── STEP: select_target_to_edit ───
     async def async_step_select_target_to_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1087,6 +1072,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             ),
         )
 
+    # ─── STEP: select_target_to_remove ───
     async def async_step_select_target_to_remove(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1114,6 +1100,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             ),
         )
 
+    # ─── STEP: order_targets ───
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1131,27 +1118,3 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
             data_schema=self._get_order_targets_schema(),
-        )
-
-    async def async_step_choose_fallback(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
-        errors: dict[str, str] = {}
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-
-        if user_input:
-            fb = user_input["fallback"]
-            if fb not in notify_svcs:
-                errors["fallback"] = "must_be_notify"
-            else:
-                self._data[CONF_FALLBACK] = f"notify.{fb}"
-                return self.async_create_entry(title="", data=self._data)
-
-        return self.async_show_form(
-            step_id=STEP_CHOOSE_FALLBACK,
-            data_schema=self._get_choose_fallback_schema(),
-            errors=errors,
-            description_placeholders={"available_services": ", ".join(service_options)},
-        )
