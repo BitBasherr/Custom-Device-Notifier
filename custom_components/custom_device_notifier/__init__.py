@@ -1,5 +1,4 @@
 """Custom Device Notifier integration."""
-
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +38,6 @@ SERVICE_SCHEMA = vol.Schema(
 )
 
 # ---------- setup ----------------------------------------------------------
-
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Create the notify service from a ConfigEntry."""
@@ -91,6 +89,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Forward any companion platforms (e.g. sensor/)
         await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+
+        # Register a listener to reload the entry when its data or options change.
+        async def _reload_on_update(hass: HomeAssistant, entry: ConfigEntry) -> None:
+            """Handle reload on update."""
+            _LOGGER.debug("Config entry updated, reloading %s", entry.entry_id)
+            await hass.config_entries.async_reload(entry.entry_id)
+
+        entry.async_on_unload(entry.add_update_listener(_reload_on_update))
+
         return True
 
     except Exception:  # pragma: no cover – log & signal failure
