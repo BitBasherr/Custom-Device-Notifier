@@ -4,12 +4,11 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.custom_device_notifier.const import (
-    DOMAIN,
-    CONF_TARGETS,
     CONF_FALLBACK,
+    CONF_TARGETS,
+    DOMAIN,
     KEY_CONDITIONS,
     KEY_SERVICE,
-    CONF_MATCH_MODE,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -20,7 +19,9 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     hass.services.async_register("notify", "test_notify", lambda msg: None)
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     assert result["type"] == "form"
     assert result["step_id"] == "user"
 
@@ -87,17 +88,24 @@ async def test_user_flow_minimal(hass: HomeAssistant, enable_custom_integrations
     assert result["title"] == "Test Notifier"
     assert result["data"]["service_name_raw"] == "Test Notifier"
     assert result["data"][CONF_TARGETS][0][KEY_SERVICE] == "notify.test_notify"
-    assert result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"] == "sensor.test_battery"
+    assert (
+        result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"]
+        == "sensor.test_battery"
+    )
     assert result["data"][CONF_FALLBACK] == "notify.fallback_notify"
 
 
-async def test_user_flow_multiple_targets(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_user_flow_multiple_targets(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test config flow with multiple targets and conditions."""
     hass.services.async_register("notify", "phone_notify", lambda msg: None)
     hass.services.async_register("notify", "tablet_notify", lambda msg: None)
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Multi Notifier"}
     )
@@ -163,15 +171,25 @@ async def test_user_flow_multiple_targets(hass: HomeAssistant, enable_custom_int
     assert result["type"] == "create_entry"
     assert len(result["data"][CONF_TARGETS]) == 2
     assert result["data"][CONF_TARGETS][0][KEY_SERVICE] == "notify.phone_notify"
-    assert result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"] == "binary_sensor.door"
+    assert (
+        result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"]
+        == "binary_sensor.door"
+    )
     assert result["data"][CONF_TARGETS][1][KEY_SERVICE] == "notify.tablet_notify"
-    assert result["data"][CONF_TARGETS][1][KEY_CONDITIONS][0]["entity_id"] == "sensor.test_battery"
+    assert (
+        result["data"][CONF_TARGETS][1][KEY_CONDITIONS][0]["entity_id"]
+        == "sensor.test_battery"
+    )
     assert result["data"][CONF_FALLBACK] == "notify.fallback_notify"
 
 
-async def test_add_target_error_invalid_service(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_add_target_error_invalid_service(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test error when submitting invalid target service."""
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Error Test"}
     )
@@ -188,7 +206,9 @@ async def test_condition_removal(hass: HomeAssistant, enable_custom_integrations
     hass.services.async_register("notify", "test_notify", lambda msg: None)
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Remove Test"}
     )
@@ -237,7 +257,9 @@ async def test_condition_edit(hass: HomeAssistant, enable_custom_integrations: N
     hass.services.async_register("notify", "test_notify", lambda msg: None)
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Edit Test"}
     )
@@ -281,19 +303,26 @@ async def test_condition_edit(hass: HomeAssistant, enable_custom_integrations: N
     )
 
     assert result["type"] == "create_entry"
-    assert result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"] == "sensor.test_battery"
+    assert (
+        result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"]
+        == "sensor.test_battery"
+    )
     assert result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["operator"] == "<"
     assert result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["value"] == "60"
 
 
-async def test_target_edit_and_retention(hass: HomeAssistant, enable_custom_integrations: None):
+async def test_target_edit_and_retention(
+    hass: HomeAssistant, enable_custom_integrations: None
+):
     """Test editing a target and verifying retention in options flow."""
     hass.services.async_register("notify", "phone_notify", lambda msg: None)
     hass.services.async_register("notify", "tablet_notify", lambda msg: None)
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
     # Initial setup with two targets
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Retention Test"}
     )
@@ -367,7 +396,10 @@ async def test_target_edit_and_retention(hass: HomeAssistant, enable_custom_inte
     )
     assert result["type"] == "create_entry"
     assert len(result["data"][CONF_TARGETS]) == 2
-    assert result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"] == "sensor.test_battery"
+    assert (
+        result["data"][CONF_TARGETS][0][KEY_CONDITIONS][0]["entity_id"]
+        == "sensor.test_battery"
+    )
 
     # Verify retention in new options flow
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -382,7 +414,9 @@ async def test_target_removal(hass: HomeAssistant, enable_custom_integrations: N
     hass.services.async_register("notify", "fallback_notify", lambda msg: None)
 
     # Initial setup with two targets
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"service_name_raw": "Remove Target Test"}
     )
