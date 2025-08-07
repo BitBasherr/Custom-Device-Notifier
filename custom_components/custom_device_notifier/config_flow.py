@@ -83,8 +83,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             conds = tgt.get(KEY_CONDITIONS, [])
             if conds:
                 cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}"
-                    for c in conds
+                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
                 )
                 lines.append(f"{svc}: {cond_desc}")
             else:
@@ -138,7 +137,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
 
@@ -168,9 +169,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": num_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": num_value_options}}),
                     # Use default_num_value to ensure a float default
                     vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
@@ -195,7 +196,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
 
@@ -219,9 +222,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": str_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": str_value_options}}),
                     # Use default_str_value to ensure a string default
                     vol.Optional("value", default=default_str_value): selector(
                         {"select": {"options": uniq}}
@@ -469,8 +472,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                         "options": [
                                             # Clarify semantics: "all" means all conditions must be true,
                                             # and "any" means at least one condition can be true
-                                            {"value": "all", "label": "Require all conditions"},
-                                            {"value": "any", "label": "Require any condition"},
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
                                         ]
                                     }
                                 }
@@ -741,8 +750,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             conds = tgt.get(KEY_CONDITIONS, [])
             if conds:
                 cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}"
-                    for c in conds
+                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
                 )
                 lines.append(f"{svc}: {cond_desc}")
             else:
@@ -795,7 +803,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
 
@@ -824,9 +834,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": num_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": num_value_options}}),
                     # Use default_num_value here to avoid assigning a string later
                     vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
@@ -845,7 +855,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
 
@@ -867,9 +879,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": str_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": str_value_options}}),
                     # Use default_str_value here to ensure a string default
                     vol.Optional("value", default=default_str_value): selector(
                         {"select": {"options": uniq}}
@@ -1103,8 +1115,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                                         "options": [
                                             # Clarify semantics: "all" means all conditions must be true,
                                             # and "any" means at least one condition can be true
-                                            {"value": "all", "label": "Require all conditions"},
-                                            {"value": "any", "label": "Require any condition"},
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
                                         ]
                                     }
                                 }
