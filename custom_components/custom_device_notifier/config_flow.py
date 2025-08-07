@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -255,10 +255,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -461,7 +458,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             if self._editing_target_index is not None:
-                self._targets[self._editing_target_index] = self._working_target
+                self._targets[cast(int, self._editing_target_index)] = self._working_target
                 self._editing_target_index = None
             else:
                 self._targets.append(self._working_target)
@@ -808,10 +805,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
                     data_schema=self._get_condition_more_schema(),
@@ -1008,7 +1002,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             self._working_target[CONF_MATCH_MODE] = user_input[CONF_MATCH_MODE]
             if self._editing_target_index is not None:
-                self._targets[self._editing_condition_index] = self._working_target
+                self._targets[cast(int, self._editing_target_index)] = self._working_target
                 self._editing_target_index = None
             else:
                 self._targets.append(self._working_target)
