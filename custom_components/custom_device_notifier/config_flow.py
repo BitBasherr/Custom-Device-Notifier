@@ -94,7 +94,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        # state for dynamic ordering step
+        # dynamic priority builder state
         self._ordering_targets_remaining: list[str] | None = None
         self._priority_list: list[str] | None = None
 
@@ -158,18 +158,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Schema for the dynamic ordering step."""
         services = [t[KEY_SERVICE] for t in self._targets]
         self._order_bootstrap()
-
         return vol.Schema(
             {
-                # Informational multi-select to see all services (not used for state)
                 vol.Optional("priority", default=self._priority_list): selector(
                     {"select": {"options": services, "multiple": True}}
                 ),
-                # Single-pick of the next item to append
                 vol.Optional("next_priority"): selector(
                     {"select": {"options": self._ordering_targets_remaining or []}}
                 ),
-                # Navigation/intent
                 vol.Required("nav", default="add"): selector(
                     {
                         "select": {
@@ -219,9 +215,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
 
@@ -340,6 +334,33 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
+    def _get_choose_fallback_schema(self) -> vol.Schema:
+        """Schema for fallback pick (with nav to support tests)."""
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+        default_fb = (
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else ""
+        )
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": service_options, "custom_value": True}}
+                ),
+                vol.Optional("nav", default="continue"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "back", "label": "⬅ Back"},
+                                {"value": "continue", "label": "Continue"},
+                            ]
+                        }
+                    }
+                ),
+            }
+        )
+
     # ───────── STEP: user ─────────
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -426,7 +447,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 options = sorted(all_entities)
 
-            # Allow custom_value so tests and users can type directly.
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
@@ -678,7 +698,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
-                # initialize the order builder fresh
                 services = [t[KEY_SERVICE] for t in self._targets]
                 self._priority_list = []
                 self._ordering_targets_remaining = services.copy()
@@ -767,7 +786,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._ordering_targets_remaining = services.copy()
 
             elif nav == "add":
-                # compatibility: if a test submits only a 'priority' list, treat it as final order
+                # Compat path: a direct 'priority' list means finalize now
                 if pick is None and "priority" in user_input:
                     chosen = [s for s in user_input["priority"] if s in services]
                     leftovers = [s for s in services if s not in chosen]
@@ -794,18 +813,19 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not pick:
                     errors["base"] = "pick_one"
                 else:
-                    if pick in (self._ordering_targets_remaining or []):
+                    self._order_bootstrap()
+                    assert self._priority_list is not None
+                    assert self._ordering_targets_remaining is not None
+                    if pick in self._ordering_targets_remaining:
                         self._priority_list.append(pick)
                         self._ordering_targets_remaining.remove(pick)
 
             elif nav == "done":
-                chosen = self._priority_list or []
+                chosen = (self._priority_list or []).copy()
                 leftovers = [s for s in services if s not in chosen]
                 final_order = chosen + leftovers
 
-                self._data.update(
-                    {CONF_TARGETS: self._targets, CONF_PRIORITY: final_order}
-                )
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_order})
 
                 notify_svcs = self.hass.services.async_services().get("notify", {})
                 service_options = sorted(notify_svcs)
@@ -839,7 +859,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         service_options = sorted(notify_svcs)
 
         if user_input:
-            # Tests may send {"nav": "back"} here
             if user_input.get("nav") == "back":
                 services = [t[KEY_SERVICE] for t in self._targets]
                 placeholders = _order_placeholders(
@@ -895,7 +914,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        # state for dynamic ordering step
+        # dynamic order state
         self._ordering_targets_remaining: list[str] | None = None
         self._priority_list: list[str] | None = None
 
@@ -943,16 +962,153 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             or "No conditions yet"
         }
 
-    # --- dynamic order helpers (options) ---
+    # --- schema helpers (options) ---
 
-    def _order_bootstrap(self) -> None:
-        services = [t[KEY_SERVICE] for t in self._targets]
-        if self._priority_list is None:
-            self._priority_list = []
-        if self._ordering_targets_remaining is None:
-            self._ordering_targets_remaining = [
-                s for s in services if s not in self._priority_list
+    def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
+        st = self.hass.states.get(entity_id)
+        is_num = False
+        if st:
+            try:
+                float(st.state)
+                is_num = True
+            except ValueError:
+                pass
+
+        prev_op: str | None = None
+        prev_value: str | None = None
+        use_prev = False
+        if (
+            self._working_condition
+            and self._working_condition.get("entity_id") == entity_id
+        ):
+            prev_op = self._working_condition.get("operator")
+            prev_value = self._working_condition.get("value")
+            use_prev = prev_op is not None and prev_value is not None
+
+        if is_num:
+            num_sel = (
+                {"number": {"min": 0, "max": 100, "step": 1}}
+                if "battery" in entity_id
+                else {"number": {}}
+            )
+            value_options = [
+                {"value": "manual", "label": "Enter manually"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                },
             ]
+            default_operator = prev_op if use_prev else ">"
+            default_value_choice = (
+                "current"
+                if (use_prev and st and str(prev_value) == str(st.state))
+                else "manual"
+            )
+
+            default_num_value = 0.0
+            if use_prev and prev_value is not None:
+                try:
+                    default_num_value = float(prev_value)
+                except (TypeError, ValueError):
+                    default_num_value = float(st.state) if st else 0.0
+            else:
+                default_num_value = float(st.state) if st else 0.0
+
+            return vol.Schema(
+                {
+                    vol.Required("operator", default=default_operator): selector(
+                        {"select": {"options": _OPS_NUM}}
+                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": value_options}}),
+                    vol.Optional("value", default=default_num_value): selector(num_sel),
+                    vol.Optional("manual_value"): str,
+                }
+            )
+
+        opts: list[str] = ["unknown or unavailable"]
+        if st:
+            opts.append(st.state)
+        opts.extend(["unknown", "unavailable"])
+        if (
+            "_last_update_trigger" in entity_id
+            and "android.intent.action.ACTION_SHUTDOWN" not in opts
+        ):
+            opts.append("android.intent.action.ACTION_SHUTDOWN")
+        uniq = list(dict.fromkeys(opts))
+
+        default_operator = prev_op if use_prev else "=="
+        value_options = [
+            {"value": "manual", "label": "Enter manually"},
+            {
+                "value": "current",
+                "label": f"Current state: {st.state}" if st else "Current (unknown)",
+            },
+        ]
+        default_value_choice = (
+            "current"
+            if (use_prev and st and str(prev_value) == str(st.state))
+            else "manual"
+        )
+        if use_prev and prev_value in uniq:
+            default_str_value = prev_value
+        else:
+            default_str_value = uniq[0] if uniq else ""
+
+        choices: list[dict[str, str]] = []
+        for opt in uniq:
+            if opt == "android.intent.action.ACTION_SHUTDOWN":
+                choices.append({"value": opt, "label": "Shutdown as Last Update"})
+            else:
+                choices.append({"value": opt, "label": opt})
+
+        return vol.Schema(
+            {
+                vol.Required("operator", default=default_operator): selector(
+                    {"select": {"options": _OPS_STR}}
+                ),
+                vol.Required("value_choice", default=default_value_choice): selector(
+                    {"select": {"options": value_options}}
+                ),
+                vol.Optional("value", default=default_str_value): selector(
+                    {"select": {"options": choices}}
+                ),
+                vol.Optional("manual_value"): str,
+            }
+        )
+
+    def _get_condition_more_schema(self) -> vol.Schema:
+        options = [
+            {"value": "add", "label": "➕ Add"},
+            {"value": "done", "label": "✅ Done"},
+        ]
+        if self._working_target.get(KEY_CONDITIONS):
+            options.insert(1, {"value": "edit", "label": "✏️ Edit"})
+            options.insert(2, {"value": "remove", "label": "➖ Remove"})
+        return vol.Schema(
+            {
+                vol.Required("choice", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
+
+    def _get_target_more_schema(self) -> vol.Schema:
+        options = [
+            {"value": "add", "label": "➕ Add target"},
+            {"value": "done", "label": "✅ Done"},
+        ]
+        if self._targets:
+            options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
+            options.insert(2, {"value": "remove", "label": "➖ Remove target"})
+        return vol.Schema(
+            {
+                vol.Required("next", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
 
     def _get_order_targets_schema(self) -> vol.Schema:
         services = [t[KEY_SERVICE] for t in self._targets]
@@ -972,6 +1128,32 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                                 {"value": "add", "label": "Add to order"},
                                 {"value": "reset", "label": "Reset"},
                                 {"value": "done", "label": "Done"},
+                            ]
+                        }
+                    }
+                ),
+            }
+        )
+
+    def _get_choose_fallback_schema(self) -> vol.Schema:
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+        default_fb = (
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else ""
+        )
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": service_options, "custom_value": True}}
+                ),
+                vol.Optional("nav", default="continue"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "back", "label": "⬅ Back"},
+                                {"value": "continue", "label": "Continue"},
                             ]
                         }
                     }
@@ -1377,7 +1559,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 self._ordering_targets_remaining = services.copy()
 
             elif nav == "add":
-                # compatibility path: accept a direct 'priority' list as final
+                # Compat path: a direct 'priority' list means finalize now
                 if pick is None and "priority" in user_input:
                     chosen = [s for s in user_input["priority"] if s in services]
                     leftovers = [s for s in services if s not in chosen]
@@ -1404,18 +1586,19 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 if not pick:
                     errors["base"] = "pick_one"
                 else:
-                    if pick in (self._ordering_targets_remaining or []):
+                    self._order_bootstrap()
+                    assert self._priority_list is not None
+                    assert self._ordering_targets_remaining is not None
+                    if pick in self._ordering_targets_remaining:
                         self._priority_list.append(pick)
                         self._ordering_targets_remaining.remove(pick)
 
             elif nav == "done":
-                chosen = self._priority_list or []
+                chosen = (self._priority_list or []).copy()
                 leftovers = [s for s in services if s not in chosen]
                 final_order = chosen + leftovers
 
-                self._data.update(
-                    {CONF_TARGETS: self._targets, CONF_PRIORITY: final_order}
-                )
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_order})
 
                 notify_svcs = self.hass.services.async_services().get("notify", {})
                 service_options = sorted(notify_svcs)
