@@ -9,7 +9,10 @@ from typing import Any, Final, cast
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.helpers.event import async_track_state_change_event, EventCancelCallback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    EventCancelCallback,
+)
 from homeassistant.components.notify.const import ATTR_MESSAGE, ATTR_TITLE
 
 from .const import (
@@ -20,9 +23,9 @@ from .const import (
     CONF_TARGETS,
     DOMAIN,
     KEY_CONDITIONS,
-    KEY_MATCH,          # legacy name some configs may still use
+    KEY_MATCH,  # legacy name some configs may still use
     KEY_SERVICE,
-    CONF_MATCH_MODE,    # new name used by the flow
+    CONF_MATCH_MODE,  # new name used by the flow
 )
 from .evaluate import evaluate_condition
 
@@ -62,7 +65,9 @@ class NotifierController:
         cfg = {**(entry.data or {}), **(entry.options or {})}
         self.slug = cast(str, cfg.get(CONF_SERVICE_NAME, "custom_notifier"))
         self.friendly = cast(str, cfg.get(CONF_SERVICE_NAME_RAW, self.slug))
-        self.targets: list[dict[str, Any]] = list(cast(list[dict[str, Any]], cfg.get(CONF_TARGETS, [])))
+        self.targets: list[dict[str, Any]] = list(
+            cast(list[dict[str, Any]], cfg.get(CONF_TARGETS, []))
+        )
         self.priority: list[str] = list(cast(list[str], cfg.get(CONF_PRIORITY, [])))
         self.fallback_full: str = cast(str, cfg.get(CONF_FALLBACK, ""))
 
@@ -128,7 +133,9 @@ class NotifierController:
 
         svc_full = await self._pick_now()
         if not svc_full:
-            _LOGGER.warning("No target matched and no fallback configured; dropping message")
+            _LOGGER.warning(
+                "No target matched and no fallback configured; dropping message"
+            )
             return
 
         dom, name = svc_full.split(".", 1)
@@ -149,9 +156,13 @@ class NotifierController:
             conds = list(cast(list[dict[str, Any]], tgt.get(KEY_CONDITIONS, [])))
             mode = _norm_match_mode(tgt)
 
-            results = await asyncio.gather(*(evaluate_condition(self.hass, c) for c in conds))
+            results = await asyncio.gather(
+                *(evaluate_condition(self.hass, c) for c in conds)
+            )
             matched = all(results) if mode == "all" else any(results)
-            _LOGGER.debug("  target %s match=%s (conditions=%s)", svc_full, matched, results)
+            _LOGGER.debug(
+                "  target %s match=%s (conditions=%s)", svc_full, matched, results
+            )
             if matched:
                 _LOGGER.debug("  → would forward to %s", svc_full)
                 return
@@ -202,7 +213,9 @@ class NotifierController:
             if not conds:
                 return svc_full  # no conditions => always match
 
-            results = await asyncio.gather(*(evaluate_condition(self.hass, c) for c in conds))
+            results = await asyncio.gather(
+                *(evaluate_condition(self.hass, c) for c in conds)
+            )
             matched = all(results) if mode == "all" else any(results)
             if matched:
                 return svc_full
@@ -227,6 +240,7 @@ class NotifierController:
         self._watched_entities = ents
 
         if ents:
+
             @callback
             def _on_change(_event) -> None:
                 # Any relevant entity changed -> recompute and update sensor
@@ -257,7 +271,7 @@ class NotifierController:
             return
 
         # determine if this is fallback
-        is_fallback = (svc_full == self.fallback_full)
+        is_fallback = svc_full == self.fallback_full
         attrs = {
             "friendly_name": f"{self.friendly} Active Target",
             "domain": DOMAIN,
@@ -269,6 +283,7 @@ class NotifierController:
 
 
 # ---------- HA entry points ----------
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up integration from a config entry."""
@@ -291,7 +306,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Normalize and migrate stored data."""
-    _LOGGER.debug("Running migration/normalization for %s (v%s)", entry.title, entry.version)
+    _LOGGER.debug(
+        "Running migration/normalization for %s (v%s)", entry.title, entry.version
+    )
 
     data = {**entry.data}  # mutable copy
 
