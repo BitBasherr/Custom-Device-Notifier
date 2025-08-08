@@ -11,7 +11,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers.event import async_track_state_change_event, EventCancelCallback
 from homeassistant.components.notify.const import ATTR_MESSAGE, ATTR_TITLE
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .const import (
     CONF_FALLBACK,
