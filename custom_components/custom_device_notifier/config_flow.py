@@ -494,7 +494,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
             # Convert numeric values to string, removing .0 for integers
-            if isinstance(final_value, (int, float)) and float(final_value).is_integer():
+            if (
+                isinstance(final_value, (int, float))
+                and float(final_value).is_integer()
+            ):
                 final_value = str(int(final_value))
             else:
                 final_value = str(final_value)
@@ -1244,7 +1247,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
-            if isinstance(final_value, (int, float)) and float(final_value).is_integer():
+            if (
+                isinstance(final_value, (int, float))
+                and float(final_value).is_integer()
+            ):
                 final_value = str(int(final_value))
             else:
                 final_value = str(final_value)
@@ -1311,8 +1317,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                                 {
                                     "select": {
                                         "options": [
-                                            {"value": "all", "label": "Require all conditions"},
-                                            {"value": "any", "label": "Require any condition"},
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
                                         ]
                                     }
                                 }
