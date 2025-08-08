@@ -215,7 +215,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
 
@@ -825,7 +827,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 leftovers = [s for s in services if s not in chosen]
                 final_order = chosen + leftovers
 
-                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_order})
+                self._data.update(
+                    {CONF_TARGETS: self._targets, CONF_PRIORITY: final_order}
+                )
 
                 notify_svcs = self.hass.services.async_services().get("notify", {})
                 service_options = sorted(notify_svcs)
@@ -995,7 +999,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
             default_operator = prev_op if use_prev else ">"
@@ -1598,7 +1604,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 leftovers = [s for s in services if s not in chosen]
                 final_order = chosen + leftovers
 
-                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_order})
+                self._data.update(
+                    {CONF_TARGETS: self._targets, CONF_PRIORITY: final_order}
+                )
 
                 notify_svcs = self.hass.services.async_services().get("notify", {})
                 service_options = sorted(notify_svcs)
