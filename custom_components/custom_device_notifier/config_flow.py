@@ -1167,6 +1167,26 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
+    # --- ordering bootstrap (options flow) ---
+    def _order_bootstrap(self) -> None:
+        """Initialize in-memory ordering state from current targets + saved priority.
+
+        Ensures we have:
+          - self._priority_list: already-chosen services in order
+          - self._ordering_targets_remaining: services not yet chosen
+        """
+        services = [t[KEY_SERVICE] for t in self._targets]
+
+        # Start with any existing priority from options/data, filtered to known services
+        existing: list[str] = list(self._data.get(CONF_PRIORITY, []))
+        existing = [s for s in existing if s in services]
+
+        # Whatever isn't in existing becomes remaining
+        remaining = [s for s in services if s not in existing]
+
+        self._priority_list = existing
+        self._ordering_targets_remaining = remaining
+
     # --- entry point (options) ---
 
     async def async_step_init(
