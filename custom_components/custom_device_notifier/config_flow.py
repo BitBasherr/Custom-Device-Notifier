@@ -64,7 +64,7 @@ def _order_placeholders(
 ) -> dict[str, str]:
     """Build description placeholders for the order/priority step."""
     if not services:
-        return {"current_order": "", "remaining": ""}
+        return {"current_order": "—", "remaining": "—"}
 
     current = current or []
     chosen = [s for s in current if s in services]
@@ -94,6 +94,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
+        # Used by interactive prioritization loop
         self._ordering_targets_remaining: list[str] | None = None
         self._priority_list: list[str] | None = None
 
@@ -298,12 +299,36 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _get_order_targets_schema(self) -> vol.Schema:
+        """Schema supporting BOTH bulk and interactive ordering."""
         opts = [t[KEY_SERVICE] for t in self._targets]
+        remaining = (
+            self._ordering_targets_remaining
+            if self._ordering_targets_remaining is not None
+            else opts
+        )
+        current = self._priority_list or []
+
         return vol.Schema(
             {
-                vol.Required("priority", default=opts): selector(
+                # Bulk mode (tests/back-compat). Defaults to empty so users must choose.
+                vol.Optional("priority", default=current): selector(
                     {"select": {"options": opts, "multiple": True}}
-                )
+                ),
+                # Interactive mode (pick the next item)
+                vol.Optional("next_priority"): selector(
+                    {"select": {"options": remaining}}
+                ),
+                vol.Optional("nav", default="add"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "add", "label": "Add to order"},
+                                {"value": "reset", "label": "Reset"},
+                                {"value": "done", "label": "Done"},
+                            ]
+                        }
+                    }
+                ),
             }
         )
 
@@ -605,6 +630,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("STEP match_mode | input=%s", user_input)
         if user_input:
             selected_mode = user_input[CONF_MATCH_MODE]
+            # Store chosen mode on the working target
             self._working_target[CONF_MATCH_MODE] = selected_mode
             if self._editing_target_index is not None:
                 self._targets[self._editing_target_index] = self._working_target
@@ -672,8 +698,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
+                # Initialize interactive ordering state
                 services = [t[KEY_SERVICE] for t in self._targets]
-                placeholders = _order_placeholders(services, None)
+                self._priority_list = []
+                self._ordering_targets_remaining = services.copy()
+                placeholders = _order_placeholders(services, self._priority_list)
                 return self.async_show_form(
                     step_id=STEP_ORDER_TARGETS,
                     data_schema=self._get_order_targets_schema(),
@@ -744,19 +773,78 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP order_targets | input=%s", user_input)
+        _LOGGER.debug(
+            "STEP order_targets | input=%s | current=%s | remaining=%s",
+            user_input,
+            self._priority_list,
+            self._ordering_targets_remaining,
+        )
         services = [t[KEY_SERVICE] for t in self._targets]
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
 
-        if user_input:
+        # Bulk mode: tests or power users submit final list directly
+        if user_input and user_input.get("priority"):
             priority = user_input["priority"]
+            self._priority_list = list(priority)
+            self._ordering_targets_remaining = [s for s in services if s not in priority]
+
+            # Save and move to fallback (WITH placeholders to satisfy translations)
             self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: priority})
+            placeholders = _order_placeholders(services, priority)
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
+                description_placeholders={
+                    "available_services": ", ".join(service_options),
+                    **placeholders,
+                },
             )
 
-        placeholders = _order_placeholders(services, None)
+        # Initialize interactive state if needed
+        if self._priority_list is None or self._ordering_targets_remaining is None:
+            self._priority_list = []
+            self._ordering_targets_remaining = services.copy()
+
+        # Interactive loop
+        if user_input:
+            nav = user_input.get("nav", "add")
+            next_choice = user_input.get("next_priority")
+
+            if nav == "reset":
+                self._priority_list = []
+                self._ordering_targets_remaining = services.copy()
+
+            elif nav == "add":
+                if next_choice and next_choice in self._ordering_targets_remaining:
+                    self._priority_list.append(next_choice)
+                    self._ordering_targets_remaining.remove(next_choice)
+
+            elif nav == "done":
+                # If nothing was selected interactively, allow empty (we’ll fallback to alphabetical services order)
+                final_priority = (
+                    self._priority_list if self._priority_list is not None else []
+                )
+                if not final_priority:
+                    # If user never picked anything, default to the current services order
+                    final_priority = services.copy()
+                    self._priority_list = final_priority
+
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                placeholders = _order_placeholders(services, final_priority)
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK,
+                    data_schema=self._get_choose_fallback_schema(),
+                    errors={},
+                    description_placeholders={
+                        "available_services": ", ".join(service_options),
+                        **placeholders,
+                    },
+                )
+
+        # Keep looping on this same step, showing current order & remaining
+        placeholders = _order_placeholders(services, self._priority_list or [])
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
             data_schema=self._get_order_targets_schema(),
@@ -829,6 +917,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
+        # Interactive ordering state (options flow)
         self._ordering_targets_remaining: list[str] | None = None
         self._priority_list: list[str] | None = None
 
@@ -1028,11 +1117,31 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     def _get_order_targets_schema(self) -> vol.Schema:
         opts = [t[KEY_SERVICE] for t in self._targets]
+        remaining = (
+            self._ordering_targets_remaining
+            if self._ordering_targets_remaining is not None
+            else opts
+        )
+        current = self._priority_list or []
         return vol.Schema(
             {
-                vol.Required("priority", default=opts): selector(
+                vol.Optional("priority", default=current): selector(
                     {"select": {"options": opts, "multiple": True}}
-                )
+                ),
+                vol.Optional("next_priority"): selector(
+                    {"select": {"options": remaining}}
+                ),
+                vol.Optional("nav", default="add"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "add", "label": "Add to order"},
+                                {"value": "reset", "label": "Reset"},
+                                {"value": "done", "label": "Done"},
+                            ]
+                        }
+                    }
+                ),
             }
         )
 
@@ -1379,7 +1488,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
                 services = [t[KEY_SERVICE] for t in self._targets]
-                placeholders = _order_placeholders(services, None)
+                self._priority_list = []
+                self._ordering_targets_remaining = services.copy()
+                placeholders = _order_placeholders(services, self._priority_list)
                 return self.async_show_form(
                     step_id=STEP_ORDER_TARGETS,
                     data_schema=self._get_order_targets_schema(),
@@ -1444,18 +1555,74 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
+        _LOGGER.debug(
+            "STEP order_targets (options) | input=%s | current=%s | remaining=%s",
+            user_input,
+            self._priority_list,
+            self._ordering_targets_remaining,
+        )
         services = [t[KEY_SERVICE] for t in self._targets]
-        if user_input:
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
-            )
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+
+        # Bulk mode
+        if user_input and user_input.get("priority"):
+            priority = user_input["priority"]
+            self._priority_list = list(priority)
+            self._ordering_targets_remaining = [s for s in services if s not in priority]
+
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: priority})
+            placeholders = _order_placeholders(services, priority)
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
+                description_placeholders={
+                    "available_services": ", ".join(service_options),
+                    **placeholders,
+                },
             )
-        placeholders = _order_placeholders(services, None)
+
+        # Initialize interactive state if needed
+        if self._priority_list is None or self._ordering_targets_remaining is None:
+            self._priority_list = []
+            self._ordering_targets_remaining = services.copy()
+
+        # Interactive loop
+        if user_input:
+            nav = user_input.get("nav", "add")
+            next_choice = user_input.get("next_priority")
+
+            if nav == "reset":
+                self._priority_list = []
+                self._ordering_targets_remaining = services.copy()
+
+            elif nav == "add":
+                if next_choice and next_choice in self._ordering_targets_remaining:
+                    self._priority_list.append(next_choice)
+                    self._ordering_targets_remaining.remove(next_choice)
+
+            elif nav == "done":
+                final_priority = (
+                    self._priority_list if self._priority_list is not None else []
+                )
+                if not final_priority:
+                    final_priority = services.copy()
+                    self._priority_list = final_priority
+
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                placeholders = _order_placeholders(services, final_priority)
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK,
+                    data_schema=self._get_choose_fallback_schema(),
+                    errors={},
+                    description_placeholders={
+                        "available_services": ", ".join(service_options),
+                        **placeholders,
+                    },
+                )
+
+        placeholders = _order_placeholders(services, self._priority_list or [])
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
             data_schema=self._get_order_targets_schema(),
