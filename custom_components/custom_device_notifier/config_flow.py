@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -214,7 +214,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # If the entity_id looks like a *_last_update_trigger sensor, include
             # ACTION_SHUTDOWN as a selectable string. These sensors often report
             # android.intent.action.ACTION_SHUTDOWN when the device is shutting down.
-            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
+            if (
+                "_last_update_trigger" in entity_id
+                and "android.intent.action.ACTION_SHUTDOWN" not in opts
+            ):
                 opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
@@ -317,19 +320,23 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         options: list[dict[str, str | bool]] = []
         # If there are existing targets, add a header and individual edit entries
         if self._targets:
-            options.append({
-                "value": "__header_current__",
-                "label": "Current targets (click to edit):",
-            })
+            options.append(
+                {
+                    "value": "__header_current__",
+                    "label": "Current targets (click to edit):",
+                }
+            )
             for idx, tgt in enumerate(self._targets):
                 service = tgt.get(KEY_SERVICE, "(unknown)")
                 label = f"Edit: {service}"
                 options.append({"value": f"edit__{idx}", "label": label})
             # Separator before other options
-            options.append({
-                "value": "__header_other__",
-                "label": "Other options:",
-            })
+            options.append(
+                {
+                    "value": "__header_other__",
+                    "label": "Other options:",
+                }
+            )
         # Always allow adding a new target
         options.append({"value": "add", "label": "➕ Add target"})
         # If targets exist, allow editing/removing via general actions as well
@@ -456,9 +463,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Remove generic prefixes like mobile/app/notify from consideration
                 generic = {"mobile", "app", "notify", "mobileapp"}
                 tokens = [t for t in tokens if t not in generic]
+
                 def weight(entity: str) -> tuple:
                     # Build a tuple of matches for each token (1 if present, 0 if not)
                     return tuple(int(tok in entity) for tok in tokens)
+
                 options = sorted(
                     all_entities,
                     key=lambda e: (weight(e), e),
@@ -557,12 +566,23 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_MATCH_MODE,
                     data_schema=vol.Schema(
                         {
-                            vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                            vol.Required(
+                                CONF_MATCH_MODE,
+                                default=self._working_target.get(
+                                    CONF_MATCH_MODE, "all"
+                                ),
+                            ): selector(
                                 {
                                     "select": {
                                         "options": [
-                                            {"value": "all", "label": "Require all conditions"},
-                                            {"value": "any", "label": "Require any condition"},
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
                                         ]
                                     }
                                 }
@@ -589,9 +609,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c
-                for i, c in enumerate(conds)
-                if labels[i] not in to_remove
+                c for i, c in enumerate(conds) if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -667,7 +685,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                    vol.Required(
+                        CONF_MATCH_MODE,
+                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
+                    ): selector(
                         {
                             "select": {
                                 "options": [
@@ -722,7 +743,16 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
+                                {
+                                    "select": {
+                                        "options": sorted(
+                                            self.hass.services.async_services().get(
+                                                "notify", {}
+                                            )
+                                        ),
+                                        "custom_value": True,
+                                    }
+                                }
                             )
                         }
                     ),
@@ -737,7 +767,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Done path: start the multi-step target ordering process
             if nxt == "done":
                 # Initialise the lists used for ordering if not already set
-                self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+                self._ordering_targets_remaining = [
+                    t[KEY_SERVICE] for t in self._targets
+                ]
                 self._priority_list = []
                 return await self.async_step_order_targets()
 
@@ -833,7 +865,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema(
                     {
                         vol.Required("target"): selector(
-                            {"select": {"options": list(self._ordering_targets_remaining)}}
+                            {
+                                "select": {
+                                    "options": list(self._ordering_targets_remaining)
+                                }
+                            }
                         )
                     }
                 ),
@@ -855,7 +891,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ordered.extend(self._targets)
         self._targets = ordered
         # Record the priority in the entry data
-        self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list})
+        self._data.update(
+            {CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list}
+        )
         # Reset ordering state for next use
         self._ordering_targets_remaining = None
         self._priority_list = None
@@ -971,7 +1009,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             "current_targets": self._get_targets_overview(),
         }
 
-
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         """Return the schema for the condition value step.
 
@@ -1057,7 +1094,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 opts.append(st.state)
             opts.extend(["unknown", "unavailable"])
             # Include ACTION_SHUTDOWN for *_last_update_trigger sensors
-            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
+            if (
+                "_last_update_trigger" in entity_id
+                and "android.intent.action.ACTION_SHUTDOWN" not in opts
+            ):
                 opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
@@ -1149,18 +1189,22 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         options: list[dict[str, str | bool]] = []
         # Present current targets for direct editing
         if self._targets:
-            options.append({
-                "value": "__header_current__",
-                "label": "Current targets (click to edit):",
-            })
+            options.append(
+                {
+                    "value": "__header_current__",
+                    "label": "Current targets (click to edit):",
+                }
+            )
             for idx, tgt in enumerate(self._targets):
                 service = tgt.get(KEY_SERVICE, "(unknown)")
                 label = f"Edit: {service}"
                 options.append({"value": f"edit__{idx}", "label": label})
-            options.append({
-                "value": "__header_other__",
-                "label": "Other options:",
-            })
+            options.append(
+                {
+                    "value": "__header_other__",
+                    "label": "Other options:",
+                }
+            )
         # Always offer to add another target
         options.append({"value": "add", "label": "➕ Add target"})
         # Additional generic actions if there are existing targets
@@ -1271,8 +1315,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 tokens = [tok for tok in slug.split("_") if tok]
                 generic = {"mobile", "app", "notify", "mobileapp"}
                 tokens = [t for t in tokens if t not in generic]
+
                 def weight(entity: str) -> tuple:
                     return tuple(int(tok in entity) for tok in tokens)
+
                 options = sorted(
                     all_entities,
                     key=lambda e: (weight(e), e),
@@ -1375,7 +1421,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         {
                             vol.Required(
                                 CONF_MATCH_MODE,
-                                default=self._working_target.get(CONF_MATCH_MODE, "all"),
+                                default=self._working_target.get(
+                                    CONF_MATCH_MODE, "all"
+                                ),
                             ): selector(
                                 {
                                     "select": {
@@ -1411,9 +1459,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c
-                for i, c in enumerate(conds)
-                if labels[i] not in to_remove
+                c for i, c in enumerate(conds) if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -1481,7 +1527,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                    vol.Required(
+                        CONF_MATCH_MODE,
+                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
+                    ): selector(
                         {
                             "select": {
                                 "options": [
@@ -1534,7 +1583,16 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
+                                {
+                                    "select": {
+                                        "options": sorted(
+                                            self.hass.services.async_services().get(
+                                                "notify", {}
+                                            )
+                                        ),
+                                        "custom_value": True,
+                                    }
+                                }
                             )
                         }
                     ),
@@ -1549,7 +1607,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             # Done path
             if nxt == "done":
                 # Start dynamic ordering: initialise remaining list and priority list
-                self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+                self._ordering_targets_remaining = [
+                    t[KEY_SERVICE] for t in self._targets
+                ]
                 self._priority_list = []
                 return await self.async_step_order_targets()
         return self.async_show_form(
@@ -1636,7 +1696,11 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=vol.Schema(
                     {
                         vol.Required("target"): selector(
-                            {"select": {"options": list(self._ordering_targets_remaining)}}
+                            {
+                                "select": {
+                                    "options": list(self._ordering_targets_remaining)
+                                }
+                            }
                         )
                     }
                 ),
@@ -1655,7 +1719,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         ordered.extend(self._targets)
         self._targets = ordered
         # Persist into options and proceed
-        self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list})
+        self._data.update(
+            {CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list}
+        )
         # Reset ordering helpers
         self._ordering_targets_remaining = None
         self._priority_list = None
@@ -1693,8 +1759,11 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders={"available_services": ", ".join(service_options)},
         )
 
+
 # ───── expose options flow handler to Home Assistant ─────
 @callback
-def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+def async_get_options_flow(
+    config_entry: config_entries.ConfigEntry,
+) -> config_entries.OptionsFlow:
     """Return the options flow handler for this config entry."""
     return CustomDeviceNotifierOptionsFlowHandler(config_entry)
