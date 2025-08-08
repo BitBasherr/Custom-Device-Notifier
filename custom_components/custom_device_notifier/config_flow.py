@@ -787,7 +787,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input and user_input.get("priority"):
             priority = user_input["priority"]
             self._priority_list = list(priority)
-            self._ordering_targets_remaining = [s for s in services if s not in priority]
+            self._ordering_targets_remaining = [
+                s for s in services if s not in priority
+            ]
 
             # Save and move to fallback (WITH placeholders to satisfy translations)
             self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: priority})
@@ -831,7 +833,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     final_priority = services.copy()
                     self._priority_list = final_priority
 
-                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                self._data.update(
+                    {CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority}
+                )
                 placeholders = _order_placeholders(services, final_priority)
                 return self.async_show_form(
                     step_id=STEP_CHOOSE_FALLBACK,
@@ -1569,7 +1573,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input and user_input.get("priority"):
             priority = user_input["priority"]
             self._priority_list = list(priority)
-            self._ordering_targets_remaining = [s for s in services if s not in priority]
+            self._ordering_targets_remaining = [
+                s for s in services if s not in priority
+            ]
 
             self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: priority})
             placeholders = _order_placeholders(services, priority)
@@ -1610,7 +1616,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     final_priority = services.copy()
                     self._priority_list = final_priority
 
-                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                self._data.update(
+                    {CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority}
+                )
                 placeholders = _order_placeholders(services, final_priority)
                 return self.async_show_form(
                     step_id=STEP_CHOOSE_FALLBACK,
