@@ -1,213 +1,210 @@
 {
+  "title": "Custom Device Notifier",
   "config": {
     "step": {
       "user": {
-        "title": "Create notifier",
-        "description": "Set a friendly service name for your composite notifier.",
+        "title": "Create a custom notify service",
+        "description": "Give your notifier a friendly name. This becomes the service ID (slugified).",
         "data": {
-          "service_name_raw": "Service name"
+          "service_name_raw": "Notifier name"
         }
       },
       "add_target": {
-        "title": "Add target",
-        "description": "Pick a notify service.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}",
+        "title": "Add a notify target",
+        "description": "Pick a Home Assistant notify service.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}",
         "data": {
-          "target_service": "Target service",
-          "nav": "Navigation"
+          "target_service": "Notify service"
         }
       },
       "add_condition_entity": {
-        "title": "Condition — entity",
-        "description": "Choose the entity to check for this target.",
+        "title": "Choose a condition entity",
+        "description": "Select an entity to evaluate before using this target (sensor, binary_sensor, device_tracker, input_*).",
         "data": {
-          "entity": "Entity",
-          "nav": "Navigation"
+          "entity": "Entity"
         }
       },
       "add_condition_value": {
-        "title": "Condition — value",
-        "description": "Pick the operator and value for the condition.",
+        "title": "Set condition details",
+        "description": "Configure how the entity should be compared.",
         "data": {
           "operator": "Operator",
-          "value_choice": "Value source",
+          "value_choice": "How to set the value",
           "value": "Value",
-          "manual_value": "Manual value",
-          "nav": "Navigation"
+          "manual_value": "Manual value"
         }
       },
       "condition_more": {
-        "title": "Conditions for target",
+        "title": "Conditions",
         "description": "Current conditions:\n{current_conditions}",
         "data": {
-          "choice": "Action"
+          "choice": "What do you want to do next?"
         }
       },
       "remove_condition": {
-        "title": "Remove conditions",
-        "description": "Select one or more conditions to remove.",
+        "title": "Remove condition(s)",
+        "description": "Select one or more conditions to remove.\n\nCurrent conditions:\n{current_conditions}",
         "data": {
-          "conditions_to_remove": "Conditions",
-          "nav": "Navigation"
+          "conditions_to_remove": "Conditions to remove"
         }
       },
       "select_condition_to_edit": {
-        "title": "Edit a condition",
-        "description": "Choose a condition to edit.",
+        "title": "Edit which condition?",
+        "description": "Pick a condition to edit.\n\nCurrent conditions:\n{current_conditions}",
         "data": {
           "condition": "Condition"
         }
       },
       "match_mode": {
         "title": "Condition match mode",
-        "description": "Should ALL conditions match, or ANY?",
+        "description": "Choose how to evaluate the conditions for this target.",
         "data": {
-          "match_mode": "Match mode",
-          "nav": "Navigation"
+          "match_mode": "Match mode"
         }
       },
       "target_more": {
         "title": "Targets",
         "description": "Current targets:\n{current_targets}",
         "data": {
-          "next": "Action"
-        }
-      },
-      "order_targets": {
-        "title": "Order targets",
-        "description": "Set the priority order (top is tried first).",
-        "data": {
-          "priority": "Priority order",
-          "nav": "Navigation"
-        }
-      },
-      "choose_fallback": {
-        "title": "Fallback service",
-        "description": "Choose a fallback notify service.\n\nAvailable: {available_services}",
-        "data": {
-          "fallback": "Fallback service",
-          "nav": "Navigation"
+          "next": "What do you want to do next?"
         }
       },
       "select_target_to_edit": {
-        "title": "Edit target",
-        "description": "Choose a target to edit.",
+        "title": "Edit which target?",
+        "description": "Pick a target to edit.\n\nCurrent targets:\n{current_targets}",
         "data": {
           "target": "Target"
         }
       },
       "select_target_to_remove": {
-        "title": "Remove targets",
-        "description": "Select one or more targets to remove.",
+        "title": "Remove target(s)",
+        "description": "Select one or more targets to remove.\n\nCurrent targets:\n{current_targets}",
         "data": {
-          "targets": "Targets",
-          "nav": "Navigation"
+          "targets": "Targets to remove"
+        }
+      },
+      "order_targets": {
+        "title": "Order targets",
+        "description": "Set the priority your notifier will try.\n\nCurrent order: {current_order}\nRemaining: {remaining}",
+        "data": {
+          "pick_next": "Pick the next highest-priority target",
+          "priority": "Priority (top first)"
+        }
+      },
+      "choose_fallback": {
+        "title": "Choose fallback service",
+        "description": "Select a fallback Home Assistant notify service.\n\nAvailable: {available_services}",
+        "data": {
+          "fallback": "Fallback notify service"
         }
       }
     },
     "error": {
-      "must_be_notify": "Please select a valid notify service."
+      "must_be_notify": "Must be a notify service (e.g. notify.mobile_app_phone).",
+      "no_targets": "At least one target is required.",
+      "unknown": "An unexpected error occurred. Check the logs for details."
+    },
+    "abort": {
+      "already_configured": "This notifier already exists."
     }
   },
   "options": {
     "step": {
-      "target_more": {
-        "title": "Targets",
-        "description": "Current targets:\n{current_targets}",
-        "data": {
-          "next": "Action"
-        }
+      "init": {
+        "title": "Edit notifier",
+        "description": "Update targets, conditions, order, or fallback."
       },
       "add_target": {
-        "title": "Add target",
-        "description": "Pick a notify service.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}",
+        "title": "Add a notify target",
+        "description": "Pick a Home Assistant notify service.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}",
         "data": {
-          "target_service": "Target service",
-          "nav": "Navigation"
+          "target_service": "Notify service"
         }
       },
       "add_condition_entity": {
-        "title": "Condition — entity",
-        "description": "Choose the entity to check for this target.",
+        "title": "Choose a condition entity",
+        "description": "Select an entity to evaluate before using this target.",
         "data": {
-          "entity": "Entity",
-          "nav": "Navigation"
+          "entity": "Entity"
         }
       },
       "add_condition_value": {
-        "title": "Condition — value",
-        "description": "Pick the operator and value for the condition.",
+        "title": "Set condition details",
+        "description": "Configure how the entity should be compared.",
         "data": {
           "operator": "Operator",
-          "value_choice": "Value source",
+          "value_choice": "How to set the value",
           "value": "Value",
-          "manual_value": "Manual value",
-          "nav": "Navigation"
+          "manual_value": "Manual value"
         }
       },
       "condition_more": {
-        "title": "Conditions for target",
+        "title": "Conditions",
         "description": "Current conditions:\n{current_conditions}",
         "data": {
-          "choice": "Action"
+          "choice": "What do you want to do next?"
         }
       },
       "remove_condition": {
-        "title": "Remove conditions",
-        "description": "Select one or more conditions to remove.",
+        "title": "Remove condition(s)",
+        "description": "Select one or more conditions to remove.\n\nCurrent conditions:\n{current_conditions}",
         "data": {
-          "conditions_to_remove": "Conditions",
-          "nav": "Navigation"
+          "conditions_to_remove": "Conditions to remove"
         }
       },
       "select_condition_to_edit": {
-        "title": "Edit a condition",
-        "description": "Choose a condition to edit.",
+        "title": "Edit which condition?",
+        "description": "Pick a condition to edit.\n\nCurrent conditions:\n{current_conditions}",
         "data": {
           "condition": "Condition"
         }
       },
       "match_mode": {
         "title": "Condition match mode",
-        "description": "Should ALL conditions match, or ANY?",
+        "description": "Choose how to evaluate the conditions for this target.",
         "data": {
-          "match_mode": "Match mode",
-          "nav": "Navigation"
+          "match_mode": "Match mode"
         }
       },
-      "order_targets": {
-        "title": "Order targets",
-        "description": "Set the priority order (top is tried first).",
+      "target_more": {
+        "title": "Targets",
+        "description": "Current targets:\n{current_targets}",
         "data": {
-          "priority": "Priority order",
-          "nav": "Navigation"
-        }
-      },
-      "choose_fallback": {
-        "title": "Fallback service",
-        "description": "Choose a fallback notify service.\n\nAvailable: {available_services}",
-        "data": {
-          "fallback": "Fallback service",
-          "nav": "Navigation"
+          "next": "What do you want to do next?"
         }
       },
       "select_target_to_edit": {
-        "title": "Edit target",
-        "description": "Choose a target to edit.",
+        "title": "Edit which target?",
+        "description": "Pick a target to edit.\n\nCurrent targets:\n{current_targets}",
         "data": {
           "target": "Target"
         }
       },
       "select_target_to_remove": {
-        "title": "Remove targets",
-        "description": "Select one or more targets to remove.",
+        "title": "Remove target(s)",
+        "description": "Select one or more targets to remove.\n\nCurrent targets:\n{current_targets}",
         "data": {
-          "targets": "Targets",
-          "nav": "Navigation"
+          "targets": "Targets to remove"
+        }
+      },
+      "order_targets": {
+        "title": "Order targets",
+        "description": "Set the priority your notifier will try.\n\nCurrent order: {current_order}\nRemaining: {remaining}",
+        "data": {
+          "pick_next": "Pick the next highest-priority target",
+          "priority": "Priority (top first)"
+        }
+      },
+      "choose_fallback": {
+        "title": "Choose fallback service",
+        "description": "Select a fallback Home Assistant notify service.\n\nAvailable: {available_services}",
+        "data": {
+          "fallback": "Fallback notify service"
         }
       }
     },
     "error": {
-      "must_be_notify": "Please select a valid notify service."
+      "must_be_notify": "Must be a notify service (e.g. notify.mobile_app_phone).",
+      "unknown": "An unexpected error occurred. Check the logs for details."
     }
   }
 }
