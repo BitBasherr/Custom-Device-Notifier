@@ -10,6 +10,7 @@
       },
       "add_target": {
         "title": "Add a notify target",
+        "description": "Current targets:\n{current_targets}",
         "data": {
           "target_service": "Notify service"
         }
@@ -25,10 +26,16 @@
         "description": "Current conditions:\n{current_conditions}"
       },
       "target_more": {
-        "title": "Add more targets?"
+        "title": "Add more targets?",
+        "description": "Current targets:\n{current_targets}"
       },
       "order_targets": {
-        "title": "Set priority of notify targets"
+        "title": "Set priority of notify targets",
+        "description": "Current targets:\n{current_targets}"
+      },
+      "order_targets_wizard": {
+        "title": "Set target priority (wizard)",
+        "description": "{which} priority…\n\nCurrent targets:\n{current_targets}"
       },
       "choose_fallback": {
         "title": "Choose fallback service",
@@ -46,7 +53,16 @@
   "options": {
     "step": {
       "init": {
-        "title": "Edit notifier"
+        "title": "Edit notifier",
+        "description": "Current targets:\n{current_targets}"
+      },
+      "reorder": {
+        "title": "Reorder targets (classic)",
+        "description": "Current targets:\n{current_targets}"
+      },
+      "reorder_wizard": {
+        "title": "Reorder targets (wizard)",
+        "description": "{which} priority…\n\nCurrent targets:\n{current_targets}"
       }
     }
   }

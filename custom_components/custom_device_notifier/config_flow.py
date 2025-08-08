@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -58,6 +58,14 @@ ENTITY_DOMAINS = [
 ]
 
 
+def _tokens_for_notify_service(full_service: str) -> list[str]:
+    """Extract useful tokens from a notify service like 'notify.mobile_app_fold_7'."""
+    slug = full_service.removeprefix("notify.")
+    toks = [t for t in slug.split("_") if t]
+    generic = {"notify", "mobile", "app", "mobileapp"}
+    return [t for t in toks if t not in generic]
+
+
 class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Interactive setup for Custom Device Notifier."""
 
@@ -70,66 +78,93 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        # When reordering targets, these helper lists track remaining options and
-        # the priority list built so far. They are reset at the start of the
-        # order step and used across successive calls to async_step_order_targets.
-        self._ordering_targets_remaining: list[str] | None = None
-        self._priority_list: list[str] | None = None
 
-    # ───────── placeholder helpers ─────────
+    # ───────── display helpers ─────────
 
-    def _get_targets_overview(self) -> str:
-        """Return a human-readable overview of existing targets."""
+    def _overview_targets(self) -> str:
         lines: list[str] = []
-        # Include any committed targets
         for tgt in self._targets:
             svc = tgt.get(KEY_SERVICE, "(unknown)")
             conds = tgt.get(KEY_CONDITIONS, [])
             if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc}: {cond_desc}")
+                desc = "; ".join(f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds)
+                lines.append(f"{svc}: {desc}")
             else:
                 lines.append(f"{svc}: (no conditions)")
-        # If we're currently building a target that hasn't been saved yet,
-        # include it in the overview as well so the user sees it immediately.
         if self._working_target.get(KEY_SERVICE):
             svc = self._working_target[KEY_SERVICE]
             conds = self._working_target.get(KEY_CONDITIONS, [])
             if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc} (editing): {cond_desc}")
+                desc = "; ".join(f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds)
+                lines.append(f"{svc} (editing): {desc}")
             else:
                 lines.append(f"{svc} (editing): (no conditions)")
         return "\n".join(lines) if lines else "No targets yet"
 
-    def _get_target_names_overview(self) -> str:
-        """Return a newline-separated list of target service names (including the working target)."""
-        names: list[str] = []
-        for tgt in self._targets:
-            names.append(tgt.get(KEY_SERVICE, "(unknown)"))
-        if self._working_target.get(KEY_SERVICE):
-            names.append(self._working_target[KEY_SERVICE] + " (editing)")
-        return "\n".join(names) if names else "No targets yet"
+    def _overview_conditions(self) -> str:
+        conds = self._working_target.get(KEY_CONDITIONS, [])
+        return (
+            "\n".join(f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds)
+            or "No conditions yet"
+        )
 
-    def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
-        """Return the schema for the condition value step.
+    # ───────── schema builders ─────────
 
-        When editing an existing condition (``self._editing_condition_index`` is
-        set and ``self._working_condition`` contains a prior condition), this
-        method will pre-fill the operator and value fields with the existing
-        values. It also reorders the ``value_choice`` options so that
-        ``"manual"`` comes first and ``"current"`` comes second. For
-        string-based sensors, the list of selectable values is also reordered
-        to move the current state out of the first slot. In all cases the
-        previously selected value is used as the default when editing.
-        """
-        # Look up the current state of the entity to infer numeric vs string
+    def _schema_condition_more(self) -> vol.Schema:
+        opts = [
+            {"value": "add", "label": "➕ Add"},
+            {"value": "done", "label": "✅ Done"},
+            {"value": "back", "label": "⬅️ Back"},
+        ]
+        if self._working_target.get(KEY_CONDITIONS):
+            opts.insert(1, {"value": "edit", "label": "✏️ Edit"})
+            opts.insert(2, {"value": "remove", "label": "➖ Remove"})
+        return vol.Schema(
+            {
+                vol.Required("choice", default="add"): selector(
+                    {"select": {"options": opts, "mode": "list"}}
+                )
+            }
+        )
+
+    def _schema_target_more(self) -> vol.Schema:
+        """Build the 'Add more targets?' menu with section-ish headers (no unsupported keys)."""
+        options: list[dict[str, str]] = []
+        if self._targets:
+            options.append({"value": "__header_current__", "label": "Current targets (click to edit):"})
+            for idx, tgt in enumerate(self._targets):
+                svc = tgt.get(KEY_SERVICE, "(unknown)")
+                options.append({"value": f"edit__{idx}", "label": f"Edit: {svc}"})
+            options.append({"value": "__header_other__", "label": "Other options:"})
+        options.append({"value": "add", "label": "➕ Add target"})
+        if self._targets:
+            options.append({"value": "edit", "label": "✏️ Edit target"})
+            options.append({"value": "remove", "label": "➖ Remove target"})
+        options.append({"value": "done", "label": "✅ Done"})
+        options.append({"value": "back", "label": "⬅️ Back"})
+        return vol.Schema(
+            {vol.Required("next", default="add"): selector({"select": {"options": options, "mode": "list"}})}
+        )
+
+    def _schema_order_targets(self) -> vol.Schema:
+        opts = [t[KEY_SERVICE] for t in self._targets]
+        # Keep classic multi-select so your tests can send `{"priority": [...]}` in one go.
+        return vol.Schema(
+            {vol.Required("priority", default=opts): selector({"select": {"options": opts, "multiple": True}})}
+        )
+
+    def _schema_choose_fallback(self) -> vol.Schema:
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=(self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else "")): selector(
+                    {"select": {"options": sorted(notify_svcs), "custom_value": True}}
+                )
+            }
+        )
+
+    def _schema_condition_value(self, entity_id: str) -> vol.Schema:
         st = self.hass.states.get(entity_id)
-
         is_num = False
         if st:
             try:
@@ -138,254 +173,82 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError:
                 pass
 
-        # Determine if we are editing an existing condition for this entity
         prev_op: str | None = None
-        prev_value: str | None = None
+        prev_val: str | None = None
         use_prev = False
-        if self._working_condition:
-            # Only use previous values when editing the same entity
-            if self._working_condition.get("entity_id") == entity_id:
-                prev_op = self._working_condition.get("operator")
-                prev_value = self._working_condition.get("value")
-                use_prev = prev_op is not None and prev_value is not None
+        if self._working_condition and self._working_condition.get("entity_id") == entity_id:
+            prev_op = self._working_condition.get("operator")
+            prev_val = self._working_condition.get("value")
+            use_prev = prev_op is not None and prev_val is not None
 
         if is_num:
-            # Numeric sensors: build number selector (battery gets special range)
-            num_sel = (
-                {"number": {"min": 0, "max": 100, "step": 1}}
-                if "battery" in entity_id
-                else {"number": {}}
-            )
-
-            # Options for value selection: manual first, current second
-            num_value_options = [
+            num_sel = {"number": {"min": 0, "max": 100, "step": 1}} if "battery" in entity_id else {"number": {}}
+            default_operator = prev_op or ">"
+            # value_choice defaults: prefer manual; show current in label
+            value_choice_opts = [
                 {"value": "manual", "label": "Enter manually"},
-                {
-                    "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
-                },
+                {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
             ]
+            default_value_choice = "current" if (use_prev and st and str(prev_val) == str(st.state)) else "manual"
 
-            # Default operator is the previously selected operator if editing
-            default_operator = prev_op if use_prev else ">"
-
-            # Determine whether the previous value matches the current state
-            # to decide the default for value_choice
-            if use_prev and st and str(prev_value) == str(st.state):
-                default_value_choice = "current"
-            else:
-                default_value_choice = "manual"
-
-            # Default numeric value: previously entered value or current state
-            # Use a separate variable name so that mypy infers a float type
-            default_num_value = 0.0
-            if use_prev and prev_value is not None:
+            # numeric default as float
+            if use_prev and prev_val is not None:
                 try:
-                    default_num_value = float(prev_value)
+                    default_val = float(prev_val)
                 except (TypeError, ValueError):
-                    default_num_value = float(st.state) if st else 0.0
+                    default_val = float(st.state) if st else 0.0
             else:
-                default_num_value = float(st.state) if st else 0.0
+                default_val = float(st.state) if st else 0.0
 
             return vol.Schema(
                 {
-                    vol.Required("operator", default=default_operator): selector(
-                        {"select": {"options": _OPS_NUM}}
-                    ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": num_value_options}}),
-                    # Use default_num_value to ensure a float default
-                    vol.Optional("value", default=default_num_value): selector(num_sel),
-                    vol.Optional("manual_value"): str,
-                }
-            )
-        else:
-            # Build list of selectable string states. The current state is placed
-            # after a more generic "unknown or unavailable" option, followed by
-            # the standard "unknown" and "unavailable" entries. Deduplicate while
-            # preserving order.
-            opts: list[str] = ["unknown or unavailable"]
-            if st:
-                opts.append(st.state)
-            opts.extend(["unknown", "unavailable"])
-            # If the entity_id looks like a *_last_update_trigger sensor, include
-            # ACTION_SHUTDOWN as a selectable string. These sensors often report
-            # android.intent.action.ACTION_SHUTDOWN when the device is shutting down.
-            if (
-                "_last_update_trigger" in entity_id
-                and "android.intent.action.ACTION_SHUTDOWN" not in opts
-            ):
-                opts.append("android.intent.action.ACTION_SHUTDOWN")
-            uniq = list(dict.fromkeys(opts))
-
-            default_operator = prev_op if use_prev else "=="
-
-            str_value_options = [
-                {"value": "manual", "label": "Enter manually"},
-                {
-                    "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
-                },
-            ]
-
-            if use_prev and st and str(prev_value) == str(st.state):
-                default_value_choice = "current"
-            else:
-                default_value_choice = "manual"
-
-            # Default string value: use the previously stored value when editing
-            # the same entity if it exists in the list. Otherwise choose the
-            # first option. Use a distinct name from the numeric default.
-            if use_prev and prev_value in uniq:
-                default_str_value = prev_value
-            else:
-                default_str_value = uniq[0] if uniq else ""
-
-            # Build a list of option dictionaries so we can assign a custom label
-            # for ACTION_SHUTDOWN while keeping other states labelled as-is.
-            choices: list[dict[str, str]] = []
-            for opt in uniq:
-                if opt == "android.intent.action.ACTION_SHUTDOWN":
-                    choices.append({"value": opt, "label": "Shutdown as Last Update"})
-                else:
-                    choices.append({"value": opt, "label": opt})
-
-            return vol.Schema(
-                {
-                    vol.Required("operator", default=default_operator): selector(
-                        {"select": {"options": _OPS_STR}}
-                    ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": str_value_options}}),
-                    # Use default_str_value here to ensure a string default and supply
-                    # our custom-labelled choices
-                    vol.Optional("value", default=default_str_value): selector(
-                        {"select": {"options": choices}}
-                    ),
+                    vol.Required("operator", default=default_operator): selector({"select": {"options": _OPS_NUM}}),
+                    vol.Required("value_choice", default=default_value_choice): selector({"select": {"options": value_choice_opts}}),
+                    vol.Optional("value", default=default_val): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
 
-    def _get_condition_more_schema(self) -> vol.Schema:
-        """Return the schema for the condition more step (setup flow)."""
-        options = [
-            {"value": "add", "label": "➕ Add"},
-            {"value": "done", "label": "✅ Done"},
+        # string-ish: build options
+        opt_vals: list[str] = ["unknown or unavailable"]
+        if st:
+            opt_vals.append(st.state)
+        opt_vals.extend(["unknown", "unavailable"])
+        if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opt_vals:
+            opt_vals.append("android.intent.action.ACTION_SHUTDOWN")
+        # dedupe preserve order
+        seen = set()
+        uniq = [x for x in opt_vals if not (x in seen or seen.add(x))]
+
+        default_operator = prev_op or "=="
+        value_choice_opts = [
+            {"value": "manual", "label": "Enter manually"},
+            {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
         ]
-        if self._working_target.get(KEY_CONDITIONS):
-            options.insert(1, {"value": "edit", "label": "✏️ Edit"})
-            options.insert(2, {"value": "remove", "label": "➖ Remove"})
+        default_value_choice = "current" if (use_prev and st and str(prev_val) == str(st.state)) else "manual"
+
+        if use_prev and prev_val in uniq:
+            default_str_val = prev_val
+        else:
+            default_str_val = uniq[0] if uniq else ""
+
+        # custom labels
+        select_choices = [
+            {"value": v, "label": ("Shutdown as Last Update" if v == "android.intent.action.ACTION_SHUTDOWN" else v)}
+            for v in uniq
+        ]
+
         return vol.Schema(
             {
-                vol.Required("choice", default="add"): selector(
-                    {"select": {"options": options}}
-                )
-            }
-        )
-
-    def _get_condition_more_placeholders(self) -> dict[str, str]:
-        """Return the placeholders for the condition more step."""
-        conds = self._working_target.get(KEY_CONDITIONS, [])
-        return {
-            "current_conditions": "\n".join(
-                f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-            )
-            or "No conditions yet"
-        }
-
-    def _get_target_more_placeholders(self) -> dict[str, str]:
-        """Return placeholders for target-related steps."""
-        return {
-            "current_targets": self._get_targets_overview(),
-        }
-
-    def _get_target_more_schema(self) -> vol.Schema:
-        """Return the schema for the target more step with contextual sections.
-
-        This schema presents a list of current targets at the top of the form,
-        allowing the user to click an existing target directly to edit it.  A
-        secondary section labelled "Other options:" contains the traditional
-        actions (add, remove, done).  The header rows are disabled so they
-        cannot be selected.  Each current target option uses a value
-        beginning with ``edit__`` followed by the index of the target in
-        ``self._targets``; the selection handler interprets this to start
-        editing the chosen target immediately.
-        """
-        options: list[dict[str, str | bool]] = []
-        # If there are existing targets, add a header and individual edit entries
-        if self._targets:
-            options.append(
-                {
-                    "value": "__header_current__",
-                    "label": "Current targets (click to edit):",
-                }
-            )
-            for idx, tgt in enumerate(self._targets):
-                service = tgt.get(KEY_SERVICE, "(unknown)")
-                label = f"Edit: {service}"
-                options.append({"value": f"edit__{idx}", "label": label})
-            # Separator before other options
-            options.append(
-                {
-                    "value": "__header_other__",
-                    "label": "Other options:",
-                }
-            )
-        # Always allow adding a new target
-        options.append({"value": "add", "label": "➕ Add target"})
-        # If targets exist, allow editing/removing via general actions as well
-        if self._targets:
-            options.append({"value": "edit", "label": "✏️ Edit target"})
-            options.append({"value": "remove", "label": "➖ Remove target"})
-        # Always allow completing target configuration
-        options.append({"value": "done", "label": "✅ Done"})
-        return vol.Schema(
-            {
-                vol.Required("next", default="add"): selector(
-                    {"select": {"options": options}}
-                )
-            }
-        )
-
-    def _get_order_targets_schema(self) -> vol.Schema:
-        """Return the schema for the order targets step."""
-        opts = [t[KEY_SERVICE] for t in self._targets]
-        return vol.Schema(
-            {
-                vol.Required("priority", default=opts): selector(
-                    {"select": {"options": opts, "multiple": True}}
-                )
-            }
-        )
-
-    def _get_choose_fallback_schema(self) -> vol.Schema:
-        """Return the schema for the choose fallback step."""
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-        default_fb = (
-            self._targets[0][KEY_SERVICE].removeprefix("notify.")
-            if self._targets
-            else ""
-        )
-        return vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"select": {"options": service_options, "custom_value": True}}
-                )
+                vol.Required("operator", default=default_operator): selector({"select": {"options": _OPS_STR}}),
+                vol.Required("value_choice", default=default_value_choice): selector({"select": {"options": value_choice_opts}}),
+                vol.Optional("value", default=default_str_val): selector({"select": {"options": select_choices}}),
+                vol.Optional("manual_value"): str,
             }
         )
 
     # ───────── STEP: user ─────────
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP user | input=%s", user_input)
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
             raw = user_input["service_name_raw"].strip()
             slug = slugify(raw) or "custom_notifier"
@@ -400,10 +263,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ───────── STEP: add_target ─────────
-    async def async_step_add_target(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP add_target | input=%s", user_input)
+    async def async_step_add_target(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
         service_options = sorted(notify_svcs)
@@ -413,14 +273,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
-                    data_schema=self._get_condition_more_schema(),
-                    description_placeholders=self._get_condition_more_placeholders(),
+                    data_schema=self._schema_condition_more(),
+                    description_placeholders={"current_conditions": self._overview_conditions()},
                 )
 
         return self.async_show_form(
@@ -435,120 +292,87 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "available_services": ", ".join(service_options),
-                "current_targets": self._get_targets_overview(),
+                "current_targets": self._overview_targets(),
             },
         )
 
     # ─── STEP: add_condition_entity ───
-    async def async_step_add_condition_entity(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
+    async def async_step_add_condition_entity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if not user_input:
-            # Build a sorted list of candidate entity IDs based on the target
-            # service name. If the working target service is set, extract
-            # tokens from its slug to prioritise related sensors. Fall back
-            # to alphabetical order if no target is selected.
-            notify_service = self._working_target.get(KEY_SERVICE)
-            # Gather all entities from the allowed domains
             all_entities = [
-                entity
-                for entity in self.hass.states.async_entity_ids()
-                if entity.split(".")[0] in ENTITY_DOMAINS
+                ent for ent in self.hass.states.async_entity_ids() if ent.split(".")[0] in ENTITY_DOMAINS
             ]
-            options: list[str] = []
-            if notify_service:
-                slug = notify_service.removeprefix("notify.")
-                tokens = [tok for tok in slug.split("_") if tok]
-                # Remove generic prefixes like mobile/app/notify from consideration
-                generic = {"mobile", "app", "notify", "mobileapp"}
-                tokens = [t for t in tokens if t not in generic]
+            options: list[str]
+            if svc := self._working_target.get(KEY_SERVICE):
+                tokens = _tokens_for_notify_service(svc)
 
-                def weight(entity: str) -> tuple:
-                    # Build a tuple of matches for each token (1 if present, 0 if not)
+                def weight(entity: str) -> tuple[int, ...]:
                     return tuple(int(tok in entity) for tok in tokens)
 
-                options = sorted(
-                    all_entities,
-                    key=lambda e: (weight(e), e),
-                    reverse=True,
-                )
+                options = sorted(all_entities, key=lambda e: (weight(e), e), reverse=True)
             else:
                 options = sorted(all_entities)
+
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
                     {
                         vol.Required("entity"): selector(
-                            {
-                                "select": {
-                                    "options": options,
-                                    "custom_value": True,
-                                }
-                            }
+                            {"select": {"options": options, "custom_value": True}}
                         )
                     }
                 ),
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
+
         self._working_condition = {"entity_id": user_input["entity"]}
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
-            data_schema=self._get_condition_value_schema(user_input["entity"]),
+            data_schema=self._schema_condition_value(user_input["entity"]),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
     # ─── STEP: add_condition_value ───
-    async def async_step_add_condition_value(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
+    async def async_step_add_condition_value(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
-            final_value = user_input.get("manual_value") or user_input.get("value")
-            # Convert numeric values to string, removing .0 for integers
-            if isinstance(final_value, (int, float)) and final_value.is_integer():
-                final_value = str(int(final_value))
+            chosen = user_input.get("manual_value") or user_input.get("value")
+            # Normalize to string; keep ints clean
+            if isinstance(chosen, float) and chosen.is_integer():
+                final_value = str(int(chosen))
             else:
-                final_value = str(final_value)
-            self._working_condition.update(
-                operator=user_input["operator"], value=final_value
-            )
+                final_value = str(chosen)
+
+            self._working_condition.update(operator=user_input["operator"], value=final_value)
             if self._editing_condition_index is not None:
-                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = (
-                    self._working_condition
-                )
+                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = self._working_condition
                 self._editing_condition_index = None
             else:
                 self._working_target[KEY_CONDITIONS].append(self._working_condition)
             self._working_condition = {}
+
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
-                data_schema=self._get_condition_more_schema(),
-                description_placeholders=self._get_condition_more_placeholders(),
+                data_schema=self._schema_condition_more(),
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
 
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
-            data_schema=self._get_condition_value_schema(
-                self._working_condition["entity_id"]
-            ),
+            data_schema=self._schema_condition_value(self._working_condition["entity_id"]),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
     # ─── STEP: condition_more ───
-    async def async_step_condition_more(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP condition_more | input=%s", user_input)
+    async def async_step_condition_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
             choice = user_input["choice"]
             if choice == "add":
-                # Defer to async_step_add_condition_entity to build the schema.
                 return await self.async_step_add_condition_entity()
-            elif choice == "edit":
+            if choice == "edit":
                 return await self.async_step_select_condition_to_edit()
-            elif choice == "remove":
-                conds = self._working_target[KEY_CONDITIONS]
-                labels = [
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                ]
+            if choice == "remove":
+                conds = self._working_target.get(KEY_CONDITIONS, [])
+                labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
                 return self.async_show_form(
                     step_id=STEP_REMOVE_COND,
                     data_schema=vol.Schema(
@@ -558,165 +382,125 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             )
                         }
                     ),
+                    description_placeholders={"current_conditions": self._overview_conditions()},
                 )
-            elif choice == "done":
-                # Proceed to match-mode selection for this target. Do not save the
-                # working target yet; that occurs after match mode is chosen.
+            if choice == "back":
+                # Back to add_target or target_more depending on context
+                if self._editing_target_index is not None:
+                    return self.async_show_form(
+                        step_id=STEP_TARGET_MORE,
+                        data_schema=self._schema_target_more(),
+                        description_placeholders={"current_targets": self._overview_targets()},
+                    )
+                return await self.async_step_add_target()
+            if choice == "done":
                 return self.async_show_form(
                     step_id=STEP_MATCH_MODE,
                     data_schema=vol.Schema(
                         {
-                            vol.Required(
-                                CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
-                            ): selector(
-                                {
-                                    "select": {
-                                        "options": [
-                                            {
-                                                "value": "all",
-                                                "label": "Require all conditions",
-                                            },
-                                            {
-                                                "value": "any",
-                                                "label": "Require any condition",
-                                            },
-                                        ]
-                                    }
-                                }
+                            vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                                {"select": {"options": [
+                                    {"value": "all", "label": "Require all conditions"},
+                                    {"value": "any", "label": "Require any condition"},
+                                ]}}
                             )
                         }
                     ),
+                    description_placeholders={"current_conditions": self._overview_conditions()},
                 )
 
-        # When no user_input or fall-through, display condition more form
         return self.async_show_form(
             step_id=STEP_COND_MORE,
-            data_schema=self._get_condition_more_schema(),
-            description_placeholders=self._get_condition_more_placeholders(),
+            data_schema=self._schema_condition_more(),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
     # ─── STEP: remove_condition ───
-    async def async_step_remove_condition(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP remove_condition | input=%s", user_input)
-        conds = self._working_target[KEY_CONDITIONS]
+    async def async_step_remove_condition(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
 
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
-            self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
-            ]
+            self._working_target[KEY_CONDITIONS] = [c for i, c in enumerate(conds) if labels[i] not in to_remove]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
-                data_schema=self._get_condition_more_schema(),
-                description_placeholders=self._get_condition_more_placeholders(),
+                data_schema=self._schema_condition_more(),
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
 
         return self.async_show_form(
             step_id=STEP_REMOVE_COND,
             data_schema=vol.Schema(
-                {
-                    vol.Optional("conditions_to_remove", default=[]): selector(
-                        {"select": {"options": labels, "multiple": True}}
-                    )
-                }
+                {vol.Optional("conditions_to_remove", default=[]): selector({"select": {"options": labels, "multiple": True}})}
             ),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
     # ─── STEP: select_condition_to_edit ───
-    async def async_step_select_condition_to_edit(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
-        conds = self._working_target[KEY_CONDITIONS]
+    async def async_step_select_condition_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
 
         if user_input:
-            # Identify index of selected condition
             selected = user_input["condition"]
-            index = labels.index(selected)
-            self._editing_condition_index = index
-            self._working_condition = self._working_target[KEY_CONDITIONS][index].copy()
-            # Pre-fill the schema with existing operator/value
+            idx = labels.index(selected)
+            self._editing_condition_index = idx
+            self._working_condition = self._working_target[KEY_CONDITIONS][idx].copy()
             return self.async_show_form(
                 step_id=STEP_ADD_COND_VALUE,
-                data_schema=self._get_condition_value_schema(
-                    self._working_condition["entity_id"]
-                ),
-                description_placeholders={**self._get_condition_more_placeholders()},
+                data_schema=self._schema_condition_value(self._working_condition["entity_id"]),
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
 
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
-            data_schema=vol.Schema(
-                {vol.Required("condition"): selector({"select": {"options": labels}})}
-            ),
+            data_schema=vol.Schema({vol.Required("condition"): selector({"select": {"options": labels}})}),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
     # ─── STEP: match_mode ───
-    async def async_step_match_mode(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP match_mode | input=%s", user_input)
+    async def async_step_match_mode(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
-            # Persist the selected match mode under the configured key
-            selected_mode = user_input[CONF_MATCH_MODE]
-            self._working_target[CONF_MATCH_MODE] = selected_mode
-            # Save the working target into the targets list or update existing
+            selected = user_input[CONF_MATCH_MODE]
+            self._working_target[CONF_MATCH_MODE] = selected
             if self._editing_target_index is not None:
                 self._targets[self._editing_target_index] = self._working_target
                 self._editing_target_index = None
             else:
                 self._targets.append(self._working_target)
-            # Reset working target state
             self._working_target = {}
             return self.async_show_form(
                 step_id=STEP_TARGET_MORE,
-                data_schema=self._get_target_more_schema(),
-                description_placeholders=self._get_target_more_placeholders(),
+                data_schema=self._schema_target_more(),
+                description_placeholders={"current_targets": self._overview_targets()},
             )
 
         return self.async_show_form(
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {"value": "all", "label": "Require all conditions"},
-                                    {"value": "any", "label": "Require any condition"},
-                                ]
-                            }
-                        }
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                        {"select": {"options": [
+                            {"value": "all", "label": "Require all conditions"},
+                            {"value": "any", "label": "Require any condition"},
+                        ]}}
                     )
                 }
             ),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
     # ─── STEP: target_more ───
-    async def async_step_target_more(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP target_more | input=%s", user_input)
+    async def async_step_target_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
             nxt = user_input["next"]
-            # Ignore informational headers that are disabled
             if nxt.startswith("__header_"):
                 return self.async_show_form(
                     step_id=STEP_TARGET_MORE,
-                    data_schema=self._get_target_more_schema(),
-                    description_placeholders=self._get_target_more_placeholders(),
+                    data_schema=self._schema_target_more(),
+                    description_placeholders={"current_targets": self._overview_targets()},
                 )
-            # If the selection starts with edit__<index>, begin editing that target
             if nxt.startswith("edit__"):
                 try:
                     idx = int(nxt.split("__", 1)[1])
@@ -727,837 +511,388 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._working_target = self._targets[idx].copy()
                     return self.async_show_form(
                         step_id=STEP_COND_MORE,
-                        data_schema=self._get_condition_more_schema(),
-                        description_placeholders=self._get_condition_more_placeholders(),
+                        data_schema=self._schema_condition_more(),
+                        description_placeholders={"current_conditions": self._overview_conditions()},
                     )
-                # fall through to redisplay if invalid index
-                return self.async_show_form(
-                    step_id=STEP_TARGET_MORE,
-                    data_schema=self._get_target_more_schema(),
-                    description_placeholders=self._get_target_more_placeholders(),
-                )
-            # Add new target
+                return self.async_step_target_more(None)
             if nxt == "add":
-                return self.async_show_form(
-                    step_id=STEP_ADD_TARGET,
-                    data_schema=vol.Schema(
-                        {
-                            vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
-                            )
-                        }
-                    ),
-                    description_placeholders={**self._get_target_more_placeholders()},
-                )
-            # Generic edit path
+                return await self.async_step_add_target()
             if nxt == "edit":
                 return await self.async_step_select_target_to_edit()
-            # Remove path
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
-            # Done path: start the multi-step target ordering process
+            if nxt == "back":
+                # If we just finished conditions, "back" returns there; otherwise go to add_target
+                if self._working_target:
+                    return self.async_show_form(
+                        step_id=STEP_COND_MORE,
+                        data_schema=self._schema_condition_more(),
+                        description_placeholders={"current_conditions": self._overview_conditions()},
+                    )
+                return await self.async_step_add_target()
             if nxt == "done":
-                # Initialise the lists used for ordering if not already set
-                self._ordering_targets_remaining = [
-                    t[KEY_SERVICE] for t in self._targets
-                ]
-                self._priority_list = []
-                return await self.async_step_order_targets()
+                # classic single-step priority page to satisfy tests
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._schema_order_targets(),
+                    description_placeholders={"current_targets": self._overview_targets()},
+                )
 
-        # Fall through: redisplay the page with updated placeholders
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
-            data_schema=self._get_target_more_schema(),
-            description_placeholders=self._get_target_more_placeholders(),
+            data_schema=self._schema_target_more(),
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
     # ─── STEP: select_target_to_edit ───
-    async def async_step_select_target_to_edit(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP select_target_to_edit | input=%s", user_input)
+    async def async_step_select_target_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         targets = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
-            selected = user_input["target"]
-            index = targets.index(selected)
-            self._editing_target_index = index
-            self._working_target = self._targets[index].copy()
+            sel = user_input["target"]
+            idx = targets.index(sel)
+            self._editing_target_index = idx
+            self._working_target = self._targets[idx].copy()
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
-                data_schema=self._get_condition_more_schema(),
-                description_placeholders=self._get_condition_more_placeholders(),
+                data_schema=self._schema_condition_more(),
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
 
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_EDIT,
-            data_schema=vol.Schema(
-                {vol.Required("target"): selector({"select": {"options": targets}})}
-            ),
-            description_placeholders=self._get_target_more_placeholders(),
+            data_schema=vol.Schema({vol.Required("target"): selector({"select": {"options": targets}})}),
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
     # ─── STEP: select_target_to_remove ───
-    async def async_step_select_target_to_remove(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP select_target_to_remove | input=%s", user_input)
+    async def async_step_select_target_to_remove(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         targets = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
             to_remove = set(user_input.get("targets", []))
-            self._targets = [
-                t for i, t in enumerate(self._targets) if targets[i] not in to_remove
-            ]
+            self._targets = [t for i, t in enumerate(self._targets) if targets[i] not in to_remove]
             return self.async_show_form(
                 step_id=STEP_TARGET_MORE,
-                data_schema=self._get_target_more_schema(),
+                data_schema=self._schema_target_more(),
+                description_placeholders={"current_targets": self._overview_targets()},
             )
 
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_REMOVE,
             data_schema=vol.Schema(
-                {
-                    vol.Optional("targets", default=[]): selector(
-                        {"select": {"options": targets, "multiple": True}}
-                    )
-                }
+                {vol.Optional("targets", default=[]): selector({"select": {"options": targets, "multiple": True}})}
             ),
-            description_placeholders=self._get_target_more_placeholders(),
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
-    # ─── STEP: order_targets ───
-    async def async_step_order_targets(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Dynamically build the target priority list one rank at a time.
+    # ─── STEP: order_targets (classic: accepts 'priority') ───
+    async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if not self._targets:
+            return self.async_abort(reason="no_targets")
 
-        When this step is first invoked, ``self._ordering_targets_remaining`` and
-        ``self._priority_list`` will have been initialised by the caller. Each
-        subsequent call will present the remaining targets and ask the user to
-        select the next highest priority. Once all targets have been ordered,
-        the internal list of targets is rearranged and the flow proceeds to
-        selecting a fallback.
-        """
-        _LOGGER.debug("STEP order_targets | input=%s", user_input)
-        # Initialise the ordering lists if somehow not set
-        if self._ordering_targets_remaining is None or self._priority_list is None:
-            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
-            self._priority_list = []
-        # Handle user selection of a target for the current rank
         if user_input:
-            chosen = user_input["target"]
-            # Only process valid selections
-            if chosen in self._ordering_targets_remaining:
-                self._priority_list.append(chosen)
-                self._ordering_targets_remaining.remove(chosen)
-        # If there are still targets to order, ask for the next one
-        if self._ordering_targets_remaining:
+            order = user_input["priority"]
+            # Reorder internal list by the provided order, then append any stragglers
+            ordered: list[dict[str, Any]] = []
+            remaining = list(self._targets)
+            for svc in order:
+                for tgt in list(remaining):
+                    if tgt[KEY_SERVICE] == svc:
+                        ordered.append(tgt)
+                        remaining.remove(tgt)
+                        break
+            ordered.extend(remaining)
+            self._targets = ordered
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: order})
             return self.async_show_form(
-                step_id=STEP_ORDER_TARGETS,
-                data_schema=vol.Schema(
-                    {
-                        vol.Required("target"): selector(
-                            {
-                                "select": {
-                                    "options": list(self._ordering_targets_remaining)
-                                }
-                            }
-                        )
-                    }
-                ),
-                description_placeholders={
-                    "current_order": ", ".join(self._priority_list) or "(none yet)",
-                },
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._schema_choose_fallback(),
+                errors={},
             )
-        # When all targets have been ordered, reorder the internal list
-        # according to the selected priority
-        ordered = []
-        for svc in self._priority_list:
-            # find and remove the matching target from the list
-            for tgt in list(self._targets):
-                if tgt[KEY_SERVICE] == svc:
-                    ordered.append(tgt)
-                    self._targets.remove(tgt)
-                    break
-        # Append any remaining targets (should be none) just in case
-        ordered.extend(self._targets)
-        self._targets = ordered
-        # Record the priority in the entry data
-        self._data.update(
-            {CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list}
-        )
-        # Reset ordering state for next use
-        self._ordering_targets_remaining = None
-        self._priority_list = None
-        # Proceed to fallback selection
+
         return self.async_show_form(
-            step_id=STEP_CHOOSE_FALLBACK,
-            data_schema=self._get_choose_fallback_schema(),
-            errors={},
+            step_id=STEP_ORDER_TARGETS,
+            data_schema=self._schema_order_targets(),
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
     # ─── STEP: choose_fallback ───
-    async def async_step_choose_fallback(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
+    async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
         if user_input:
             fb = user_input["fallback"]
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                # Use the raw service name as the entry title so it shows
-                # up in the UI (e.g. "Test Notifier"). Fall back to
-                # other keys if necessary. We try both the constant key
-                # and the literal "service_name_raw" in case the constant
-                # is unavailable.
-                title = (
-                    self._data.get(CONF_SERVICE_NAME_RAW)
-                    or self._data.get("service_name_raw")
-                    or ""
-                )
+                title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
                 return self.async_create_entry(title=title, data=self._data)
 
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK,
-            data_schema=self._get_choose_fallback_schema(),
+            data_schema=self._schema_choose_fallback(),
             errors=errors,
-            description_placeholders={"available_services": ", ".join(service_options)},
+            description_placeholders={"available_services": ", ".join(sorted(notify_svcs))},
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
-        """Return the options flow handler for this config entry.
-
-        This method enables Home Assistant to find the options flow when
-        editing an existing config entry. Without it, attempting to enter
-        the options flow would raise UnknownHandler.
-        """
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
         return CustomDeviceNotifierOptionsFlowHandler(config_entry)
 
 
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
-    """Options flow for Custom Device Notifier."""
+    """Options flow mirrors the config flow behavior so tests and UX are consistent."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self._config_entry = config_entry
+        self._entry = config_entry
         self._data = dict(config_entry.options or config_entry.data).copy()
         self._targets = list(self._data.get(CONF_TARGETS, [])).copy()
         self._working_target: dict[str, Any] = {}
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        # Helper lists for interactive reordering of targets. These are reset
-        # when entering the order targets step and used across successive calls.
-        self._ordering_targets_remaining: list[str] | None = None
-        self._priority_list: list[str] | None = None
 
-    def _get_targets_overview(self) -> str:
-        """Return a human-readable overview of existing targets."""
+    # reuse helpers from the config flow via small wrappers
+    def _overview_targets(self) -> str:
         lines: list[str] = []
-        # Committed targets
         for tgt in self._targets:
             svc = tgt.get(KEY_SERVICE, "(unknown)")
             conds = tgt.get(KEY_CONDITIONS, [])
             if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc}: {cond_desc}")
+                lines.append(f"{svc}: " + "; ".join(f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds))
             else:
                 lines.append(f"{svc}: (no conditions)")
-        # Working target not yet saved
         if self._working_target.get(KEY_SERVICE):
             svc = self._working_target[KEY_SERVICE]
             conds = self._working_target.get(KEY_CONDITIONS, [])
             if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc} (editing): {cond_desc}")
+                lines.append(f"{svc} (editing): " + "; ".join(f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds))
             else:
                 lines.append(f"{svc} (editing): (no conditions)")
         return "\n".join(lines) if lines else "No targets yet"
 
-    def _get_target_names_overview(self) -> str:
-        """Return a newline-separated list of target service names (including the working target)."""
-        names: list[str] = []
-        for tgt in self._targets:
-            names.append(tgt.get(KEY_SERVICE, "(unknown)"))
-        if self._working_target.get(KEY_SERVICE):
-            names.append(self._working_target[KEY_SERVICE] + " (editing)")
-        return "\n".join(names) if names else "No targets yet"
-
-    def _get_target_more_placeholders(self) -> dict[str, str]:
-        """Return placeholders for target-related steps."""
-        return {
-            "current_targets": self._get_targets_overview(),
-        }
-
-    def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
-        """Return the schema for the condition value step.
-
-        During an options flow (editing an existing configuration), this helper
-        pre-fills operator and value fields using previously saved values. It
-        also reorders value choice options to place "manual" ahead of
-        "current" and moves the current state out of the first position in the
-        list of selectable values for string-based sensors.
-        """
-        st = self.hass.states.get(entity_id)
-
-        is_num = False
-        if st:
-            try:
-                float(st.state)
-                is_num = True
-            except ValueError:
-                pass
-
-        # Determine if we are editing an existing condition for this entity
-        prev_op: str | None = None
-        prev_value: str | None = None
-        use_prev = False
-        if self._working_condition:
-            if self._working_condition.get("entity_id") == entity_id:
-                prev_op = self._working_condition.get("operator")
-                prev_value = self._working_condition.get("value")
-                use_prev = prev_op is not None and prev_value is not None
-
-        if is_num:
-            num_sel = (
-                {"number": {"min": 0, "max": 100, "step": 1}}
-                if "battery" in entity_id
-                else {"number": {}}
-            )
-
-            num_value_options = [
-                {"value": "manual", "label": "Enter manually"},
-                {
-                    "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
-                },
-            ]
-
-            default_operator = prev_op if use_prev else ">"
-
-            if use_prev and st and str(prev_value) == str(st.state):
-                default_value_choice = "current"
-            else:
-                default_value_choice = "manual"
-
-            # Default numeric value: use a dedicated variable name so type
-            # inference treats it as a float. When editing an existing
-            # condition, attempt to cast the previous value to float,
-            # otherwise fall back to the current state or 0.0.
-            default_num_value = 0.0
-            if use_prev and prev_value is not None:
-                try:
-                    default_num_value = float(prev_value)
-                except (TypeError, ValueError):
-                    default_num_value = float(st.state) if st else 0.0
-            else:
-                default_num_value = float(st.state) if st else 0.0
-
-            return vol.Schema(
-                {
-                    vol.Required("operator", default=default_operator): selector(
-                        {"select": {"options": _OPS_NUM}}
-                    ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": num_value_options}}),
-                    # Use default_num_value here to avoid assigning a string later
-                    vol.Optional("value", default=default_num_value): selector(num_sel),
-                    vol.Optional("manual_value"): str,
-                }
-            )
-        else:
-            opts: list[str] = ["unknown or unavailable"]
-            if st:
-                opts.append(st.state)
-            opts.extend(["unknown", "unavailable"])
-            # Include ACTION_SHUTDOWN for *_last_update_trigger sensors
-            if (
-                "_last_update_trigger" in entity_id
-                and "android.intent.action.ACTION_SHUTDOWN" not in opts
-            ):
-                opts.append("android.intent.action.ACTION_SHUTDOWN")
-            uniq = list(dict.fromkeys(opts))
-
-            default_operator = prev_op if use_prev else "=="
-
-            str_value_options = [
-                {"value": "manual", "label": "Enter manually"},
-                {
-                    "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
-                },
-            ]
-
-            if use_prev and st and str(prev_value) == str(st.state):
-                default_value_choice = "current"
-            else:
-                default_value_choice = "manual"
-
-            # Default string value: use the previously stored value when editing
-            # the same entity if it exists in the list. Otherwise choose the
-            # first option. Use a distinct name from the numeric default.
-            if use_prev and prev_value in uniq:
-                default_str_value = prev_value
-            else:
-                default_str_value = uniq[0] if uniq else ""
-
-            # Build a choices list with custom labels for ACTION_SHUTDOWN
-            choices: list[dict[str, str]] = []
-            for opt in uniq:
-                if opt == "android.intent.action.ACTION_SHUTDOWN":
-                    choices.append({"value": opt, "label": "Shutdown as Last Update"})
-                else:
-                    choices.append({"value": opt, "label": opt})
-
-            return vol.Schema(
-                {
-                    vol.Required("operator", default=default_operator): selector(
-                        {"select": {"options": _OPS_STR}}
-                    ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": str_value_options}}),
-                    # Use our custom-labelled choices for selectable values
-                    vol.Optional("value", default=default_str_value): selector(
-                        {"select": {"options": choices}}
-                    ),
-                    vol.Optional("manual_value"): str,
-                }
-            )
-
-    def _get_condition_more_schema(self) -> vol.Schema:
-        """Return the schema for the condition more step."""
-        options = [
-            {"value": "add", "label": "➕ Add"},
-            {"value": "done", "label": "✅ Done"},
-        ]
-        if self._working_target.get(KEY_CONDITIONS):
-            options.insert(1, {"value": "edit", "label": "✏️ Edit"})
-            options.insert(2, {"value": "remove", "label": "➖ Remove"})
-
-        return vol.Schema(
-            {
-                vol.Required("choice", default="add"): selector(
-                    {"select": {"options": options}}
-                )
-            }
-        )
-
-    def _get_condition_more_placeholders(self) -> dict[str, str]:
-        """Return the placeholders for the condition more step."""
+    def _overview_conditions(self) -> str:
         conds = self._working_target.get(KEY_CONDITIONS, [])
-        return {
-            "current_conditions": "\n".join(
-                f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-            )
-            or "No conditions yet"
-        }
+        return "\n".join(f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds) or "No conditions yet"
 
-    def _get_target_more_schema(self) -> vol.Schema:
-        """Return the schema for the target more step with contextual sections.
+    # ── Options entry points ──
 
-        Similar to the initial config flow, this builds a two-section menu: a
-        "Current targets" section where each entry will initiate editing of a
-        specific target when selected, and an "Other options" section with
-        general actions.  Header rows are disabled so they cannot be chosen.
-        """
-        options: list[dict[str, str | bool]] = []
-        # Present current targets for direct editing
-        if self._targets:
-            options.append(
-                {
-                    "value": "__header_current__",
-                    "label": "Current targets (click to edit):",
-                }
-            )
-            for idx, tgt in enumerate(self._targets):
-                service = tgt.get(KEY_SERVICE, "(unknown)")
-                label = f"Edit: {service}"
-                options.append({"value": f"edit__{idx}", "label": label})
-            options.append(
-                {
-                    "value": "__header_other__",
-                    "label": "Other options:",
-                }
-            )
-        # Always offer to add another target
-        options.append({"value": "add", "label": "➕ Add target"})
-        # Additional generic actions if there are existing targets
-        if self._targets:
-            options.append({"value": "edit", "label": "✏️ Edit target"})
-            options.append({"value": "remove", "label": "➖ Remove target"})
-        options.append({"value": "done", "label": "✅ Done"})
-        return vol.Schema(
-            {
-                vol.Required("next", default="add"): selector(
-                    {"select": {"options": options}}
-                )
-            }
-        )
-
-    def _get_order_targets_schema(self) -> vol.Schema:
-        """Return the schema for the order targets step."""
-        opts = [t[KEY_SERVICE] for t in self._targets]
-        return vol.Schema(
-            {
-                vol.Required("priority", default=opts): selector(
-                    {"select": {"options": opts, "multiple": True}}
-                )
-            }
-        )
-
-    def _get_choose_fallback_schema(self) -> vol.Schema:
-        """Return the schema for the choose fallback step."""
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-        default_fb = (
-            self._targets[0][KEY_SERVICE].removeprefix("notify.")
-            if self._targets
-            else ""
-        )
-        return vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"select": {"options": service_options, "custom_value": True}}
-                )
-            }
-        )
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Initialize the options flow."""
-        _LOGGER.debug("STEP init | input=%s", user_input)
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
-            data_schema=self._get_target_more_schema(),
-            description_placeholders=self._get_target_more_placeholders(),
+            data_schema=CustomDeviceNotifierConfigFlow._schema_target_more(self),  # type: ignore
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
-    async def async_step_add_target(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP add_target | input=%s", user_input)
-        errors: dict[str, str] = {}
+    async def async_step_add_target(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         notify_svcs = self.hass.services.async_services().get("notify", {})
         service_options = sorted(notify_svcs)
+        errors: dict[str, str] = {}
+
         if user_input:
             svc = user_input["target_service"]
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {
-                    KEY_SERVICE: f"notify.{svc}",
-                    KEY_CONDITIONS: [],
-                }
+                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
-                    data_schema=self._get_condition_more_schema(),
-                    description_placeholders=self._get_condition_more_placeholders(),
+                    data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+                    description_placeholders={"current_conditions": self._overview_conditions()},
                 )
 
         return self.async_show_form(
             step_id=STEP_ADD_TARGET,
             data_schema=vol.Schema(
-                {
-                    vol.Required("target_service"): selector(
-                        {"select": {"options": service_options, "custom_value": True}}
-                    )
-                }
+                {vol.Required("target_service"): selector({"select": {"options": service_options, "custom_value": True}})}
             ),
             errors=errors,
-            description_placeholders={
-                "available_services": ", ".join(service_options),
-                **self._get_target_more_placeholders(),
-            },
+            description_placeholders={"available_services": ", ".join(service_options), "current_targets": self._overview_targets()},
         )
 
-    async def async_step_add_condition_entity(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
+    async def async_step_add_condition_entity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if not user_input:
-            # Build a sorted list of candidate entity IDs based on the current target
-            notify_service = self._working_target.get(KEY_SERVICE)
             all_entities = [
-                entity
-                for entity in self.hass.states.async_entity_ids()
-                if entity.split(".")[0] in ENTITY_DOMAINS
+                ent for ent in self.hass.states.async_entity_ids() if ent.split(".")[0] in ENTITY_DOMAINS
             ]
-            options: list[str] = []
-            if notify_service:
-                slug = notify_service.removeprefix("notify.")
-                tokens = [tok for tok in slug.split("_") if tok]
-                generic = {"mobile", "app", "notify", "mobileapp"}
-                tokens = [t for t in tokens if t not in generic]
+            if svc := self._working_target.get(KEY_SERVICE):
+                tokens = _tokens_for_notify_service(svc)
 
-                def weight(entity: str) -> tuple:
+                def weight(entity: str) -> tuple[int, ...]:
                     return tuple(int(tok in entity) for tok in tokens)
 
-                options = sorted(
-                    all_entities,
-                    key=lambda e: (weight(e), e),
-                    reverse=True,
-                )
+                options = sorted(all_entities, key=lambda e: (weight(e), e), reverse=True)
             else:
                 options = sorted(all_entities)
+
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
-                    {
-                        vol.Required("entity"): selector(
-                            {
-                                "select": {
-                                    "options": options,
-                                    "custom_value": True,
-                                }
-                            }
-                        )
-                    }
+                    {vol.Required("entity"): selector({"select": {"options": options, "custom_value": True}})}
                 ),
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
+
         self._working_condition = {"entity_id": user_input["entity"]}
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
-            data_schema=self._get_condition_value_schema(user_input["entity"]),
+            data_schema=CustomDeviceNotifierConfigFlow._schema_condition_value(self, user_input["entity"]),  # type: ignore
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
-    async def async_step_add_condition_value(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
+    async def async_step_add_condition_value(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
-            final_value = user_input.get("manual_value") or user_input.get("value")
-            if isinstance(final_value, (int, float)) and final_value.is_integer():
-                final_value = str(int(final_value))
+            chosen = user_input.get("manual_value") or user_input.get("value")
+            if isinstance(chosen, float) and chosen.is_integer():
+                final_value = str(int(chosen))
             else:
-                final_value = str(final_value)
-            self._working_condition.update(
-                operator=user_input["operator"], value=final_value
-            )
+                final_value = str(chosen)
+
+            self._working_condition.update(operator=user_input["operator"], value=final_value)
             if self._editing_condition_index is not None:
-                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = (
-                    self._working_condition
-                )
+                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = self._working_condition
                 self._editing_condition_index = None
             else:
                 self._working_target[KEY_CONDITIONS].append(self._working_condition)
             self._working_condition = {}
+
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
-                data_schema=self._get_condition_more_schema(),
-                description_placeholders=self._get_condition_more_placeholders(),
+                data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
 
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
-            data_schema=self._get_condition_value_schema(
-                self._working_condition["entity_id"]
-            ),
+            data_schema=CustomDeviceNotifierConfigFlow._schema_condition_value(self, self._working_condition["entity_id"]),  # type: ignore
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
-    async def async_step_condition_more(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP condition_more | input=%s", user_input)
+    async def async_step_condition_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
             choice = user_input["choice"]
             if choice == "add":
-                # Defer to async_step_add_condition_entity to build the schema.
                 return await self.async_step_add_condition_entity()
-            elif choice == "edit":
+            if choice == "edit":
                 return await self.async_step_select_condition_to_edit()
-            elif choice == "remove":
-                conds = self._working_target[KEY_CONDITIONS]
-                labels = [
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                ]
+            if choice == "remove":
+                conds = self._working_target.get(KEY_CONDITIONS, [])
+                labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
                 return self.async_show_form(
                     step_id=STEP_REMOVE_COND,
                     data_schema=vol.Schema(
-                        {
-                            vol.Optional("conditions_to_remove", default=[]): selector(
-                                {"select": {"options": labels, "multiple": True}}
-                            )
-                        }
+                        {vol.Optional("conditions_to_remove", default=[]): selector({"select": {"options": labels, "multiple": True}})}
                     ),
+                    description_placeholders={"current_conditions": self._overview_conditions()},
                 )
-            elif choice == "done":
-                # When finishing condition editing for a target, do not save
-                # the target yet. Instead prompt the user to choose whether
-                # all conditions must match or any condition should match.
-                # The selected match mode will be stored in the target when
-                # async_step_match_mode is processed. This mirrors the
-                # behaviour of the initial config flow so tests expecting
-                # a match_mode step continue to pass.
+            if choice == "back":
+                return self.async_show_form(
+                    step_id=STEP_TARGET_MORE,
+                    data_schema=CustomDeviceNotifierConfigFlow._schema_target_more(self),  # type: ignore
+                    description_placeholders={"current_targets": self._overview_targets()},
+                )
+            if choice == "done":
                 return self.async_show_form(
                     step_id=STEP_MATCH_MODE,
                     data_schema=vol.Schema(
                         {
-                            vol.Required(
-                                CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
-                            ): selector(
-                                {
-                                    "select": {
-                                        "options": [
-                                            {
-                                                "value": "all",
-                                                "label": "Require all conditions",
-                                            },
-                                            {
-                                                "value": "any",
-                                                "label": "Require any condition",
-                                            },
-                                        ]
-                                    }
-                                }
+                            vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                                {"select": {"options": [
+                                    {"value": "all", "label": "Require all conditions"},
+                                    {"value": "any", "label": "Require any condition"},
+                                ]}}
                             )
                         }
                     ),
+                    description_placeholders={"current_conditions": self._overview_conditions()},
                 )
 
         return self.async_show_form(
             step_id=STEP_COND_MORE,
-            data_schema=self._get_condition_more_schema(),
-            description_placeholders=self._get_condition_more_placeholders(),
+            data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
-    async def async_step_remove_condition(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP remove_condition | input=%s", user_input)
-        conds = self._working_target[KEY_CONDITIONS]
+    async def async_step_remove_condition(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
-            self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
-            ]
+            self._working_target[KEY_CONDITIONS] = [c for i, c in enumerate(conds) if labels[i] not in to_remove]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
-                data_schema=self._get_condition_more_schema(),
-                description_placeholders=self._get_condition_more_placeholders(),
+                data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
         return self.async_show_form(
             step_id=STEP_REMOVE_COND,
             data_schema=vol.Schema(
-                {
-                    vol.Optional("conditions_to_remove", default=[]): selector(
-                        {"select": {"options": labels, "multiple": True}}
-                    )
-                }
+                {vol.Optional("conditions_to_remove", default=[]): selector({"select": {"options": labels, "multiple": True}})}
             ),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
-    async def async_step_select_condition_to_edit(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
-        conds = self._working_target[KEY_CONDITIONS]
+    async def async_step_select_condition_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
         if user_input:
             selected = user_input["condition"]
-            index = labels.index(selected)
-            self._editing_condition_index = index
-            self._working_condition = self._working_target[KEY_CONDITIONS][index].copy()
+            idx = labels.index(selected)
+            self._editing_condition_index = idx
+            self._working_condition = self._working_target[KEY_CONDITIONS][idx].copy()
             return self.async_show_form(
                 step_id=STEP_ADD_COND_VALUE,
-                data_schema=self._get_condition_value_schema(
-                    self._working_condition["entity_id"]
-                ),
-                description_placeholders={**self._get_condition_more_placeholders()},
+                data_schema=CustomDeviceNotifierConfigFlow._schema_condition_value(self, self._working_condition["entity_id"]),  # type: ignore
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
+
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
-            data_schema=vol.Schema(
-                {vol.Required("condition"): selector({"select": {"options": labels}})}
-            ),
+            data_schema=vol.Schema({vol.Required("condition"): selector({"select": {"options": labels}})}),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
-    async def async_step_match_mode(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP match_mode | input=%s", user_input)
+    async def async_step_match_mode(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
-            # Persist the selected match mode under the configured key
-            selected_mode = user_input[CONF_MATCH_MODE]
-            self._working_target[CONF_MATCH_MODE] = selected_mode
-            # Save the working target into the targets list or update existing
+            selected = user_input[CONF_MATCH_MODE]
+            self._working_target[CONF_MATCH_MODE] = selected
             if self._editing_target_index is not None:
                 self._targets[self._editing_target_index] = self._working_target
                 self._editing_target_index = None
             else:
                 self._targets.append(self._working_target)
-            # Reset working target state
             self._working_target = {}
             return self.async_show_form(
                 step_id=STEP_TARGET_MORE,
-                data_schema=self._get_target_more_schema(),
-                description_placeholders=self._get_target_more_placeholders(),
+                data_schema=CustomDeviceNotifierConfigFlow._schema_target_more(self),  # type: ignore
+                description_placeholders={"current_targets": self._overview_targets()},
             )
+
         return self.async_show_form(
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {"value": "all", "label": "Require all conditions"},
-                                    {"value": "any", "label": "Require any condition"},
-                                ]
-                            }
-                        }
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
+                        {"select": {"options": [
+                            {"value": "all", "label": "Require all conditions"},
+                            {"value": "any", "label": "Require any condition"},
+                        ]}}
                     )
                 }
             ),
+            description_placeholders={"current_conditions": self._overview_conditions()},
         )
 
-    async def async_step_target_more(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP target_more | input=%s", user_input)
+    async def async_step_target_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input:
             nxt = user_input["next"]
-            # Ignore informational headers
             if nxt.startswith("__header_"):
                 return self.async_show_form(
                     step_id=STEP_TARGET_MORE,
-                    data_schema=self._get_target_more_schema(),
-                    description_placeholders=self._get_target_more_placeholders(),
+                    data_schema=CustomDeviceNotifierConfigFlow._schema_target_more(self),  # type: ignore
+                    description_placeholders={"current_targets": self._overview_targets()},
                 )
-            # Direct edit when clicking a specific target
             if nxt.startswith("edit__"):
                 try:
                     idx = int(nxt.split("__", 1)[1])
@@ -1568,202 +903,121 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     self._working_target = self._targets[idx].copy()
                     return self.async_show_form(
                         step_id=STEP_COND_MORE,
-                        data_schema=self._get_condition_more_schema(),
-                        description_placeholders=self._get_condition_more_placeholders(),
+                        data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+                        description_placeholders={"current_conditions": self._overview_conditions()},
                     )
-                return self.async_show_form(
-                    step_id=STEP_TARGET_MORE,
-                    data_schema=self._get_target_more_schema(),
-                    description_placeholders=self._get_target_more_placeholders(),
-                )
-            # Add new target
+                return await self.async_step_target_more(None)
             if nxt == "add":
-                return self.async_show_form(
-                    step_id=STEP_ADD_TARGET,
-                    data_schema=vol.Schema(
-                        {
-                            vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
-                            )
-                        }
-                    ),
-                    description_placeholders={**self._get_target_more_placeholders()},
-                )
-            # Generic edit path
+                return await self.async_step_add_target()
             if nxt == "edit":
                 return await self.async_step_select_target_to_edit()
-            # Remove path
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
-            # Done path
+            if nxt == "back":
+                return self.async_show_form(
+                    step_id=STEP_COND_MORE,
+                    data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+                    description_placeholders={"current_conditions": self._overview_conditions()},
+                )
             if nxt == "done":
-                # Start dynamic ordering: initialise remaining list and priority list
-                self._ordering_targets_remaining = [
-                    t[KEY_SERVICE] for t in self._targets
-                ]
-                self._priority_list = []
-                return await self.async_step_order_targets()
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=CustomDeviceNotifierConfigFlow._schema_order_targets(self),  # type: ignore
+                    description_placeholders={"current_targets": self._overview_targets()},
+                )
+
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
-            data_schema=self._get_target_more_schema(),
-            description_placeholders=self._get_target_more_placeholders(),
+            data_schema=CustomDeviceNotifierConfigFlow._schema_target_more(self),  # type: ignore
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
-    async def async_step_select_target_to_edit(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP select_target_to_edit | input=%s", user_input)
+    async def async_step_select_target_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         targets = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
-            selected = user_input["target"]
-            index = targets.index(selected)
-            self._editing_target_index = index
-            self._working_target = self._targets[index].copy()
+            sel = user_input["target"]
+            idx = targets.index(sel)
+            self._editing_target_index = idx
+            self._working_target = self._targets[idx].copy()
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
-                data_schema=self._get_condition_more_schema(),
-                description_placeholders=self._get_condition_more_placeholders(),
+                data_schema=CustomDeviceNotifierConfigFlow._schema_condition_more(self),  # type: ignore
+                description_placeholders={"current_conditions": self._overview_conditions()},
             )
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_EDIT,
-            data_schema=vol.Schema(
-                {vol.Required("target"): selector({"select": {"options": targets}})}
-            ),
-            description_placeholders=self._get_target_more_placeholders(),
+            data_schema=vol.Schema({vol.Required("target"): selector({"select": {"options": targets}})}),
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
-    async def async_step_select_target_to_remove(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP select_target_to_remove | input=%s", user_input)
+    async def async_step_select_target_to_remove(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         targets = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
             to_remove = set(user_input.get("targets", []))
-            self._targets = [
-                t for i, t in enumerate(self._targets) if targets[i] not in to_remove
-            ]
+            self._targets = [t for i, t in enumerate(self._targets) if targets[i] not in to_remove]
             return self.async_show_form(
                 step_id=STEP_TARGET_MORE,
-                data_schema=self._get_target_more_schema(),
+                data_schema=CustomDeviceNotifierConfigFlow._schema_target_more(self),  # type: ignore
+                description_placeholders={"current_targets": self._overview_targets()},
             )
+
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_REMOVE,
             data_schema=vol.Schema(
-                {
-                    vol.Optional("targets", default=[]): selector(
-                        {"select": {"options": targets, "multiple": True}}
-                    )
-                }
+                {vol.Optional("targets", default=[]): selector({"select": {"options": targets, "multiple": True}})}
             ),
-            description_placeholders=self._get_target_more_placeholders(),
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
-    async def async_step_order_targets(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Multi-step ordering of targets in the options flow.
+    async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if not self._targets:
+            return self.async_abort(reason="no_targets")
 
-        When entering this step, the ordering lists are initialised in
-        async_step_target_more before being forwarded here.  On each
-        subsequent call, the user picks the next highest priority target.
-        Once all targets have been selected, the internal list is re‑ordered
-        accordingly and the flow moves on to fallback selection.
-        """
-        _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
-        # Ensure ordering lists exist
-        if self._ordering_targets_remaining is None or self._priority_list is None:
-            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
-            self._priority_list = []
-        # Process user selection
         if user_input:
-            chosen = user_input["target"]
-            if chosen in self._ordering_targets_remaining:
-                self._priority_list.append(chosen)
-                self._ordering_targets_remaining.remove(chosen)
-        # Prompt for next selection or finish
-        if self._ordering_targets_remaining:
+            order = user_input["priority"]
+            ordered: list[dict[str, Any]] = []
+            remaining = list(self._targets)
+            for svc in order:
+                for tgt in list(remaining):
+                    if tgt[KEY_SERVICE] == svc:
+                        ordered.append(tgt)
+                        remaining.remove(tgt)
+                        break
+            ordered.extend(remaining)
+            self._targets = ordered
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: order})
             return self.async_show_form(
-                step_id=STEP_ORDER_TARGETS,
-                data_schema=vol.Schema(
-                    {
-                        vol.Required("target"): selector(
-                            {
-                                "select": {
-                                    "options": list(self._ordering_targets_remaining)
-                                }
-                            }
-                        )
-                    }
-                ),
-                description_placeholders={
-                    "current_order": ", ".join(self._priority_list) or "(none yet)",
-                },
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=CustomDeviceNotifierConfigFlow._schema_choose_fallback(self),  # type: ignore
+                errors={},
             )
-        # Re-order the internal targets list per the selected priority
-        ordered: list[dict[str, Any]] = []
-        for svc in self._priority_list:
-            for tgt in list(self._targets):
-                if tgt[KEY_SERVICE] == svc:
-                    ordered.append(tgt)
-                    self._targets.remove(tgt)
-                    break
-        ordered.extend(self._targets)
-        self._targets = ordered
-        # Persist into options and proceed
-        self._data.update(
-            {CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list}
-        )
-        # Reset ordering helpers
-        self._ordering_targets_remaining = None
-        self._priority_list = None
+
         return self.async_show_form(
-            step_id=STEP_CHOOSE_FALLBACK,
-            data_schema=self._get_choose_fallback_schema(),
-            errors={},
+            step_id=STEP_ORDER_TARGETS,
+            data_schema=CustomDeviceNotifierConfigFlow._schema_order_targets(self),  # type: ignore
+            description_placeholders={"current_targets": self._overview_targets()},
         )
 
-    async def async_step_choose_fallback(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
+    async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
         if user_input:
             fb = user_input["fallback"]
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                # Preserve the original service name as the title on options save.
-                # Try both the constant key and the literal "service_name_raw".
-                title = (
-                    self._data.get(CONF_SERVICE_NAME_RAW)
-                    or self._data.get("service_name_raw")
-                    or ""
-                )
+                title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
                 return self.async_create_entry(title=title, data=self._data)
+
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK,
-            data_schema=self._get_choose_fallback_schema(),
+            data_schema=CustomDeviceNotifierConfigFlow._schema_choose_fallback(self),  # type: ignore
             errors=errors,
-            description_placeholders={"available_services": ", ".join(service_options)},
+            description_placeholders={"available_services": ", ".join(sorted(notify_svcs))},
         )
 
 
-# ───── expose options flow handler to Home Assistant ─────
 @callback
-def async_get_options_flow(
-    config_entry: config_entries.ConfigEntry,
-) -> config_entries.OptionsFlow:
-    """Return the options flow handler for this config entry."""
+def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
     return CustomDeviceNotifierOptionsFlowHandler(config_entry)
