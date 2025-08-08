@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable, Protocol, cast
+from typing import Any, Awaitable, Protocol, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -45,6 +45,7 @@ STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
 
 # ──────────────────────────── misc ────────────────────────────────────
 _BACK = "__back"
+_DONE = "__done"
 
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
@@ -67,7 +68,7 @@ class _StepCallable(Protocol):
 
 
 class _NavMixin:
-    """Small helper to add a 'Back' stack to HA flows without fighting the UI."""
+    """Small helper to add a 'Back' stack to HA flows."""
 
     def _nav_init(self) -> None:
         self._nav_stack: list[tuple[str, dict[str, Any]]] = []
@@ -114,7 +115,7 @@ class _NavMixin:
         self._restore_state(state)
         return await self._call_step(prev_step)
 
-    async def _call_step(self, step_id: string) -> ConfigFlowResult:  # type: ignore[no-redef]
+    async def _call_step(self, step_id: str) -> ConfigFlowResult:
         step_fn = cast(_StepCallable, getattr(self, f"async_step_{step_id}"))
         return await step_fn(None)
 
@@ -132,6 +133,7 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
+        # Iterative ordering helpers
         self._ordering_targets_remaining: list[str] | None = None
         self._priority_list: list[str] | None = None
         self._nav_init()
@@ -190,10 +192,7 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
             ]
             default_operator = prev_op if use_prev else ">"
-            if use_prev and st and str(prev_value) == str(st.state):
-                default_value_choice = "current"
-            else:
-                default_value_choice = "manual"
+            default_value_choice = "current" if (use_prev and st and str(prev_value) == str(st.state)) else "manual"
 
             default_num_value = 0.0
             if use_prev and prev_value is not None:
@@ -204,7 +203,6 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             else:
                 default_num_value = float(st.state) if st else 0.0
 
-            # Add a nav dropdown so we can always go back from this form
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector({"select": {"options": _OPS_NUM}}),
@@ -239,15 +237,8 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 {"value": "manual", "label": "Enter manually"},
                 {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
             ]
-            if use_prev and st and str(prev_value) == str(st.state):
-                default_value_choice = "current"
-            else:
-                default_value_choice = "manual"
-
-            if use_prev and prev_value in uniq:
-                default_str_value = prev_value
-            else:
-                default_str_value = uniq[0] if uniq else ""
+            default_value_choice = "current" if (use_prev and st and str(prev_value) == str(st.state)) else "manual"
+            default_str_value = prev_value if (use_prev and prev_value in uniq) else (uniq[0] if uniq else "")
 
             choices: list[dict[str, str]] = []
             for opt in uniq:
@@ -309,33 +300,30 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         options.append({"value": _BACK, "label": "⬅ Back"})
         return vol.Schema({vol.Required("next", default="add"): selector({"select": {"options": options}})})
 
-    def _get_order_targets_schema(self) -> vol.Schema:
-        opts = [t[KEY_SERVICE] for t in self._targets]
+    # ─── iterative ordering helpers ───
+    def _ordering_init_if_needed(self) -> None:
+        if self._ordering_targets_remaining is None or self._priority_list is None:
+            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+            self._priority_list = []
+
+    def _ordering_placeholders(self) -> dict[str, str]:
+        current = ", ".join(self._priority_list or [])
+        remaining = ", ".join(self._ordering_targets_remaining or [])
+        return {
+            "current_order": current or "(none)",
+            "remaining": remaining or "(none)",
+        }
+
+    def _ordering_schema(self) -> vol.Schema:
+        remaining = self._ordering_targets_remaining or []
+        # Provide special options: Done + Back
+        options = [{"value": _DONE, "label": "✅ Done"}, {"value": _BACK, "label": "⬅ Back"}] + [
+            {"value": s, "label": s} for s in remaining
+        ]
         return vol.Schema(
             {
-                vol.Required("priority", default=opts): selector({"select": {"options": opts, "multiple": True}}),
-                vol.Required("nav", default="continue"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "continue", "label": "Continue"},
-                                {"value": _BACK, "label": "⬅ Back"},
-                            ]
-                        }
-                    }
-                ),
+                vol.Required("pick_next"): selector({"select": {"options": options}}),
             }
-        )
-
-    def _get_choose_fallback_schema(self) -> vol.Schema:
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-        # Prepend a Back pseudo-option as a nice UX affordance.
-        options = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": s, "label": s} for s in service_options]
-        default_fb = self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else ""
-        default_choice = default_fb if default_fb in notify_svcs else _BACK
-        return vol.Schema(
-            {vol.Required("fallback", default=default_choice): selector({"select": {"options": options}})}
         )
 
     # ───────── STEP: user ─────────
@@ -403,17 +391,15 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 generic = {"mobile", "app", "notify", "mobileapp"}
                 tokens = [t for t in tokens if t not in generic]
 
-                def weight(entity: str) -> tuple[int, ...]:
-                    return tuple(int(tok in entity) for tok in tokens)
+                def weight(entity_id: str) -> tuple[int, ...]:
+                    return tuple(int(tok in entity_id) for tok in tokens)
 
                 sorted_entities = sorted(all_entities, key=lambda e: (weight(e), e), reverse=True)
             else:
                 sorted_entities = sorted(all_entities)
 
             # Add Back as an explicit pseudo-entity
-            options = [{"value": _BACK, "label": "⬅ Back"}] + [
-                {"value": e, "label": e} for e in sorted_entities
-            ]
+            options = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": e, "label": e} for e in sorted_entities]
 
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
@@ -471,7 +457,6 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 self._push_nav(STEP_COND_MORE)
                 return await self.async_step_select_condition_to_edit()
             if choice == "remove":
-                # Add a small 'nav' control to the removal form
                 conds = self._working_target.get(KEY_CONDITIONS, [])
                 labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
                 self._push_nav(STEP_COND_MORE)
@@ -584,7 +569,7 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             )
 
         # Add Back as an option in this single-select
-        opts = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": l, "label": l} for l in labels]
+        opts = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": label, "label": label} for label in labels]
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
             data_schema=vol.Schema({vol.Required("condition"): selector({"select": {"options": opts}})}),
@@ -648,7 +633,13 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
                 self._push_nav(STEP_TARGET_MORE)
-                return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+                # Initialize iterative ordering
+                self._ordering_init_if_needed()
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._ordering_schema(),
+                    description_placeholders=self._ordering_placeholders(),
+                )
 
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
@@ -716,21 +707,63 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    # ─── STEP: order_targets ───
+    # ─── STEP: order_targets (iterative) ───
     async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets | input=%s", user_input)
-        if user_input:
-            if user_input.get("nav") == _BACK:
-                return await self._go_back()
-            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
-            self._push_nav(STEP_ORDER_TARGETS)
-            return self.async_show_form(
-                step_id=STEP_CHOOSE_FALLBACK, data_schema=self._get_choose_fallback_schema(), errors={}
-            )
+        self._ordering_init_if_needed()
 
-        return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+        if user_input:
+            pick = user_input["pick_next"]
+            if pick == _BACK:
+                return await self._go_back()
+
+            # finalize when 'Done' or when nothing remains
+            if pick == _DONE:
+                # If user hits Done early, append remaining in current order
+                final_priority = (self._priority_list or []) + (self._ordering_targets_remaining or [])
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                # Clear helpers for cleanliness
+                self._ordering_targets_remaining = None
+                self._priority_list = None
+                self._push_nav(STEP_ORDER_TARGETS)
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK, data_schema=self._get_choose_fallback_schema(), errors={}
+                )
+
+            # normal pick
+            if self._ordering_targets_remaining and pick in self._ordering_targets_remaining:
+                self._ordering_targets_remaining.remove(pick)
+                (self._priority_list or []).append(pick)
+
+            # Auto-finish when no remaining items
+            if not self._ordering_targets_remaining:
+                final_priority = self._priority_list or []
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                self._ordering_targets_remaining = None
+                self._priority_list = None
+                self._push_nav(STEP_ORDER_TARGETS)
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK, data_schema=self._get_choose_fallback_schema(), errors={}
+                )
+
+        # Show the iterative picker again
+        return self.async_show_form(
+            step_id=STEP_ORDER_TARGETS,
+            data_schema=self._ordering_schema(),
+            description_placeholders=self._ordering_placeholders(),
+        )
 
     # ─── STEP: choose_fallback ───
+    def _get_choose_fallback_schema(self) -> vol.Schema:
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+        options = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": s, "label": s} for s in service_options]
+        default_fb = self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else ""
+        default_choice = default_fb if default_fb in notify_svcs else _BACK
+        return vol.Schema(
+            {vol.Required("fallback", default=default_choice): selector({"select": {"options": options}})}
+        )
+
     async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
         errors: dict[str, str] = {}
@@ -774,11 +807,11 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
+        # iterative ordering
         self._ordering_targets_remaining: list[str] | None = None
         self._priority_list: list[str] | None = None
         self._nav_init()
 
-    # Small helpers duplicated to keep the two flows independent
     def _get_targets_overview(self) -> str:
         lines: list[str] = []
         for tgt in self._targets:
@@ -802,7 +835,7 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
     def _get_target_more_placeholders(self) -> dict[str, str]:
         return {"current_targets": self._get_targets_overview()}
 
-    # Reuse schema builders from config flow pattern, inlined for options flow
+    # Reuse schema builders (trimmed for options flow)
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         st = self.hass.states.get(entity_id)
         is_num = False
@@ -885,7 +918,7 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 {
                     vol.Required("operator", default=default_operator): selector({"select": {"options": _OPS_STR}}),
                     vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": str_value_options}}
+                        {"select": {"options": str_value_options}}  # noqa: E501
                     ),
                     vol.Optional("value", default=default_str_value): selector({"select": {"options": choices}}),
                     vol.Optional("manual_value"): str,
@@ -924,33 +957,23 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
         options.append({"value": _BACK, "label": "⬅ Back"})
         return vol.Schema({vol.Required("next", default="add"): selector({"select": {"options": options}})})
 
-    def _get_order_targets_schema(self) -> vol.Schema:
-        opts = [t[KEY_SERVICE] for t in self._targets]
-        return vol.Schema(
-            {
-                vol.Required("priority", default=opts): selector({"select": {"options": opts, "multiple": True}}),
-                vol.Required("nav", default="continue"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "continue", "label": "Continue"},
-                                {"value": _BACK, "label": "⬅ Back"},
-                            ]
-                        }
-                    }
-                ),
-            }
-        )
+    # iterative ordering helpers
+    def _ordering_init_if_needed(self) -> None:
+        if self._ordering_targets_remaining is None or self._priority_list is None:
+            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+            self._priority_list = []
 
-    def _get_choose_fallback_schema(self) -> vol.Schema:
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-        options = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": s, "label": s} for s in service_options]
-        default_fb = self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else ""
-        default_choice = default_fb if default_fb in notify_svcs else _BACK
-        return vol.Schema(
-            {vol.Required("fallback", default=default_choice): selector({"select": {"options": options}})}
-        )
+    def _ordering_placeholders(self) -> dict[str, str]:
+        current = ", ".join(self._priority_list or [])
+        remaining = ", ".join(self._ordering_targets_remaining or [])
+        return {"current_order": current or "(none)", "remaining": remaining or "(none)"}
+
+    def _ordering_schema(self) -> vol.Schema:
+        remaining = self._ordering_targets_remaining or []
+        options = [{"value": _DONE, "label": "✅ Done"}, {"value": _BACK, "label": "⬅ Back"}] + [
+            {"value": s, "label": s} for s in remaining
+        ]
+        return vol.Schema({vol.Required("pick_next"): selector({"select": {"options": options}})})
 
     # ─── options flow steps ───
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -1005,8 +1028,8 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 generic = {"mobile", "app", "notify", "mobileapp"}
                 tokens = [t for t in tokens if t not in generic]
 
-                def weight(entity: str) -> tuple[int, ...]:
-                    return tuple(int(tok in entity) for tok in tokens)
+                def weight(entity_id: str) -> tuple[int, ...]:
+                    return tuple(int(tok in entity_id) for tok in tokens)
 
                 sorted_entities = sorted(all_entities, key=lambda e: (weight(e), e), reverse=True)
             else:
@@ -1163,7 +1186,7 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
         _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
         conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
-        opts = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": l, "label": l} for l in labels]
+        opts = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": label, "label": label} for label in labels]
         if user_input:
             selected = user_input["condition"]
             if selected == _BACK:
@@ -1237,7 +1260,12 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
                 self._push_nav(STEP_TARGET_MORE)
-                return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+                self._ordering_init_if_needed()
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._ordering_schema(),
+                    description_placeholders=self._ordering_placeholders(),
+                )
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
@@ -1301,15 +1329,52 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
 
     async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
+        self._ordering_init_if_needed()
+
         if user_input:
-            if user_input.get("nav") == _BACK:
+            pick = user_input["pick_next"]
+            if pick == _BACK:
                 return await self._go_back()
-            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
-            self._push_nav(STEP_ORDER_TARGETS)
-            return self.async_show_form(
-                step_id=STEP_CHOOSE_FALLBACK, data_schema=self._get_choose_fallback_schema(), errors={}
-            )
-        return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+
+            if pick == _DONE:
+                final_priority = (self._priority_list or []) + (self._ordering_targets_remaining or [])
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                self._ordering_targets_remaining = None
+                self._priority_list = None
+                self._push_nav(STEP_ORDER_TARGETS)
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK, data_schema=self._get_choose_fallback_schema(), errors={}
+                )
+
+            if self._ordering_targets_remaining and pick in self._ordering_targets_remaining:
+                self._ordering_targets_remaining.remove(pick)
+                (self._priority_list or []).append(pick)
+
+            if not self._ordering_targets_remaining:
+                final_priority = self._priority_list or []
+                self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+                self._ordering_targets_remaining = None
+                self._priority_list = None
+                self._push_nav(STEP_ORDER_TARGETS)
+                return self.async_show_form(
+                    step_id=STEP_CHOOSE_FALLBACK, data_schema=self._get_choose_fallback_schema(), errors={}
+                )
+
+        return self.async_show_form(
+            step_id=STEP_ORDER_TARGETS,
+            data_schema=self._ordering_schema(),
+            description_placeholders=self._ordering_placeholders(),
+        )
+
+    def _get_choose_fallback_schema(self) -> vol.Schema:
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+        options = [{"value": _BACK, "label": "⬅ Back"}] + [{"value": s, "label": s} for s in service_options]
+        default_fb = self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else ""
+        default_choice = default_fb if default_fb in notify_svcs else _BACK
+        return vol.Schema(
+            {vol.Required("fallback", default=default_choice): selector({"select": {"options": options}})}
+        )
 
     async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
