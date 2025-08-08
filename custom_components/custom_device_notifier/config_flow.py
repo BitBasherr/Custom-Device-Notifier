@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
 
 try:  # ≥2025.7
@@ -285,26 +286,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _get_order_targets_schema(self) -> vol.Schema:
-        """Return the schema for the order targets step.
-
-        If we have more than one target, allow the user to select the next
-        highest priority target from the remaining options. On the first call
-        ``_ordering_targets_remaining`` is initialised with the list of all
-        services, and ``_priority_list`` is cleared. Each subsequent call
-        removes the selected item from ``_ordering_targets_remaining`` and
-        appends it to ``_priority_list``. Once the remaining list is empty,
-        ``async_step_order_targets`` will skip showing this schema and move on
-        to the fallback step.
-        """
-        # When no ordering in progress, show a multi-select of all targets as a
-        # fallback to the interactive reordering. However, interactive reordering
-        # will override this logic.
+        """Return the schema for the order targets step."""
         opts = [t[KEY_SERVICE] for t in self._targets]
         return vol.Schema(
             {
-                vol.Required(
-                    "next_target", default=opts[0] if opts else None
-                ): selector({"select": {"options": opts}})
+                vol.Required("priority", default=opts): selector(
+                    {"select": {"options": opts, "multiple": True}}
+                )
             }
         )
 
@@ -483,23 +471,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_MATCH_MODE,
                     data_schema=vol.Schema(
                         {
-                            vol.Required(
-                                CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
-                            ): selector(
+                            vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                                 {
                                     "select": {
                                         "options": [
-                                            {
-                                                "value": "all",
-                                                "label": "Require all conditions",
-                                            },
-                                            {
-                                                "value": "any",
-                                                "label": "Require any condition",
-                                            },
+                                            {"value": "all", "label": "Require all conditions"},
+                                            {"value": "any", "label": "Require any condition"},
                                         ]
                                     }
                                 }
@@ -526,7 +503,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
+                c
+                for i, c in enumerate(conds)
+                if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -602,10 +581,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                         {
                             "select": {
                                 "options": [
@@ -632,16 +608,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
+                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
                             )
                         }
                     ),
@@ -721,53 +688,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets | input=%s", user_input)
-        # Initialise ordering state on the first entry to this step
-        if self._ordering_targets_remaining is None or self._priority_list is None:
-            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
-            self._priority_list = []
-
-        # If user selected a target, append it to the priority list and remove it
-        # from the remaining options
         if user_input:
-            selected = user_input.get("next_target")
-            if selected and selected in self._ordering_targets_remaining:
-                self._priority_list.append(selected)
-                self._ordering_targets_remaining.remove(selected)
-
-        # If all targets have been ordered, save and move to fallback
-        if not self._ordering_targets_remaining:
-            # Persist the original targets and the computed priority list
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list}
-            )
-            # Reset ordering state for future runs
-            self._ordering_targets_remaining = None
-            self._priority_list = None
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
             )
 
-        # Otherwise, prompt for the next highest priority target
-        opts = list(self._ordering_targets_remaining)
-        # Provide context: show current priority and remaining targets
-        description_placeholders = {
-            "current_order": ", ".join(self._priority_list)
-            if self._priority_list
-            else "None yet",
-            "remaining_targets": ", ".join(opts),
-        }
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
-            data_schema=vol.Schema(
-                {
-                    vol.Required("next_target", default=opts[0]): selector(
-                        {"select": {"options": opts}}
-                    )
-                }
-            ),
-            description_placeholders=description_placeholders,
+            data_schema=self._get_order_targets_schema(),
         )
 
     # ─── STEP: choose_fallback ───
@@ -832,6 +763,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return {
             "current_targets": self._get_targets_overview(),
         }
+
 
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         """Return the schema for the condition value step.
@@ -1007,19 +939,13 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     def _get_order_targets_schema(self) -> vol.Schema:
-        """Return the schema for the order targets step.
-
-        See the base config flow for details on how interactive reordering is
-        implemented. This helper provides a single-select of the remaining
-        targets. The actual ordering logic is handled in
-        ``async_step_order_targets``.
-        """
+        """Return the schema for the order targets step."""
         opts = [t[KEY_SERVICE] for t in self._targets]
         return vol.Schema(
             {
-                vol.Required(
-                    "next_target", default=opts[0] if opts else None
-                ): selector({"select": {"options": opts}})
+                vol.Required("priority", default=opts): selector(
+                    {"select": {"options": opts, "multiple": True}}
+                )
             }
         )
 
@@ -1179,16 +1105,38 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 )
             elif choice == "done":
-                if self._editing_target_index is not None:
-                    self._targets[self._editing_target_index] = self._working_target
-                    self._editing_target_index = None
-                else:
-                    self._targets.append(self._working_target)
-                self._working_target = {}
+                # When finishing condition editing for a target, do not save
+                # the target yet. Instead prompt the user to choose whether
+                # all conditions must match or any condition should match.
+                # The selected match mode will be stored in the target when
+                # async_step_match_mode is processed. This mirrors the
+                # behaviour of the initial config flow so tests expecting
+                # a match_mode step continue to pass.
                 return self.async_show_form(
-                    step_id=STEP_TARGET_MORE,
-                    data_schema=self._get_target_more_schema(),
-                    description_placeholders=self._get_target_more_placeholders(),
+                    step_id=STEP_MATCH_MODE,
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_MATCH_MODE,
+                                default=self._working_target.get(CONF_MATCH_MODE, "all"),
+                            ): selector(
+                                {
+                                    "select": {
+                                        "options": [
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
+                                        ]
+                                    }
+                                }
+                            )
+                        }
+                    ),
                 )
 
         return self.async_show_form(
@@ -1206,7 +1154,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
+                c
+                for i, c in enumerate(conds)
+                if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -1274,10 +1224,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                         {
                             "select": {
                                 "options": [
@@ -1303,16 +1250,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
+                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
                             )
                         }
                     ),
@@ -1386,52 +1324,16 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
-        # Initialise ordering state on the first entry to this step
-        if self._ordering_targets_remaining is None or self._priority_list is None:
-            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
-            self._priority_list = []
-
-        # If user selected a target, append it to the priority list and remove it
-        # from the remaining options
         if user_input:
-            selected = user_input.get("next_target")
-            if selected and selected in self._ordering_targets_remaining:
-                self._priority_list.append(selected)
-                self._ordering_targets_remaining.remove(selected)
-
-        # If all targets have been ordered, save and move to fallback
-        if not self._ordering_targets_remaining:
-            # Persist the original targets and the computed priority list
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list}
-            )
-            # Reset ordering state for future runs
-            self._ordering_targets_remaining = None
-            self._priority_list = None
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
             )
-
-        # Otherwise, prompt for the next highest priority target
-        opts = list(self._ordering_targets_remaining)
-        description_placeholders = {
-            "current_order": ", ".join(self._priority_list)
-            if self._priority_list
-            else "None yet",
-            "remaining_targets": ", ".join(opts),
-        }
         return self.async_show_form(
             step_id=STEP_ORDER_TARGETS,
-            data_schema=vol.Schema(
-                {
-                    vol.Required("next_target", default=opts[0]): selector(
-                        {"select": {"options": opts}}
-                    )
-                }
-            ),
-            description_placeholders=description_placeholders,
+            data_schema=self._get_order_targets_schema(),
         )
 
     async def async_step_choose_fallback(
