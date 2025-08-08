@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -214,10 +214,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # If the entity_id looks like a *_last_update_trigger sensor, include
             # ACTION_SHUTDOWN as a selectable string. These sensors often report
             # android.intent.action.ACTION_SHUTDOWN when the device is shutting down.
-            if (
-                "_last_update_trigger" in entity_id
-                and "android.intent.action.ACTION_SHUTDOWN" not in opts
-            ):
+            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
                 opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
@@ -302,28 +299,45 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_target_more_placeholders(self) -> dict[str, str]:
         """Return placeholders for target-related steps."""
         return {
-            # Display only the service names for a clearer overview when editing targets
-            "current_targets": self._get_target_names_overview(),
+            "current_targets": self._get_targets_overview(),
         }
 
     def _get_target_more_schema(self) -> vol.Schema:
-        """Return the schema for the target more step (non-interactive).
+        """Return the schema for the target more step with contextual sections.
 
-        In this variant we keep the selection simple: the user can add, edit,
-        remove or finish editing targets using a small list of options.  The
-        existing targets are presented via description placeholders rather than
-        clickable list entries to avoid complex drop‑down menus.  Users who
-        choose "Edit target" will then be asked to select which target to edit
-        on the next page, just like in the original integration.
+        This schema presents a list of current targets at the top of the form,
+        allowing the user to click an existing target directly to edit it.  A
+        secondary section labelled "Other options:" contains the traditional
+        actions (add, remove, done).  The header rows are disabled so they
+        cannot be selected.  Each current target option uses a value
+        beginning with ``edit__`` followed by the index of the target in
+        ``self._targets``; the selection handler interprets this to start
+        editing the chosen target immediately.
         """
-        options = [
-            {"value": "add", "label": "➕ Add target"},
-            {"value": "done", "label": "✅ Done"},
-        ]
+        options: list[dict[str, str | bool]] = []
+        # If there are existing targets, add a header and individual edit entries
         if self._targets:
-            # Insert edit/remove options when at least one target exists
-            options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
-            options.insert(2, {"value": "remove", "label": "➖ Remove target"})
+            options.append({
+                "value": "__header_current__",
+                "label": "Current targets (click to edit):",
+            })
+            for idx, tgt in enumerate(self._targets):
+                service = tgt.get(KEY_SERVICE, "(unknown)")
+                label = f"Edit: {service}"
+                options.append({"value": f"edit__{idx}", "label": label})
+            # Separator before other options
+            options.append({
+                "value": "__header_other__",
+                "label": "Other options:",
+            })
+        # Always allow adding a new target
+        options.append({"value": "add", "label": "➕ Add target"})
+        # If targets exist, allow editing/removing via general actions as well
+        if self._targets:
+            options.append({"value": "edit", "label": "✏️ Edit target"})
+            options.append({"value": "remove", "label": "➖ Remove target"})
+        # Always allow completing target configuration
+        options.append({"value": "done", "label": "✅ Done"})
         return vol.Schema(
             {
                 vol.Required("next", default="add"): selector(
@@ -442,11 +456,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Remove generic prefixes like mobile/app/notify from consideration
                 generic = {"mobile", "app", "notify", "mobileapp"}
                 tokens = [t for t in tokens if t not in generic]
-
                 def weight(entity: str) -> tuple:
                     # Build a tuple of matches for each token (1 if present, 0 if not)
                     return tuple(int(tok in entity) for tok in tokens)
-
                 options = sorted(
                     all_entities,
                     key=lambda e: (weight(e), e),
@@ -545,23 +557,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_MATCH_MODE,
                     data_schema=vol.Schema(
                         {
-                            vol.Required(
-                                CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
-                            ): selector(
+                            vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                                 {
                                     "select": {
                                         "options": [
-                                            {
-                                                "value": "all",
-                                                "label": "Require all conditions",
-                                            },
-                                            {
-                                                "value": "any",
-                                                "label": "Require any condition",
-                                            },
+                                            {"value": "all", "label": "Require all conditions"},
+                                            {"value": "any", "label": "Require any condition"},
                                         ]
                                     }
                                 }
@@ -588,7 +589,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
+                c
+                for i, c in enumerate(conds)
+                if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -664,10 +667,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                         {
                             "select": {
                                 "options": [
@@ -688,6 +688,33 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("STEP target_more | input=%s", user_input)
         if user_input:
             nxt = user_input["next"]
+            # Ignore informational headers that are disabled
+            if nxt.startswith("__header_"):
+                return self.async_show_form(
+                    step_id=STEP_TARGET_MORE,
+                    data_schema=self._get_target_more_schema(),
+                    description_placeholders=self._get_target_more_placeholders(),
+                )
+            # If the selection starts with edit__<index>, begin editing that target
+            if nxt.startswith("edit__"):
+                try:
+                    idx = int(nxt.split("__", 1)[1])
+                except ValueError:
+                    idx = None
+                if idx is not None and 0 <= idx < len(self._targets):
+                    self._editing_target_index = idx
+                    self._working_target = self._targets[idx].copy()
+                    return self.async_show_form(
+                        step_id=STEP_COND_MORE,
+                        data_schema=self._get_condition_more_schema(),
+                        description_placeholders=self._get_condition_more_placeholders(),
+                    )
+                # fall through to redisplay if invalid index
+                return self.async_show_form(
+                    step_id=STEP_TARGET_MORE,
+                    data_schema=self._get_target_more_schema(),
+                    description_placeholders=self._get_target_more_placeholders(),
+                )
             # Add new target
             if nxt == "add":
                 return self.async_show_form(
@@ -695,16 +722,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
+                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
                             )
                         }
                     ),
@@ -716,13 +734,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Remove path
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
-            # Done path
+            # Done path: start the multi-step target ordering process
             if nxt == "done":
-                return self.async_show_form(
-                    step_id=STEP_ORDER_TARGETS,
-                    data_schema=self._get_order_targets_schema(),
-                )
-        # Otherwise, redisplay the form
+                # Initialise the lists used for ordering if not already set
+                self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+                self._priority_list = []
+                return await self.async_step_order_targets()
+
+        # Fall through: redisplay the page with updated placeholders
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
@@ -786,20 +805,65 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP order_targets | input=%s", user_input)
-        if user_input:
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
-            )
-            return self.async_show_form(
-                step_id=STEP_CHOOSE_FALLBACK,
-                data_schema=self._get_choose_fallback_schema(),
-                errors={},
-            )
+        """Dynamically build the target priority list one rank at a time.
 
+        When this step is first invoked, ``self._ordering_targets_remaining`` and
+        ``self._priority_list`` will have been initialised by the caller. Each
+        subsequent call will present the remaining targets and ask the user to
+        select the next highest priority. Once all targets have been ordered,
+        the internal list of targets is rearranged and the flow proceeds to
+        selecting a fallback.
+        """
+        _LOGGER.debug("STEP order_targets | input=%s", user_input)
+        # Initialise the ordering lists if somehow not set
+        if self._ordering_targets_remaining is None or self._priority_list is None:
+            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+            self._priority_list = []
+        # Handle user selection of a target for the current rank
+        if user_input:
+            chosen = user_input["target"]
+            # Only process valid selections
+            if chosen in self._ordering_targets_remaining:
+                self._priority_list.append(chosen)
+                self._ordering_targets_remaining.remove(chosen)
+        # If there are still targets to order, ask for the next one
+        if self._ordering_targets_remaining:
+            return self.async_show_form(
+                step_id=STEP_ORDER_TARGETS,
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("target"): selector(
+                            {"select": {"options": list(self._ordering_targets_remaining)}}
+                        )
+                    }
+                ),
+                description_placeholders={
+                    "current_order": ", ".join(self._priority_list) or "(none yet)",
+                },
+            )
+        # When all targets have been ordered, reorder the internal list
+        # according to the selected priority
+        ordered = []
+        for svc in self._priority_list:
+            # find and remove the matching target from the list
+            for tgt in list(self._targets):
+                if tgt[KEY_SERVICE] == svc:
+                    ordered.append(tgt)
+                    self._targets.remove(tgt)
+                    break
+        # Append any remaining targets (should be none) just in case
+        ordered.extend(self._targets)
+        self._targets = ordered
+        # Record the priority in the entry data
+        self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list})
+        # Reset ordering state for next use
+        self._ordering_targets_remaining = None
+        self._priority_list = None
+        # Proceed to fallback selection
         return self.async_show_form(
-            step_id=STEP_ORDER_TARGETS,
-            data_schema=self._get_order_targets_schema(),
+            step_id=STEP_CHOOSE_FALLBACK,
+            data_schema=self._get_choose_fallback_schema(),
+            errors={},
         )
 
     # ─── STEP: choose_fallback ───
@@ -907,6 +971,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             "current_targets": self._get_targets_overview(),
         }
 
+
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         """Return the schema for the condition value step.
 
@@ -992,10 +1057,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 opts.append(st.state)
             opts.extend(["unknown", "unavailable"])
             # Include ACTION_SHUTDOWN for *_last_update_trigger sensors
-            if (
-                "_last_update_trigger" in entity_id
-                and "android.intent.action.ACTION_SHUTDOWN" not in opts
-            ):
+            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
                 opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
@@ -1077,19 +1139,35 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         }
 
     def _get_target_more_schema(self) -> vol.Schema:
-        """Return the schema for the target more step (non-interactive).
+        """Return the schema for the target more step with contextual sections.
 
-        In this variant we present a simple list of actions without embedding the
-        current targets into the select.  Existing targets are shown via
-        placeholders instead, and editing a target proceeds via a separate step.
+        Similar to the initial config flow, this builds a two-section menu: a
+        "Current targets" section where each entry will initiate editing of a
+        specific target when selected, and an "Other options" section with
+        general actions.  Header rows are disabled so they cannot be chosen.
         """
-        options = [
-            {"value": "add", "label": "➕ Add target"},
-            {"value": "done", "label": "✅ Done"},
-        ]
+        options: list[dict[str, str | bool]] = []
+        # Present current targets for direct editing
         if self._targets:
-            options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
-            options.insert(2, {"value": "remove", "label": "➖ Remove target"})
+            options.append({
+                "value": "__header_current__",
+                "label": "Current targets (click to edit):",
+            })
+            for idx, tgt in enumerate(self._targets):
+                service = tgt.get(KEY_SERVICE, "(unknown)")
+                label = f"Edit: {service}"
+                options.append({"value": f"edit__{idx}", "label": label})
+            options.append({
+                "value": "__header_other__",
+                "label": "Other options:",
+            })
+        # Always offer to add another target
+        options.append({"value": "add", "label": "➕ Add target"})
+        # Additional generic actions if there are existing targets
+        if self._targets:
+            options.append({"value": "edit", "label": "✏️ Edit target"})
+            options.append({"value": "remove", "label": "➖ Remove target"})
+        options.append({"value": "done", "label": "✅ Done"})
         return vol.Schema(
             {
                 vol.Required("next", default="add"): selector(
@@ -1193,10 +1271,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 tokens = [tok for tok in slug.split("_") if tok]
                 generic = {"mobile", "app", "notify", "mobileapp"}
                 tokens = [t for t in tokens if t not in generic]
-
                 def weight(entity: str) -> tuple:
                     return tuple(int(tok in entity) for tok in tokens)
-
                 options = sorted(
                     all_entities,
                     key=lambda e: (weight(e), e),
@@ -1299,9 +1375,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         {
                             vol.Required(
                                 CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
+                                default=self._working_target.get(CONF_MATCH_MODE, "all"),
                             ): selector(
                                 {
                                     "select": {
@@ -1337,7 +1411,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
+                c
+                for i, c in enumerate(conds)
+                if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -1405,10 +1481,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                         {
                             "select": {
                                 "options": [
@@ -1428,36 +1501,57 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.debug("STEP target_more | input=%s", user_input)
         if user_input:
             nxt = user_input["next"]
+            # Ignore informational headers
+            if nxt.startswith("__header_"):
+                return self.async_show_form(
+                    step_id=STEP_TARGET_MORE,
+                    data_schema=self._get_target_more_schema(),
+                    description_placeholders=self._get_target_more_placeholders(),
+                )
+            # Direct edit when clicking a specific target
+            if nxt.startswith("edit__"):
+                try:
+                    idx = int(nxt.split("__", 1)[1])
+                except ValueError:
+                    idx = None
+                if idx is not None and 0 <= idx < len(self._targets):
+                    self._editing_target_index = idx
+                    self._working_target = self._targets[idx].copy()
+                    return self.async_show_form(
+                        step_id=STEP_COND_MORE,
+                        data_schema=self._get_condition_more_schema(),
+                        description_placeholders=self._get_condition_more_placeholders(),
+                    )
+                return self.async_show_form(
+                    step_id=STEP_TARGET_MORE,
+                    data_schema=self._get_target_more_schema(),
+                    description_placeholders=self._get_target_more_placeholders(),
+                )
+            # Add new target
             if nxt == "add":
                 return self.async_show_form(
                     step_id=STEP_ADD_TARGET,
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
+                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
                             )
                         }
                     ),
                     description_placeholders={**self._get_target_more_placeholders()},
                 )
+            # Generic edit path
             if nxt == "edit":
                 return await self.async_step_select_target_to_edit()
+            # Remove path
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
+            # Done path
             if nxt == "done":
-                return self.async_show_form(
-                    step_id=STEP_ORDER_TARGETS,
-                    data_schema=self._get_order_targets_schema(),
-                )
+                # Start dynamic ordering: initialise remaining list and priority list
+                self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+                self._priority_list = []
+                return await self.async_step_order_targets()
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
@@ -1516,19 +1610,59 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Multi-step ordering of targets in the options flow.
+
+        When entering this step, the ordering lists are initialised in
+        async_step_target_more before being forwarded here.  On each
+        subsequent call, the user picks the next highest priority target.
+        Once all targets have been selected, the internal list is re‑ordered
+        accordingly and the flow moves on to fallback selection.
+        """
         _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
+        # Ensure ordering lists exist
+        if self._ordering_targets_remaining is None or self._priority_list is None:
+            self._ordering_targets_remaining = [t[KEY_SERVICE] for t in self._targets]
+            self._priority_list = []
+        # Process user selection
         if user_input:
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
-            )
+            chosen = user_input["target"]
+            if chosen in self._ordering_targets_remaining:
+                self._priority_list.append(chosen)
+                self._ordering_targets_remaining.remove(chosen)
+        # Prompt for next selection or finish
+        if self._ordering_targets_remaining:
             return self.async_show_form(
-                step_id=STEP_CHOOSE_FALLBACK,
-                data_schema=self._get_choose_fallback_schema(),
-                errors={},
+                step_id=STEP_ORDER_TARGETS,
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("target"): selector(
+                            {"select": {"options": list(self._ordering_targets_remaining)}}
+                        )
+                    }
+                ),
+                description_placeholders={
+                    "current_order": ", ".join(self._priority_list) or "(none yet)",
+                },
             )
+        # Re-order the internal targets list per the selected priority
+        ordered: list[dict[str, Any]] = []
+        for svc in self._priority_list:
+            for tgt in list(self._targets):
+                if tgt[KEY_SERVICE] == svc:
+                    ordered.append(tgt)
+                    self._targets.remove(tgt)
+                    break
+        ordered.extend(self._targets)
+        self._targets = ordered
+        # Persist into options and proceed
+        self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: self._priority_list})
+        # Reset ordering helpers
+        self._ordering_targets_remaining = None
+        self._priority_list = None
         return self.async_show_form(
-            step_id=STEP_ORDER_TARGETS,
-            data_schema=self._get_order_targets_schema(),
+            step_id=STEP_CHOOSE_FALLBACK,
+            data_schema=self._get_choose_fallback_schema(),
+            errors={},
         )
 
     async def async_step_choose_fallback(
@@ -1559,11 +1693,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders={"available_services": ", ".join(service_options)},
         )
 
-
 # ───── expose options flow handler to Home Assistant ─────
 @callback
-def async_get_options_flow(
-    config_entry: config_entries.ConfigEntry,
-) -> config_entries.OptionsFlow:
+def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
     """Return the options flow handler for this config entry."""
     return CustomDeviceNotifierOptionsFlowHandler(config_entry)
