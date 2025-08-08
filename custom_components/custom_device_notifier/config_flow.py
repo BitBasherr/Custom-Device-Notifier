@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -202,6 +202,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if st:
                 opts.append(st.state)
             opts.extend(["unknown", "unavailable"])
+            # If the entity_id looks like a *_last_update_trigger sensor, include
+            # ACTION_SHUTDOWN as a selectable string. These sensors often report
+            # android.intent.action.ACTION_SHUTDOWN when the device is shutting down.
+            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
+                opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
             default_operator = prev_op if use_prev else "=="
@@ -229,6 +234,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 default_str_value = uniq[0] if uniq else ""
 
+            # Build a list of option dictionaries so we can assign a custom label
+            # for ACTION_SHUTDOWN while keeping other states labelled as-is.
+            choices: list[dict[str, str]] = []
+            for opt in uniq:
+                if opt == "android.intent.action.ACTION_SHUTDOWN":
+                    choices.append({"value": opt, "label": "Shutdown as Last Update"})
+                else:
+                    choices.append({"value": opt, "label": opt})
+
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector(
@@ -237,9 +251,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         "value_choice", default=default_value_choice
                     ): selector({"select": {"options": str_value_options}}),
-                    # Use default_str_value here to ensure a string default
+                    # Use default_str_value here to ensure a string default and supply
+                    # our custom-labelled choices
                     vol.Optional("value", default=default_str_value): selector(
-                        {"select": {"options": uniq}}
+                        {"select": {"options": choices}}
                     ),
                     vol.Optional("manual_value"): str,
                 }
@@ -482,23 +497,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_MATCH_MODE,
                     data_schema=vol.Schema(
                         {
-                            vol.Required(
-                                CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
-                            ): selector(
+                            vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                                 {
                                     "select": {
                                         "options": [
-                                            {
-                                                "value": "all",
-                                                "label": "Require all conditions",
-                                            },
-                                            {
-                                                "value": "any",
-                                                "label": "Require any condition",
-                                            },
+                                            {"value": "all", "label": "Require all conditions"},
+                                            {"value": "any", "label": "Require any condition"},
                                         ]
                                     }
                                 }
@@ -525,7 +529,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
+                c
+                for i, c in enumerate(conds)
+                if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -601,10 +607,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                         {
                             "select": {
                                 "options": [
@@ -631,16 +634,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
+                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
                             )
                         }
                     ),
@@ -721,9 +715,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets | input=%s", user_input)
         if user_input:
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
-            )
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
@@ -831,6 +823,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             "current_targets": self._get_targets_overview(),
         }
 
+
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         """Return the schema for the condition value step.
 
@@ -915,6 +908,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if st:
                 opts.append(st.state)
             opts.extend(["unknown", "unavailable"])
+            # Include ACTION_SHUTDOWN for *_last_update_trigger sensors
+            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
+                opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
             default_operator = prev_op if use_prev else "=="
@@ -942,6 +938,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 default_str_value = uniq[0] if uniq else ""
 
+            # Build a choices list with custom labels for ACTION_SHUTDOWN
+            choices: list[dict[str, str]] = []
+            for opt in uniq:
+                if opt == "android.intent.action.ACTION_SHUTDOWN":
+                    choices.append({"value": opt, "label": "Shutdown as Last Update"})
+                else:
+                    choices.append({"value": opt, "label": opt})
+
             return vol.Schema(
                 {
                     vol.Required("operator", default=default_operator): selector(
@@ -950,9 +954,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required(
                         "value_choice", default=default_value_choice
                     ): selector({"select": {"options": str_value_options}}),
-                    # Use default_str_value here to ensure a string default
+                    # Use our custom-labelled choices for selectable values
                     vol.Optional("value", default=default_str_value): selector(
-                        {"select": {"options": uniq}}
+                        {"select": {"options": choices}}
                     ),
                     vol.Optional("manual_value"): str,
                 }
@@ -1184,9 +1188,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         {
                             vol.Required(
                                 CONF_MATCH_MODE,
-                                default=self._working_target.get(
-                                    CONF_MATCH_MODE, "all"
-                                ),
+                                default=self._working_target.get(CONF_MATCH_MODE, "all"),
                             ): selector(
                                 {
                                     "select": {
@@ -1222,7 +1224,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             to_remove = set(user_input.get("conditions_to_remove", []))
             self._working_target[KEY_CONDITIONS] = [
-                c for i, c in enumerate(conds) if labels[i] not in to_remove
+                c
+                for i, c in enumerate(conds)
+                if labels[i] not in to_remove
             ]
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -1290,10 +1294,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             step_id=STEP_MATCH_MODE,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_MATCH_MODE,
-                        default=self._working_target.get(CONF_MATCH_MODE, "all"),
-                    ): selector(
+                    vol.Required(CONF_MATCH_MODE, default=self._working_target.get(CONF_MATCH_MODE, "all")): selector(
                         {
                             "select": {
                                 "options": [
@@ -1319,16 +1320,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     data_schema=vol.Schema(
                         {
                             vol.Required("target_service"): selector(
-                                {
-                                    "select": {
-                                        "options": sorted(
-                                            self.hass.services.async_services().get(
-                                                "notify", {}
-                                            )
-                                        ),
-                                        "custom_value": True,
-                                    }
-                                }
+                                {"select": {"options": sorted(self.hass.services.async_services().get("notify", {})), "custom_value": True}}
                             )
                         }
                     ),
@@ -1403,9 +1395,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
         if user_input:
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
-            )
+            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
@@ -1444,11 +1434,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders={"available_services": ", ".join(service_options)},
         )
 
-
 # ───── expose options flow handler to Home Assistant ─────
 @callback
-def async_get_options_flow(
-    config_entry: config_entries.ConfigEntry,
-) -> config_entries.OptionsFlow:
+def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
     """Return the options flow handler for this config entry."""
     return CustomDeviceNotifierOptionsFlowHandler(config_entry)
