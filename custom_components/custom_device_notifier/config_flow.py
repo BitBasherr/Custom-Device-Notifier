@@ -112,7 +112,9 @@ class _NavMixin:
 
 
 # ───────────────────────── Config Flow ─────────────────────────
-class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domain=DOMAIN):
+class CustomDeviceNotifierConfigFlow(
+    _NavMixin, config_entries.ConfigFlow, domain=DOMAIN
+):
     """Interactive setup for Custom Device Notifier."""
 
     VERSION = 3
@@ -177,7 +179,10 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         prev_op: str | None = None
         prev_value: str | None = None
         use_prev = False
-        if self._working_condition and self._working_condition.get("entity_id") == entity_id:
+        if (
+            self._working_condition
+            and self._working_condition.get("entity_id") == entity_id
+        ):
             prev_op = self._working_condition.get("operator")
             prev_value = self._working_condition.get("value")
             use_prev = prev_op is not None and prev_value is not None
@@ -190,7 +195,12 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             )
             num_value_options = [
                 {"value": "manual", "label": "Enter manually"},
-                {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
+                },
             ]
             default_operator = prev_op if use_prev else ">"
             if use_prev and st and str(prev_value) == str(st.state):
@@ -213,13 +223,20 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": num_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": num_value_options}}),
                     vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             )
@@ -228,7 +245,10 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             if st:
                 opts.append(st.state)
             opts.extend(["unknown", "unavailable"])
-            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
+            if (
+                "_last_update_trigger" in entity_id
+                and "android.intent.action.ACTION_SHUTDOWN" not in opts
+            ):
                 opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
@@ -236,7 +256,12 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
 
             str_value_options = [
                 {"value": "manual", "label": "Enter manually"},
-                {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
+                },
             ]
             if use_prev and st and str(prev_value) == str(st.state):
                 default_value_choice = "current"
@@ -260,15 +285,22 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": str_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": str_value_options}}),
                     vol.Optional("value", default=default_str_value): selector(
                         {"select": {"options": choices}}
                     ),
                     vol.Optional("manual_value"): str,
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             )
@@ -284,7 +316,11 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             options.insert(1, {"value": "edit", "label": "✏️ Edit"})
             options.insert(2, {"value": "remove", "label": "➖ Remove"})
         return vol.Schema(
-            {vol.Required("choice", default="add"): selector({"select": {"options": options}})}
+            {
+                vol.Required("choice", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
         )
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
@@ -310,7 +346,13 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         if self._targets:
             options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
             options.insert(2, {"value": "remove", "label": "➖ Remove target"})
-        return vol.Schema({vol.Required("next", default="add"): selector({"select": {"options": options}})})
+        return vol.Schema(
+            {
+                vol.Required("next", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
 
     def _get_order_targets_schema(self) -> vol.Schema:
         opts = [t[KEY_SERVICE] for t in self._targets]
@@ -320,7 +362,14 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                     {"select": {"options": opts, "multiple": True}}
                 ),
                 vol.Optional("nav", default="next"): selector(
-                    {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "next", "label": "Continue"},
+                                {"value": BACK_VALUE, "label": BACK_LABEL},
+                            ]
+                        }
+                    }
                 ),
             }
         )
@@ -328,20 +377,33 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
     def _get_choose_fallback_schema(self) -> vol.Schema:
         notify_svcs = self.hass.services.async_services().get("notify", {})
         service_options = sorted(notify_svcs)
-        default_fb = self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else ""
+        default_fb = (
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else ""
+        )
         return vol.Schema(
             {
                 vol.Required("fallback", default=default_fb): selector(
                     {"select": {"options": service_options, "custom_value": True}}
                 ),
                 vol.Optional("nav", default="next"): selector(
-                    {"select": {"options": [{"value": "next", "label": "Finish"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "next", "label": "Finish"},
+                                {"value": BACK_VALUE, "label": BACK_LABEL},
+                            ]
+                        }
+                    }
                 ),
             }
         )
 
     # ───────── STEP: user ─────────
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP user | input=%s", user_input)
         if user_input:
             raw = user_input["service_name_raw"].strip()
@@ -354,11 +416,14 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             return await self.async_step_add_target()
 
         return self.async_show_form(
-            step_id=STEP_USER, data_schema=vol.Schema({vol.Required("service_name_raw"): str})
+            step_id=STEP_USER,
+            data_schema=vol.Schema({vol.Required("service_name_raw"): str}),
         )
 
     # ───────── STEP: add_target ─────────
-    async def async_step_add_target(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_add_target(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP add_target | input=%s", user_input)
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
@@ -371,7 +436,10 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 # Push add_target before moving to condition_more
                 self._nav_stack.append((STEP_ADD_TARGET, self._snapshot_state()))
                 return self.async_show_form(
@@ -388,7 +456,14 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                         {"select": {"options": service_options, "custom_value": True}}
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
@@ -400,7 +475,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         )
 
     # ─── STEP: add_condition_entity ───
-    async def async_step_add_condition_entity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_add_condition_entity(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
         if not user_input:
             notify_service = self._working_target.get(KEY_SERVICE)
@@ -419,16 +496,27 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 def weight(entity: str) -> tuple:
                     return tuple(int(tok in entity) for tok in tokens)
 
-                options = sorted(all_entities, key=lambda e: (weight(e), e), reverse=True)
+                options = sorted(
+                    all_entities, key=lambda e: (weight(e), e), reverse=True
+                )
             else:
                 options = sorted(all_entities)
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
                     {
-                        vol.Required("entity"): selector({"select": {"options": options, "custom_value": True}}),
+                        vol.Required("entity"): selector(
+                            {"select": {"options": options, "custom_value": True}}
+                        ),
                         vol.Optional("nav", default="next"): selector(
-                            {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                            {
+                                "select": {
+                                    "options": [
+                                        {"value": "next", "label": "Continue"},
+                                        {"value": BACK_VALUE, "label": BACK_LABEL},
+                                    ]
+                                }
+                            }
                         ),
                     }
                 ),
@@ -446,7 +534,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         )
 
     # ─── STEP: add_condition_value ───
-    async def async_step_add_condition_value(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_add_condition_value(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
@@ -457,9 +547,13 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 final_value = str(int(final_value))
             else:
                 final_value = str(final_value)
-            self._working_condition.update(operator=user_input["operator"], value=final_value)
+            self._working_condition.update(
+                operator=user_input["operator"], value=final_value
+            )
             if self._editing_condition_index is not None:
-                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = self._working_condition
+                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = (
+                    self._working_condition
+                )
                 self._editing_condition_index = None
             else:
                 self._working_target[KEY_CONDITIONS].append(self._working_condition)
@@ -474,11 +568,15 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
 
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
-            data_schema=self._get_condition_value_schema(self._working_condition["entity_id"]),
+            data_schema=self._get_condition_value_schema(
+                self._working_condition["entity_id"]
+            ),
         )
 
     # ─── STEP: condition_more ───
-    async def async_step_condition_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_condition_more(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP condition_more | input=%s", user_input)
         if user_input:
             choice = user_input["choice"]
@@ -493,7 +591,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 return await self.async_step_select_condition_to_edit()
             if choice == "remove":
                 conds = self._working_target.get(KEY_CONDITIONS, [])
-                labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
+                labels = [
+                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
+                ]
                 # Push condition_more before remove
                 self._nav_stack.append((STEP_COND_MORE, self._snapshot_state()))
                 return self.async_show_form(
@@ -504,7 +604,14 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                                 {"select": {"options": labels, "multiple": True}}
                             ),
                             vol.Optional("nav", default="next"): selector(
-                                {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {"value": "next", "label": "Continue"},
+                                            {"value": BACK_VALUE, "label": BACK_LABEL},
+                                        ]
+                                    }
+                                }
                             ),
                         }
                     ),
@@ -518,19 +625,34 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                         {
                             vol.Required(
                                 CONF_MATCH_MODE,
-                                default=self._working_target.get(CONF_MATCH_MODE, "all"),
+                                default=self._working_target.get(
+                                    CONF_MATCH_MODE, "all"
+                                ),
                             ): selector(
                                 {
                                     "select": {
                                         "options": [
-                                            {"value": "all", "label": "Require all conditions"},
-                                            {"value": "any", "label": "Require any condition"},
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
                                         ]
                                     }
                                 }
                             ),
                             vol.Optional("nav", default="next"): selector(
-                                {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {"value": "next", "label": "Continue"},
+                                            {"value": BACK_VALUE, "label": BACK_LABEL},
+                                        ]
+                                    }
+                                }
                             ),
                         }
                     ),
@@ -543,7 +665,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         )
 
     # ─── STEP: remove_condition ───
-    async def async_step_remove_condition(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_remove_condition(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP remove_condition | input=%s", user_input)
         conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
@@ -552,7 +676,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             if user_input.get("nav") == BACK_VALUE:
                 return await self._go_back()
             to_remove = set(user_input.get("conditions_to_remove", []))
-            self._working_target[KEY_CONDITIONS] = [c for i, c in enumerate(conds) if labels[i] not in to_remove]
+            self._working_target[KEY_CONDITIONS] = [
+                c for i, c in enumerate(conds) if labels[i] not in to_remove
+            ]
             # Push remove page before returning to condition_more
             self._nav_stack.append((STEP_REMOVE_COND, self._snapshot_state()))
             return self.async_show_form(
@@ -569,14 +695,23 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                         {"select": {"options": labels, "multiple": True}}
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
         )
 
     # ─── STEP: select_condition_to_edit ───
-    async def async_step_select_condition_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_select_condition_to_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
         conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
@@ -593,17 +728,27 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
             self._nav_stack.append((STEP_SELECT_COND_TO_EDIT, self._snapshot_state()))
             return self.async_show_form(
                 step_id=STEP_ADD_COND_VALUE,
-                data_schema=self._get_condition_value_schema(self._working_condition["entity_id"]),
+                data_schema=self._get_condition_value_schema(
+                    self._working_condition["entity_id"]
+                ),
                 description_placeholders={**self._get_condition_more_placeholders()},
             )
 
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
-            data_schema=vol.Schema({vol.Required("condition"): selector({"select": {"options": labels_with_back}})}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("condition"): selector(
+                        {"select": {"options": labels_with_back}}
+                    )
+                }
+            ),
         )
 
     # ─── STEP: match_mode ───
-    async def async_step_match_mode(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_match_mode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP match_mode | input=%s", user_input)
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
@@ -632,20 +777,33 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                         CONF_MATCH_MODE,
                         default=self._working_target.get(CONF_MATCH_MODE, "all"),
                     ): selector(
-                        {"select": {"options": [
-                            {"value": "all", "label": "Require all conditions"},
-                            {"value": "any", "label": "Require any condition"},
-                        ]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "all", "label": "Require all conditions"},
+                                    {"value": "any", "label": "Require any condition"},
+                                ]
+                            }
+                        }
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
         )
 
     # ─── STEP: target_more ───
-    async def async_step_target_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_target_more(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP target_more | input=%s", user_input)
         if user_input:
             nxt = user_input["next"]
@@ -660,13 +818,24 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                             vol.Required("target_service"): selector(
                                 {
                                     "select": {
-                                        "options": sorted(self.hass.services.async_services().get("notify", {})),
+                                        "options": sorted(
+                                            self.hass.services.async_services().get(
+                                                "notify", {}
+                                            )
+                                        ),
                                         "custom_value": True,
                                     }
                                 }
                             ),
                             vol.Optional("nav", default="next"): selector(
-                                {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {"value": "next", "label": "Continue"},
+                                            {"value": BACK_VALUE, "label": BACK_LABEL},
+                                        ]
+                                    }
+                                }
                             ),
                         }
                     ),
@@ -680,7 +849,10 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
                 self._nav_stack.append((STEP_TARGET_MORE, self._snapshot_state()))
-                return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._get_order_targets_schema(),
+                )
 
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
@@ -689,7 +861,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         )
 
     # ─── STEP: select_target_to_edit ───
-    async def async_step_select_target_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_select_target_to_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP select_target_to_edit | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
         options = targets + [BACK_LABEL]
@@ -710,22 +884,32 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
 
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_EDIT,
-            data_schema=vol.Schema({vol.Required("target"): selector({"select": {"options": options}})}),
+            data_schema=vol.Schema(
+                {vol.Required("target"): selector({"select": {"options": options}})}
+            ),
             description_placeholders=self._get_target_more_placeholders(),
         )
 
     # ─── STEP: select_target_to_remove ───
-    async def async_step_select_target_to_remove(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_select_target_to_remove(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP select_target_to_remove | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
                 return await self._go_back()
             to_remove = set(user_input.get("targets", []))
-            self._targets = [t for i, t in enumerate(self._targets) if targets[i] not in to_remove]
+            self._targets = [
+                t for i, t in enumerate(self._targets) if targets[i] not in to_remove
+            ]
             # Push remove page before returning to target_more
-            self._nav_stack.append((STEP_SELECT_TARGET_TO_REMOVE, self._snapshot_state()))
-            return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=self._get_target_more_schema())
+            self._nav_stack.append(
+                (STEP_SELECT_TARGET_TO_REMOVE, self._snapshot_state())
+            )
+            return self.async_show_form(
+                step_id=STEP_TARGET_MORE, data_schema=self._get_target_more_schema()
+            )
 
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_REMOVE,
@@ -735,7 +919,14 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                         {"select": {"options": targets, "multiple": True}}
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
@@ -743,12 +934,16 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
         )
 
     # ─── STEP: order_targets ───
-    async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_order_targets(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets | input=%s", user_input)
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
                 return await self._go_back()
-            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
+            self._data.update(
+                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
+            )
             # Push order_targets before choose_fallback
             self._nav_stack.append((STEP_ORDER_TARGETS, self._snapshot_state()))
             return self.async_show_form(
@@ -757,10 +952,14 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 errors={},
             )
 
-        return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+        return self.async_show_form(
+            step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema()
+        )
 
     # ─── STEP: choose_fallback ───
-    async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_choose_fallback(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
@@ -773,7 +972,11 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
                 errors["fallback"] = "must_be_notify"
             else:
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
+                title = (
+                    self._data.get(CONF_SERVICE_NAME_RAW)
+                    or self._data.get("service_name_raw")
+                    or ""
+                )
                 return self.async_create_entry(title=title, data=self._data)
 
         return self.async_show_form(
@@ -785,7 +988,9 @@ class CustomDeviceNotifierConfigFlow(_NavMixin, config_entries.ConfigFlow, domai
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
         return CustomDeviceNotifierOptionsFlowHandler(config_entry)
 
 
@@ -853,7 +1058,10 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
         prev_op: str | None = None
         prev_value: str | None = None
         use_prev = False
-        if self._working_condition and self._working_condition.get("entity_id") == entity_id:
+        if (
+            self._working_condition
+            and self._working_condition.get("entity_id") == entity_id
+        ):
             prev_op = self._working_condition.get("operator")
             prev_value = self._working_condition.get("value")
             use_prev = prev_op is not None and prev_value is not None
@@ -866,7 +1074,12 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             )
             num_value_options = [
                 {"value": "manual", "label": "Enter manually"},
-                {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
+                },
             ]
             default_operator = prev_op if use_prev else ">"
             if use_prev and st and str(prev_value) == str(st.state):
@@ -888,13 +1101,20 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": num_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": num_value_options}}),
                     vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             )
@@ -903,14 +1123,22 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             if st:
                 opts.append(st.state)
             opts.extend(["unknown", "unavailable"])
-            if "_last_update_trigger" in entity_id and "android.intent.action.ACTION_SHUTDOWN" not in opts:
+            if (
+                "_last_update_trigger" in entity_id
+                and "android.intent.action.ACTION_SHUTDOWN" not in opts
+            ):
                 opts.append("android.intent.action.ACTION_SHUTDOWN")
             uniq = list(dict.fromkeys(opts))
 
             default_operator = prev_op if use_prev else "=="
             str_value_options = [
                 {"value": "manual", "label": "Enter manually"},
-                {"value": "current", "label": f"Current state: {st.state}" if st else "Current (unknown)"},
+                {
+                    "value": "current",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
+                },
             ]
             if use_prev and st and str(prev_value) == str(st.state):
                 default_value_choice = "current"
@@ -934,15 +1162,22 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_STR}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": str_value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": str_value_options}}),
                     vol.Optional("value", default=default_str_value): selector(
                         {"select": {"options": choices}}
                     ),
                     vol.Optional("manual_value"): str,
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             )
@@ -956,7 +1191,13 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
         if self._working_target.get(KEY_CONDITIONS):
             options.insert(1, {"value": "edit", "label": "✏️ Edit"})
             options.insert(2, {"value": "remove", "label": "➖ Remove"})
-        return vol.Schema({vol.Required("choice", default="add"): selector({"select": {"options": options}})})
+        return vol.Schema(
+            {
+                vol.Required("choice", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         conds = self._working_target.get(KEY_CONDITIONS, [])
@@ -976,7 +1217,13 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
         if self._targets:
             options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
             options.insert(2, {"value": "remove", "label": "➖ Remove target"})
-        return vol.Schema({vol.Required("next", default="add"): selector({"select": {"options": options}})})
+        return vol.Schema(
+            {
+                vol.Required("next", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
 
     def _get_order_targets_schema(self) -> vol.Schema:
         opts = [t[KEY_SERVICE] for t in self._targets]
@@ -986,7 +1233,14 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                     {"select": {"options": opts, "multiple": True}}
                 ),
                 vol.Optional("nav", default="next"): selector(
-                    {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "next", "label": "Continue"},
+                                {"value": BACK_VALUE, "label": BACK_LABEL},
+                            ]
+                        }
+                    }
                 ),
             }
         )
@@ -994,19 +1248,32 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
     def _get_choose_fallback_schema(self) -> vol.Schema:
         notify_svcs = self.hass.services.async_services().get("notify", {})
         service_options = sorted(notify_svcs)
-        default_fb = self._targets[0][KEY_SERVICE].removeprefix("notify.") if self._targets else ""
+        default_fb = (
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else ""
+        )
         return vol.Schema(
             {
                 vol.Required("fallback", default=default_fb): selector(
                     {"select": {"options": service_options, "custom_value": True}}
                 ),
                 vol.Optional("nav", default="next"): selector(
-                    {"select": {"options": [{"value": "next", "label": "Finish"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "next", "label": "Finish"},
+                                {"value": BACK_VALUE, "label": BACK_LABEL},
+                            ]
+                        }
+                    }
                 ),
             }
         )
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP init | input=%s", user_input)
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
@@ -1014,7 +1281,9 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    async def async_step_add_target(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_add_target(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP add_target | input=%s", user_input)
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
@@ -1026,7 +1295,10 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             if svc not in notify_svcs:
                 errors["target_service"] = "must_be_notify"
             else:
-                self._working_target = {KEY_SERVICE: f"notify.{svc}", KEY_CONDITIONS: []}
+                self._working_target = {
+                    KEY_SERVICE: f"notify.{svc}",
+                    KEY_CONDITIONS: [],
+                }
                 self._nav_stack.append((STEP_ADD_TARGET, self._snapshot_state()))
                 return self.async_show_form(
                     step_id=STEP_COND_MORE,
@@ -1042,15 +1314,27 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                         {"select": {"options": service_options, "custom_value": True}}
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
             errors=errors,
-            description_placeholders={"available_services": ", ".join(service_options), **self._get_target_more_placeholders()},
+            description_placeholders={
+                "available_services": ", ".join(service_options),
+                **self._get_target_more_placeholders(),
+            },
         )
 
-    async def async_step_add_condition_entity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_add_condition_entity(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP add_condition_entity | input=%s", user_input)
         if not user_input:
             notify_service = self._working_target.get(KEY_SERVICE)
@@ -1069,16 +1353,27 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 def weight(entity: str) -> tuple:
                     return tuple(int(tok in entity) for tok in tokens)
 
-                options = sorted(all_entities, key=lambda e: (weight(e), e), reverse=True)
+                options = sorted(
+                    all_entities, key=lambda e: (weight(e), e), reverse=True
+                )
             else:
                 options = sorted(all_entities)
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
                     {
-                        vol.Required("entity"): selector({"select": {"options": options, "custom_value": True}}),
+                        vol.Required("entity"): selector(
+                            {"select": {"options": options, "custom_value": True}}
+                        ),
                         vol.Optional("nav", default="next"): selector(
-                            {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                            {
+                                "select": {
+                                    "options": [
+                                        {"value": "next", "label": "Continue"},
+                                        {"value": BACK_VALUE, "label": BACK_LABEL},
+                                    ]
+                                }
+                            }
                         ),
                     }
                 ),
@@ -1092,7 +1387,9 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             data_schema=self._get_condition_value_schema(user_input["entity"]),
         )
 
-    async def async_step_add_condition_value(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_add_condition_value(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP add_condition_value | input=%s", user_input)
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
@@ -1102,9 +1399,13 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 final_value = str(int(final_value))
             else:
                 final_value = str(final_value)
-            self._working_condition.update(operator=user_input["operator"], value=final_value)
+            self._working_condition.update(
+                operator=user_input["operator"], value=final_value
+            )
             if self._editing_condition_index is not None:
-                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = self._working_condition
+                self._working_target[KEY_CONDITIONS][self._editing_condition_index] = (
+                    self._working_condition
+                )
                 self._editing_condition_index = None
             else:
                 self._working_target[KEY_CONDITIONS].append(self._working_condition)
@@ -1118,10 +1419,14 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
 
         return self.async_show_form(
             step_id=STEP_ADD_COND_VALUE,
-            data_schema=self._get_condition_value_schema(self._working_condition["entity_id"]),
+            data_schema=self._get_condition_value_schema(
+                self._working_condition["entity_id"]
+            ),
         )
 
-    async def async_step_condition_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_condition_more(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP condition_more | input=%s", user_input)
         if user_input:
             choice = user_input["choice"]
@@ -1135,7 +1440,9 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 return await self.async_step_select_condition_to_edit()
             if choice == "remove":
                 conds = self._working_target.get(KEY_CONDITIONS, [])
-                labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
+                labels = [
+                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
+                ]
                 self._nav_stack.append((STEP_COND_MORE, self._snapshot_state()))
                 return self.async_show_form(
                     step_id=STEP_REMOVE_COND,
@@ -1145,7 +1452,14 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                                 {"select": {"options": labels, "multiple": True}}
                             ),
                             vol.Optional("nav", default="next"): selector(
-                                {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {"value": "next", "label": "Continue"},
+                                            {"value": BACK_VALUE, "label": BACK_LABEL},
+                                        ]
+                                    }
+                                }
                             ),
                         }
                     ),
@@ -1158,15 +1472,34 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                         {
                             vol.Required(
                                 CONF_MATCH_MODE,
-                                default=self._working_target.get(CONF_MATCH_MODE, "all"),
+                                default=self._working_target.get(
+                                    CONF_MATCH_MODE, "all"
+                                ),
                             ): selector(
-                                {"select": {"options": [
-                                    {"value": "all", "label": "Require all conditions"},
-                                    {"value": "any", "label": "Require any condition"},
-                                ]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {
+                                                "value": "all",
+                                                "label": "Require all conditions",
+                                            },
+                                            {
+                                                "value": "any",
+                                                "label": "Require any condition",
+                                            },
+                                        ]
+                                    }
+                                }
                             ),
                             vol.Optional("nav", default="next"): selector(
-                                {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {"value": "next", "label": "Continue"},
+                                            {"value": BACK_VALUE, "label": BACK_LABEL},
+                                        ]
+                                    }
+                                }
                             ),
                         }
                     ),
@@ -1178,7 +1511,9 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             description_placeholders=self._get_condition_more_placeholders(),
         )
 
-    async def async_step_remove_condition(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_remove_condition(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP remove_condition | input=%s", user_input)
         conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
@@ -1186,7 +1521,9 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             if user_input.get("nav") == BACK_VALUE:
                 return await self._go_back()
             to_remove = set(user_input.get("conditions_to_remove", []))
-            self._working_target[KEY_CONDITIONS] = [c for i, c in enumerate(conds) if labels[i] not in to_remove]
+            self._working_target[KEY_CONDITIONS] = [
+                c for i, c in enumerate(conds) if labels[i] not in to_remove
+            ]
             self._nav_stack.append((STEP_REMOVE_COND, self._snapshot_state()))
             return self.async_show_form(
                 step_id=STEP_COND_MORE,
@@ -1201,13 +1538,22 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                         {"select": {"options": labels, "multiple": True}}
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
         )
 
-    async def async_step_select_condition_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_select_condition_to_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP select_condition_to_edit | input=%s", user_input)
         conds = self._working_target.get(KEY_CONDITIONS, [])
         labels = [f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds]
@@ -1222,15 +1568,21 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             self._nav_stack.append((STEP_SELECT_COND_TO_EDIT, self._snapshot_state()))
             return self.async_show_form(
                 step_id=STEP_ADD_COND_VALUE,
-                data_schema=self._get_condition_value_schema(self._working_condition["entity_id"]),
+                data_schema=self._get_condition_value_schema(
+                    self._working_condition["entity_id"]
+                ),
                 description_placeholders={**self._get_condition_more_placeholders()},
             )
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
-            data_schema=vol.Schema({vol.Required("condition"): selector({"select": {"options": options}})}),
+            data_schema=vol.Schema(
+                {vol.Required("condition"): selector({"select": {"options": options}})}
+            ),
         )
 
-    async def async_step_match_mode(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_match_mode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP match_mode | input=%s", user_input)
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
@@ -1257,19 +1609,32 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                         CONF_MATCH_MODE,
                         default=self._working_target.get(CONF_MATCH_MODE, "all"),
                     ): selector(
-                        {"select": {"options": [
-                            {"value": "all", "label": "Require all conditions"},
-                            {"value": "any", "label": "Require any condition"},
-                        ]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "all", "label": "Require all conditions"},
+                                    {"value": "any", "label": "Require any condition"},
+                                ]
+                            }
+                        }
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
         )
 
-    async def async_step_target_more(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_target_more(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP target_more | input=%s", user_input)
         if user_input:
             nxt = user_input["next"]
@@ -1284,13 +1649,24 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                             vol.Required("target_service"): selector(
                                 {
                                     "select": {
-                                        "options": sorted(self.hass.services.async_services().get("notify", {})),
+                                        "options": sorted(
+                                            self.hass.services.async_services().get(
+                                                "notify", {}
+                                            )
+                                        ),
                                         "custom_value": True,
                                     }
                                 }
                             ),
                             vol.Optional("nav", default="next"): selector(
-                                {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                                {
+                                    "select": {
+                                        "options": [
+                                            {"value": "next", "label": "Continue"},
+                                            {"value": BACK_VALUE, "label": BACK_LABEL},
+                                        ]
+                                    }
+                                }
                             ),
                         }
                     ),
@@ -1304,14 +1680,19 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 return await self.async_step_select_target_to_remove()
             if nxt == "done":
                 self._nav_stack.append((STEP_TARGET_MORE, self._snapshot_state()))
-                return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._get_order_targets_schema(),
+                )
         return self.async_show_form(
             step_id=STEP_TARGET_MORE,
             data_schema=self._get_target_more_schema(),
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    async def async_step_select_target_to_edit(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_select_target_to_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP select_target_to_edit | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
         options = targets + [BACK_LABEL]
@@ -1330,20 +1711,30 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
             )
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_EDIT,
-            data_schema=vol.Schema({vol.Required("target"): selector({"select": {"options": options}})}),
+            data_schema=vol.Schema(
+                {vol.Required("target"): selector({"select": {"options": options}})}
+            ),
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    async def async_step_select_target_to_remove(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_select_target_to_remove(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP select_target_to_remove | input=%s", user_input)
         targets = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
                 return await self._go_back()
             to_remove = set(user_input.get("targets", []))
-            self._targets = [t for i, t in enumerate(self._targets) if targets[i] not in to_remove]
-            self._nav_stack.append((STEP_SELECT_TARGET_TO_REMOVE, self._snapshot_state()))
-            return self.async_show_form(step_id=STEP_TARGET_MORE, data_schema=self._get_target_more_schema())
+            self._targets = [
+                t for i, t in enumerate(self._targets) if targets[i] not in to_remove
+            ]
+            self._nav_stack.append(
+                (STEP_SELECT_TARGET_TO_REMOVE, self._snapshot_state())
+            )
+            return self.async_show_form(
+                step_id=STEP_TARGET_MORE, data_schema=self._get_target_more_schema()
+            )
         return self.async_show_form(
             step_id=STEP_SELECT_TARGET_TO_REMOVE,
             data_schema=vol.Schema(
@@ -1352,28 +1743,43 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                         {"select": {"options": targets, "multiple": True}}
                     ),
                     vol.Optional("nav", default="next"): selector(
-                        {"select": {"options": [{"value": "next", "label": "Continue"}, {"value": BACK_VALUE, "label": BACK_LABEL}]}}
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "next", "label": "Continue"},
+                                    {"value": BACK_VALUE, "label": BACK_LABEL},
+                                ]
+                            }
+                        }
                     ),
                 }
             ),
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    async def async_step_order_targets(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_order_targets(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP order_targets (options) | input=%s", user_input)
         if user_input:
             if user_input.get("nav") == BACK_VALUE:
                 return await self._go_back()
-            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]})
+            self._data.update(
+                {CONF_TARGETS: self._targets, CONF_PRIORITY: user_input["priority"]}
+            )
             self._nav_stack.append((STEP_ORDER_TARGETS, self._snapshot_state()))
             return self.async_show_form(
                 step_id=STEP_CHOOSE_FALLBACK,
                 data_schema=self._get_choose_fallback_schema(),
                 errors={},
             )
-        return self.async_show_form(step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema())
+        return self.async_show_form(
+            step_id=STEP_ORDER_TARGETS, data_schema=self._get_order_targets_schema()
+        )
 
-    async def async_step_choose_fallback(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_choose_fallback(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         _LOGGER.debug("STEP choose_fallback | input=%s", user_input)
         errors: dict[str, str] = {}
         notify_svcs = self.hass.services.async_services().get("notify", {})
@@ -1386,7 +1792,11 @@ class CustomDeviceNotifierOptionsFlowHandler(_NavMixin, config_entries.OptionsFl
                 errors["fallback"] = "must_be_notify"
             else:
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
+                title = (
+                    self._data.get(CONF_SERVICE_NAME_RAW)
+                    or self._data.get("service_name_raw")
+                    or ""
+                )
                 return self.async_create_entry(title=title, data=self._data)
         return self.async_show_form(
             step_id=STEP_CHOOSE_FALLBACK,
