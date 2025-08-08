@@ -337,7 +337,8 @@ class CustomDeviceNotifierConfigFlow(
         return {
             "current_conditions": "\n".join(
                 f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-            ) or "No conditions yet"
+            )
+            or "No conditions yet"
         }
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
