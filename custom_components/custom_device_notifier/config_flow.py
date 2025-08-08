@@ -332,12 +332,12 @@ class CustomDeviceNotifierConfigFlow(
         )
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
+        """Placeholders for the 'Conditions' page in the options flow."""
         conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
             "current_conditions": "\n".join(
                 f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-            )
-            or "No conditions yet"
+            ) or "No conditions yet"
         }
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
