@@ -1,0 +1,2 @@
+- Create a venv named .venv at the repo root.
+- If needed, copy .vscode/settings.json.sample to .vscode/settings.json and adjust interpreter path.

@@ -1,0 +1,6 @@
+// .vscode/settings.json
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venvs/HA-Test-venv-Custom-Device-Notifier/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["-q"]
+}

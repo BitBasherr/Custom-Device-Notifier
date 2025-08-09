@@ -1,0 +1,12 @@
+{
+  // Let VS Code auto-detect the venv in the workspace; contributors can copy
+  // this to settings.json and tweak locally if needed.
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["-q"],
+
+  // Optional: If everyone uses a local ".venv" in the repo, this is portable on macOS/Linux:
+  // "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+
+  // Optional (Windows): uncomment if you standardize on ".venv"
+  // "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+}
