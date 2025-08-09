@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import logging
 
 from homeassistant.components.sensor import SensorEntity
@@ -40,7 +41,7 @@ class CurrentTargetSensor(SensorEntity):
         slug = data[CONF_SERVICE_NAME]
         self._attr_name = f"{raw_name} Current Target"
         self._attr_unique_id = f"{slug}_current_target"
-        self._attr_native_value = None  # Correct attribute for state
+        self._attr_native_value = None  # state
         self._unsub = None
 
     async def async_added_to_hass(self):
@@ -80,7 +81,7 @@ class CurrentTargetSensor(SensorEntity):
                 new_value = svc_id
                 break
 
-        if new_value.startswith("notify."):
+        if isinstance(new_value, str) and new_value.startswith("notify."):
             new_value = new_value[len("notify.") :]
 
         self._attr_native_value = new_value
