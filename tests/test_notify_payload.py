@@ -2,16 +2,17 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.custom_device_notifier.const import (
-    DOMAIN,
+    CONF_FALLBACK,
+    CONF_PRIORITY,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
     CONF_TARGETS,
-    CONF_PRIORITY,
-    CONF_FALLBACK,
-    KEY_SERVICE,
+    DOMAIN,
     KEY_CONDITIONS,
     KEY_MATCH,
+    KEY_SERVICE,
 )
+
 
 @pytest.mark.asyncio
 async def test_payload_keeps_data_nested_and_forwards_target(hass):
@@ -30,7 +31,11 @@ async def test_payload_keeps_data_nested_and_forwards_target(hass):
             CONF_SERVICE_NAME_RAW: "My Notifier",
             CONF_SERVICE_NAME: "my_notifier",
             CONF_TARGETS: [
-                {KEY_SERVICE: "notify.mobile_app_pixel", KEY_CONDITIONS: [], KEY_MATCH: "all"}
+                {
+                    KEY_SERVICE: "notify.mobile_app_pixel",
+                    KEY_CONDITIONS: [],
+                    KEY_MATCH: "all",
+                }
             ],
             CONF_PRIORITY: ["notify.mobile_app_pixel"],
             CONF_FALLBACK: "notify.mobile_app_pixel",
