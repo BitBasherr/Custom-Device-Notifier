@@ -208,14 +208,25 @@ class _NotifierService(BaseNotificationService):
     async def async_send_message(self, message: str = "", **kwargs: Any) -> None:
         """Dispatch *message* to the highest-priority matching target (else fallback)."""
         title = kwargs.get(ATTR_TITLE)
-        data: dict[str, Any] = {ATTR_MESSAGE: message}
+
+        # ✅ Build a proper HA notify payload (nest extras under 'data')
+        call_data: dict[str, Any] = {ATTR_MESSAGE: message}
         if title:
-            data[ATTR_TITLE] = title
-        data.update(kwargs.get("data", {}))
+            call_data[ATTR_TITLE] = title
 
-        _LOGGER.debug("notify.%s called: %s / %s", self._slug, title, message)
+        extras = kwargs.get("data")
+        if isinstance(extras, dict):
+            call_data["data"] = extras
 
-        # Always evaluate fresh — this ensures dynamic reassessment per send.
+        # Pass-through target if provided (e.g., mobile_app device targets)
+        if "target" in kwargs:
+            call_data["target"] = kwargs["target"]
+
+        _LOGGER.debug(
+            "notify.%s called with payload keys=%s", self._slug, list(call_data.keys())
+        )
+
+        # Always evaluate fresh — ensures dynamic reassessment per send.
         for svc in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc), None)
             if not tgt:
@@ -231,10 +242,10 @@ class _NotifierService(BaseNotificationService):
             if matched:
                 dom, name = svc.split(".", 1)
                 _LOGGER.debug("  → forwarding to %s.%s", dom, name)
-                await self.hass.services.async_call(dom, name, data, blocking=True)
+                await self.hass.services.async_call(dom, name, call_data, blocking=True)
                 return  # stop after first successful target
 
         # Nothing matched ⇒ fallback
         dom, name = self._fallback.split(".", 1)
         _LOGGER.debug("  → fallback to %s.%s", dom, name)
-        await self.hass.services.async_call(dom, name, data, blocking=True)
+        await self.hass.services.async_call(dom, name, call_data, blocking=True)
