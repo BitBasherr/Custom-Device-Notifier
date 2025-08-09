@@ -1,12 +1,19 @@
 # tests/test_notify_payload.py
 import pytest
 from homeassistant.core import HomeAssistant
-from tests.common import MockConfigEntry
 
 from custom_components.custom_device_notifier.const import (
-    DOMAIN, CONF_SERVICE_NAME, CONF_TARGETS, CONF_PRIORITY, CONF_FALLBACK,
-    KEY_SERVICE, KEY_CONDITIONS, KEY_MATCH,
+    CONF_FALLBACK,
+    CONF_PRIORITY,
+    CONF_SERVICE_NAME,
+    CONF_TARGETS,
+    DOMAIN,
+    KEY_CONDITIONS,
+    KEY_MATCH,
+    KEY_SERVICE,
 )
+from tests.common import MockConfigEntry
+
 
 @pytest.mark.asyncio
 async def test_payload_keeps_data_nested_and_forwards_target(hass: HomeAssistant):
@@ -24,7 +31,11 @@ async def test_payload_keeps_data_nested_and_forwards_target(hass: HomeAssistant
         data={
             CONF_SERVICE_NAME: "my_notifier",
             CONF_TARGETS: [
-                {KEY_SERVICE: "notify.mobile_app_pixel", KEY_CONDITIONS: [], KEY_MATCH: "all"}
+                {
+                    KEY_SERVICE: "notify.mobile_app_pixel",
+                    KEY_CONDITIONS: [],
+                    KEY_MATCH: "all",
+                }
             ],
             CONF_PRIORITY: ["notify.mobile_app_pixel"],
             CONF_FALLBACK: "notify.mobile_app_pixel",
@@ -72,10 +83,13 @@ async def test_payload_keeps_data_nested_and_forwards_target(hass: HomeAssistant
     assert "ttl" not in forwarded
     assert "channel" not in forwarded
 
+
 @pytest.mark.asyncio
 async def test_fallback_carries_data(hass: HomeAssistant):
     calls = []
-    async def fb(call): calls.append(call.data)
+
+    async def fb(call):
+        calls.append(call.data)
 
     hass.services.async_register("notify", "fallback_notify", fb)
 
@@ -84,7 +98,7 @@ async def test_fallback_carries_data(hass: HomeAssistant):
         domain=DOMAIN,
         data={
             CONF_SERVICE_NAME: "my_notifier",
-            CONF_TARGETS: [],                   # nothing to match
+            CONF_TARGETS: [],  # nothing to match
             CONF_PRIORITY: [],
             CONF_FALLBACK: "notify.fallback_notify",
         },
@@ -95,7 +109,10 @@ async def test_fallback_carries_data(hass: HomeAssistant):
     await hass.services.async_call(
         "notify",
         "my_notifier",
-        {"message": "X", "data": {"ttl": 0, "actions": [{"action":"URI","uri":"/"}]}},
+        {
+            "message": "X",
+            "data": {"ttl": 0, "actions": [{"action": "URI", "uri": "/"}]},
+        },
         blocking=True,
     )
     assert calls and "data" in calls[0] and "actions" in calls[0]["data"]
