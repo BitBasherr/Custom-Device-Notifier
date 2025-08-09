@@ -44,7 +44,7 @@ EVALUATE_SCHEMA = vol.Schema({vol.Optional("entry_id"): str})
 
 def _get_entry_data(entry: ConfigEntry) -> dict[str, Any]:
     """Prefer options over data; options flow writes there."""
-    return (entry.options or entry.data)  # type: ignore[return-value]
+    return entry.options or entry.data  # type: ignore[return-value]
 
 
 # ---------- setup / unload -------------------------------------------------
@@ -68,6 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Register the debug evaluate service once per HA instance
         domain_state = hass.data.setdefault(DOMAIN, {})
         if not domain_state.get("evaluate_registered"):
+
             async def handle_evaluate(call):
                 target_entry_id = call.data.get("entry_id")
                 entries = [
@@ -76,7 +77,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if not target_entry_id or e.entry_id == target_entry_id
                 ]
                 if not entries:
-                    _LOGGER.info("No entries to evaluate (entry_id=%s).", target_entry_id)
+                    _LOGGER.info(
+                        "No entries to evaluate (entry_id=%s).", target_entry_id
+                    )
                     return
 
                 for e in entries:
@@ -96,7 +99,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
                         matched = all(results) if mode == "all" else any(results)
                         _LOGGER.debug(
-                            "  target %s match=%s (conditions: %s)", svc, matched, results
+                            "  target %s match=%s (conditions: %s)",
+                            svc,
+                            matched,
+                            results,
                         )
                         if matched:
                             _LOGGER.debug("  → would forward to %s", svc)
@@ -104,14 +110,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     else:
                         _LOGGER.debug("  → would fallback to %s", fb)
 
-            hass.services.async_register(DOMAIN, "evaluate", handle_evaluate, schema=EVALUATE_SCHEMA)
+            hass.services.async_register(
+                DOMAIN, "evaluate", handle_evaluate, schema=EVALUATE_SCHEMA
+            )
             domain_state["evaluate_registered"] = True
 
         # Forward platforms (sensor reflects current dynamic target)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         # Reload on config/option updates
-        async def _reload_on_update(hass_: HomeAssistant, updated_entry: ConfigEntry) -> None:
+        async def _reload_on_update(
+            hass_: HomeAssistant, updated_entry: ConfigEntry
+        ) -> None:
             _LOGGER.debug("Config entry updated, reloading %s", updated_entry.entry_id)
             await hass_.config_entries.async_reload(updated_entry.entry_id)
 
