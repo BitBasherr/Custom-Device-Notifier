@@ -1,5 +1,4 @@
 import asyncio
-import asyncio
 import logging
 
 from homeassistant.components.sensor import SensorEntity
