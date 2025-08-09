@@ -78,7 +78,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt','.tools/constraints.txt','pyproject.toml') }}-v3
+          key: mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt','.tools/constraints.txt','custom_components/custom_device_notifier/pyproject.toml') }}-v4
           restore-keys: |
             mypy-${{ runner.os }}-
 
