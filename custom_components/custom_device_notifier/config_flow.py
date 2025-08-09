@@ -98,6 +98,21 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._priority_list: list[str] | None = None
 
     # ───────── basic overview helpers ─────────
+    def _get_condition_more_schema(self) -> vol.Schema:
+        options = [
+            {"value": "add", "label": "➕ Add"},
+            {"value": "done", "label": "✅ Done"},
+        ]
+        if self._working_target.get(KEY_CONDITIONS):
+            options.insert(1, {"value": "edit", "label": "✏️ Edit"})
+            options.insert(2, {"value": "remove", "label": "➖ Remove"})
+        return vol.Schema(
+            {
+                vol.Required("choice", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
 
     def _get_targets_overview(self) -> str:
         lines: list[str] = []
@@ -911,6 +926,21 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._priority_list: list[str] | None = list(self._data.get(CONF_PRIORITY, []))
 
     # ───────── shared helpers (options) ─────────
+    def _get_condition_more_schema(self) -> vol.Schema:
+        options = [
+            {"value": "add", "label": "➕ Add"},
+            {"value": "done", "label": "✅ Done"},
+        ]
+        if self._working_target.get(KEY_CONDITIONS):
+            options.insert(1, {"value": "edit", "label": "✏️ Edit"})
+            options.insert(2, {"value": "remove", "label": "➖ Remove"})
+        return vol.Schema(
+            {
+                vol.Required("choice", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
 
     def _get_targets_overview(self) -> str:
         lines: list[str] = []
