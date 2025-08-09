@@ -81,6 +81,7 @@ def _format_targets_pretty(
     targets: list[dict[str, Any]], working: dict[str, Any] | None = None
 ) -> str:
     """Bullet list of targets with an indented sublist of conditions."""
+
     def one_block(tgt: dict[str, Any], *, editing: bool = False) -> str:
         svc = tgt.get(KEY_SERVICE, "(unknown)")
         head = _wrap_hanging(
@@ -88,7 +89,9 @@ def _format_targets_pretty(
         )
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
         if not conds:
-            body = _wrap_hanging("(no conditions)", initial="    - ", hang_under="      ")
+            body = _wrap_hanging(
+                "(no conditions)", initial="    - ", hang_under="      "
+            )
             return "\n".join([head, body])
 
         lines: list[str] = [head]
@@ -97,7 +100,9 @@ def _format_targets_pretty(
             op = c.get("operator", "?")
             val = c.get("value", "?")
             lines.append(
-                _wrap_hanging(f"{eid} {op} {val}", initial="    - ", hang_under="      ")
+                _wrap_hanging(
+                    f"{eid} {op} {val}", initial="    - ", hang_under="      "
+                )
             )
         return "\n".join(lines)
 
