@@ -29,14 +29,14 @@ _LOGGER: Final = logging.getLogger(DOMAIN)
 
 PLATFORMS = ["sensor"]
 
-# ---------- service schema -------------------------------------------------
+# ---------- service schemas -------------------------------------------------
 
 SERVICE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_MESSAGE): cv.string,
         vol.Optional(ATTR_TITLE): cv.string,
+        vol.Optional("target"): vol.Any(str, [str]),
         vol.Optional("data"): dict,
-        vol.Optional("target"): vol.Any(str, [str]),  # pass-through if caller provides
     }
 )
 
@@ -45,7 +45,6 @@ EVALUATE_SCHEMA = vol.Schema({vol.Optional("entry_id"): str})
 
 def _get_entry_data(entry: ConfigEntry) -> dict[str, Any]:
     """Prefer options over data; options flow writes there."""
-    # mypy: options is MappingProxyType[str, Any] | None; fall back to data
     return entry.options or entry.data  # type: ignore[return-value]
 
 
@@ -61,11 +60,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         priority: list[str] = data[CONF_PRIORITY]
         fallback: str = data[CONF_FALLBACK]
 
-        # Register the per-entry notify service
+        # Per-entry notifier object
         service = _NotifierService(hass, slug, targets, priority, fallback)
-        hass.services.async_register(
-            "notify", slug, service.async_send_message, schema=SERVICE_SCHEMA
-        )
+
+        # Wrapper that accepts ServiceCall, extracts fields, and delegates correctly.
+        async def _handle_notify(call):
+            payload: dict[str, Any] = dict(call.data)
+
+            message: str = payload.pop(ATTR_MESSAGE, "") or ""
+            title: str | None = payload.pop(ATTR_TITLE, None)
+            target = payload.pop("target", None)
+            nested_data = payload.pop("data", None)
+
+            # Only pass known kwargs to our async_send_message; ignore unexpected keys
+            kwargs: dict[str, Any] = {}
+            if title is not None:
+                kwargs[ATTR_TITLE] = title
+            if target is not None:
+                kwargs["target"] = target
+            if nested_data is not None:
+                kwargs["data"] = nested_data
+
+            await service.async_send_message(message, **kwargs)
+
+        # Register the per-entry notify service using the wrapper
+        hass.services.async_register("notify", slug, _handle_notify, schema=SERVICE_SCHEMA)
 
         # Register the debug evaluate service once per HA instance
         domain_state = hass.data.setdefault(DOMAIN, {})
@@ -91,7 +110,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     fb: str = ed.get(CONF_FALLBACK, "")
                     _LOGGER.debug("Evaluating entry %s (%s)", e.entry_id, e.title)
 
-                    matched_svc: str | None = None
                     for svc in prio:
                         tgt = next((t for t in tgts if t[KEY_SERVICE] == svc), None)
                         if not tgt:
@@ -107,11 +125,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             matched,
                             results,
                         )
-                        if matched and matched_svc is None:
-                            matched_svc = svc
-
-                    if matched_svc:
-                        _LOGGER.debug("  → would forward to %s", matched_svc)
+                        if matched:
+                            _LOGGER.debug("  → would forward to %s", svc)
+                            break
                     else:
                         _LOGGER.debug("  → would fallback to %s", fb)
 
@@ -212,22 +228,20 @@ class _NotifierService(BaseNotificationService):
 
     async def async_send_message(self, message: str = "", **kwargs: Any) -> None:
         """Dispatch *message* to the highest-priority matching target (else fallback)."""
-        # Build a clean payload: preserve nested "data" and optional "target"
-        payload: dict[str, Any] = {ATTR_MESSAGE: message}
-
         title = kwargs.get(ATTR_TITLE)
+        target = kwargs.get("target")
+        nested_data = kwargs.get("data")
+
+        # Build the downstream payload: keep rich options under 'data'
+        downstream: dict[str, Any] = {ATTR_MESSAGE: message}
         if title:
-            payload[ATTR_TITLE] = title
+            downstream[ATTR_TITLE] = title
+        if target is not None:
+            downstream["target"] = target
+        if isinstance(nested_data, dict):
+            downstream["data"] = nested_data
 
-        if "target" in kwargs and kwargs["target"] is not None:
-            payload["target"] = kwargs["target"]
-
-        extra = kwargs.get("data")
-        if isinstance(extra, dict):
-            # keep rich options under the "data" key so mobile_app/agent can parse them
-            payload["data"] = extra
-
-        _LOGGER.debug("notify.%s called with payload: %s", self._slug, payload)
+        _LOGGER.debug("notify.%s called: %s / %s", self._slug, title, message)
 
         # Always evaluate fresh — ensures dynamic reassessment per send.
         for svc in self._priority:
@@ -245,10 +259,10 @@ class _NotifierService(BaseNotificationService):
             if matched:
                 dom, name = svc.split(".", 1)
                 _LOGGER.debug("  → forwarding to %s.%s", dom, name)
-                await self.hass.services.async_call(dom, name, payload, blocking=True)
+                await self.hass.services.async_call(dom, name, downstream, blocking=True)
                 return  # stop after first successful target
 
         # Nothing matched ⇒ fallback
         dom, name = self._fallback.split(".", 1)
         _LOGGER.debug("  → fallback to %s.%s", dom, name)
-        await self.hass.services.async_call(dom, name, payload, blocking=True)
+        await self.hass.services.async_call(dom, name, downstream, blocking=True)
