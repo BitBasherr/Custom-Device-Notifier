@@ -87,7 +87,7 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
-          mypy custom_components/custom_device_notifier/__init__.py \
+          mypy custom_components/custom_device_notifier \
                --config-file custom_components/custom_device_notifier/pyproject.toml
 
       - name: Run pytest
