@@ -95,7 +95,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
         # Live, incremental ordering buffer for the "order_targets" step
-        self._priority_list: list[str] | None = None
+        self._priority_list: list[str] = []  # <- never None
 
     # ───────── basic overview helpers ─────────
     def _get_condition_more_schema(self) -> vol.Schema:
@@ -159,9 +159,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ───────── order helpers ─────────
 
     def _priority_bootstrap(self) -> None:
-        """Ensure self._priority_list is a list before use."""
-        if self._priority_list is None:
-            # Start empty so the user can add one-by-one (no preselect).
+        """Ensure self._priority_list exists (legacy no-op since it's always a list)."""
+        if self._priority_list is None:  # pragma: no cover - defensive
             self._priority_list = []
 
     # Legacy alias (if any older code referenced it)
@@ -923,7 +922,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        self._priority_list: list[str] | None = list(self._data.get(CONF_PRIORITY, []))
+        # Always a list, never None
+        self._priority_list: list[str] = list(self._data.get(CONF_PRIORITY, []))
 
     # ───────── shared helpers (options) ─────────
     def _get_condition_more_schema(self) -> vol.Schema:
@@ -985,7 +985,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         }
 
     def _priority_bootstrap(self) -> None:
-        if self._priority_list is None:
+        if self._priority_list is None:  # pragma: no cover - defensive
             self._priority_list = []
 
     _order_bootstrap = _priority_bootstrap
