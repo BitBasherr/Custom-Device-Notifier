@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -22,6 +23,11 @@ from .evaluate import evaluate_condition
 _LOGGER = logging.getLogger(DOMAIN)
 
 
+def _get_entry_data(entry: ConfigEntry) -> dict[str, Any]:
+    # Prefer options (written by options flow); fall back to data.
+    return entry.options or entry.data
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ):
@@ -29,31 +35,40 @@ async def async_setup_entry(
 
 
 class CurrentTargetSensor(SensorEntity):
+    """Reflects the highest-priority notify service that matches *right now*."""
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         self.hass = hass
         self._entry = entry
-        data = entry.data
-        self._targets = data[CONF_TARGETS]
-        self._priority = data[CONF_PRIORITY]
+
+        data = _get_entry_data(entry)
+        self._targets = list(data[CONF_TARGETS])
+        self._priority = list(data[CONF_PRIORITY])
         self._fallback = data[CONF_FALLBACK]
+
         raw_name = data[CONF_SERVICE_NAME_RAW]
         slug = data[CONF_SERVICE_NAME]
         self._attr_name = f"{raw_name} Current Target"
         self._attr_unique_id = f"{slug}_current_target"
-        self._attr_native_value = None  # state
+        self._attr_native_value = None
         self._unsub = None
 
     async def async_added_to_hass(self):
+        # Subscribe to ALL condition entities (even if not currently available).
         entities = {
             cond["entity_id"]
             for tgt in self._targets
-            for cond in tgt[KEY_CONDITIONS]
-            if self.hass.states.get(cond["entity_id"]) is not None
+            for cond in tgt.get(KEY_CONDITIONS, [])
         }
-        self._unsub = async_track_state_change_event(
-            self.hass, list(entities), self._update
-        )
-        await self._async_evaluate_and_update()  # Initial update
+
+        # If no entities, still compute once so the sensor shows fallback/first match.
+        if entities:
+            self._unsub = async_track_state_change_event(
+                self.hass, list(entities), self._update
+            )
+
+        # Initial evaluation
+        await self._async_evaluate_and_update()
 
     async def async_will_remove_from_hass(self):
         if self._unsub:
@@ -62,26 +77,29 @@ class CurrentTargetSensor(SensorEntity):
 
     @callback
     def _update(self, _):
+        # Recompute on any relevant entity change
         self.hass.async_create_task(self._async_evaluate_and_update())
 
     async def _async_evaluate_and_update(self):
-        new_value = self._fallback  # Default to fallback initially
-
+        # Always pick the highest-priority currently matching target; else fallback.
+        chosen = self._fallback
         for svc_id in self._priority:
             tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
             if not tgt:
                 continue
             mode = tgt.get(KEY_MATCH, "all")
             results = await asyncio.gather(
-                *(evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS])
+                *(evaluate_condition(self.hass, c) for c in tgt.get(KEY_CONDITIONS, []))
             )
             matched = all(results) if mode == "all" else any(results)
             if matched:
-                new_value = svc_id
+                chosen = svc_id
                 break
 
-        if isinstance(new_value, str) and new_value.startswith("notify."):
-            new_value = new_value[len("notify.") :]
+        if chosen.startswith("notify."):
+            chosen = chosen[len("notify.") :]
 
-        self._attr_native_value = new_value
-        self.async_write_ha_state()
+        if chosen != self._attr_native_value:
+            _LOGGER.debug("%s -> %s", self._attr_unique_id, chosen)
+            self._attr_native_value = chosen
+            self.async_write_ha_state()
