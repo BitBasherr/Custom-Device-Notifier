@@ -89,8 +89,9 @@ jobs:
           ruff format --check .
           # nuke any stale cache this run
           rm -rf .mypy_cache || true
-          mypy -p custom_components.custom_device_notifier \
+          mypy custom_components/custom_device_notifier \
                --config-file custom_components/custom_device_notifier/pyproject.toml \
+               --no-incremental
                --no-incremental
 
       - name: Run pytest
