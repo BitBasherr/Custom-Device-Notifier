@@ -78,7 +78,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt','.tools/constraints.txt','pyproject.toml') }}-v2
+          key: mypy-${{ runner.os }}-${{ hashFiles('.tools/requirements-ci.txt','.tools/constraints.txt','pyproject.toml') }}-v3
           restore-keys: |
             mypy-${{ runner.os }}-
 
@@ -89,8 +89,9 @@ jobs:
           ruff format --check .
           # nuke any stale cache this run
           rm -rf .mypy_cache || true
-          mypy -p custom_components.custom_device_notifier --config-file custom_components/custom_device_notifier/pyproject.toml
-
+          mypy -p custom_components.custom_device_notifier \
+               --config-file custom_components/custom_device_notifier/pyproject.toml \
+               --no-incremental
 
       - name: Run pytest
         if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
