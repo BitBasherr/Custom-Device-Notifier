@@ -6,7 +6,7 @@ ignore_missing_imports = true
 
 # use the same package-base logic Frigate uses
 namespace_packages = true
-explicit_package_bases = true
+explicit_package_bases = false
 
 # keep real checks
 check_untyped_defs      = true
@@ -27,5 +27,6 @@ docstring-code-format      = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
 
 
