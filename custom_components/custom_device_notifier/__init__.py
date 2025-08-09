@@ -84,7 +84,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await service.async_send_message(message, **kwargs)
 
         # Register the per-entry notify service using the wrapper
-        hass.services.async_register("notify", slug, _handle_notify, schema=SERVICE_SCHEMA)
+        hass.services.async_register(
+            "notify", slug, _handle_notify, schema=SERVICE_SCHEMA
+        )
 
         # Register the debug evaluate service once per HA instance
         domain_state = hass.data.setdefault(DOMAIN, {})
@@ -259,7 +261,9 @@ class _NotifierService(BaseNotificationService):
             if matched:
                 dom, name = svc.split(".", 1)
                 _LOGGER.debug("  → forwarding to %s.%s", dom, name)
-                await self.hass.services.async_call(dom, name, downstream, blocking=True)
+                await self.hass.services.async_call(
+                    dom, name, downstream, blocking=True
+                )
                 return  # stop after first successful target
 
         # Nothing matched ⇒ fallback
