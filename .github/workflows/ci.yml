@@ -87,8 +87,8 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
-          mypy custom_components/custom_device_notifier \
-               --config-file custom_components/custom_device_notifier/pyproject.toml
+          mypy --config-file custom_components/custom_device_notifier/pyproject.toml
+
 
       - name: Run pytest
         if: ${{ steps.commit.outputs.pushed != 'true' && success() }}
