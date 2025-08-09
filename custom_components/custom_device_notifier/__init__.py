@@ -207,24 +207,22 @@ class _NotifierService(BaseNotificationService):
 
     async def async_send_message(self, message: str = "", **kwargs: Any) -> None:
         """Dispatch *message* to the highest-priority matching target (else fallback)."""
+        # Build a clean payload: preserve nested "data" and optional "target"
+        payload: dict[str, Any] = {ATTR_MESSAGE: message}
+
         title = kwargs.get(ATTR_TITLE)
-
-        # ✅ Build a proper HA notify payload (nest extras under 'data')
-        call_data: dict[str, Any] = {ATTR_MESSAGE: message}
         if title:
-            call_data[ATTR_TITLE] = title
+            payload[ATTR_TITLE] = title
 
-        extras = kwargs.get("data")
-        if isinstance(extras, dict):
-            call_data["data"] = extras
+        if "target" in kwargs and kwargs["target"] is not None:
+            payload["target"] = kwargs["target"]
 
-        # Pass-through target if provided (e.g., mobile_app device targets)
-        if "target" in kwargs:
-            call_data["target"] = kwargs["target"]
+        extra = kwargs.get("data")
+        if isinstance(extra, dict):
+            # keep rich options under the "data" key so mobile_app/agent can parse them
+            payload["data"] = extra
 
-        _LOGGER.debug(
-            "notify.%s called with payload keys=%s", self._slug, list(call_data.keys())
-        )
+        _LOGGER.debug("notify.%s called with payload: %s", self._slug, payload)
 
         # Always evaluate fresh — ensures dynamic reassessment per send.
         for svc in self._priority:
