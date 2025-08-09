@@ -36,6 +36,7 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Required(ATTR_MESSAGE): cv.string,
         vol.Optional(ATTR_TITLE): cv.string,
         vol.Optional("data"): dict,
+        vol.Optional("target"): vol.Any(str, [str]),  # pass-through if caller provides
     }
 )
 
@@ -44,6 +45,7 @@ EVALUATE_SCHEMA = vol.Schema({vol.Optional("entry_id"): str})
 
 def _get_entry_data(entry: ConfigEntry) -> dict[str, Any]:
     """Prefer options over data; options flow writes there."""
+    # mypy: options is MappingProxyType[str, Any] | None; fall back to data
     return entry.options or entry.data  # type: ignore[return-value]
 
 
@@ -89,6 +91,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     fb: str = ed.get(CONF_FALLBACK, "")
                     _LOGGER.debug("Evaluating entry %s (%s)", e.entry_id, e.title)
 
+                    matched_svc: str | None = None
                     for svc in prio:
                         tgt = next((t for t in tgts if t[KEY_SERVICE] == svc), None)
                         if not tgt:
@@ -104,9 +107,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             matched,
                             results,
                         )
-                        if matched:
-                            _LOGGER.debug("  → would forward to %s", svc)
-                            break
+                        if matched and matched_svc is None:
+                            matched_svc = svc
+
+                    if matched_svc:
+                        _LOGGER.debug("  → would forward to %s", matched_svc)
                     else:
                         _LOGGER.debug("  → would fallback to %s", fb)
 
@@ -240,10 +245,10 @@ class _NotifierService(BaseNotificationService):
             if matched:
                 dom, name = svc.split(".", 1)
                 _LOGGER.debug("  → forwarding to %s.%s", dom, name)
-                await self.hass.services.async_call(dom, name, call_data, blocking=True)
+                await self.hass.services.async_call(dom, name, payload, blocking=True)
                 return  # stop after first successful target
 
         # Nothing matched ⇒ fallback
         dom, name = self._fallback.split(".", 1)
         _LOGGER.debug("  → fallback to %s.%s", dom, name)
-        await self.hass.services.async_call(dom, name, call_data, blocking=True)
+        await self.hass.services.async_call(dom, name, payload, blocking=True)
