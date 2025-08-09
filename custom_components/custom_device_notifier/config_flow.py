@@ -60,8 +60,7 @@ ENTITY_DOMAINS = [
 
 # ──────────────────────────── helper utils ────────────────────────────────
 
-# width for wrapped lines in the pretty list on the Targets screen
-_WRAP_WIDTH = 75
+_WRAP_WIDTH = 75  # width used for the pretty-wrapped targets list
 
 
 def _wrap_hanging(text: str, *, initial: str = "", hang_under: str = "") -> str:
@@ -203,7 +202,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # *** changed: pretty, indented/hanging list for the 'Targets' screen ***
+        # Pretty, indented/hanging list for the 'Targets' screen
         return {
             "current_targets": _format_targets_pretty(
                 self._targets, self._working_target or None
@@ -1027,7 +1026,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # *** changed: pretty, indented/hanging list for the 'Targets' screen ***
+        # Pretty, indented/hanging list for the 'Targets' screen
         return {
             "current_targets": _format_targets_pretty(
                 self._targets, self._working_target or None
@@ -1622,21 +1621,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             ),
             description_placeholders=self._get_target_more_placeholders(),
         )
-
-    async def async_step_order_targets(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        services = [t[KEY_SERVICE] for t in self._targets]
-        self._priority_bootstrap()
-        _LOGGER.debug(
-            "STEP order_targets (options) | input=%s | current=%s | services=%s",
-            user_input,
-            self._priority_list,
-            services,
-        )
-
-    if False:  # just to preserve exact structure; actual code continues below
-        pass
 
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
