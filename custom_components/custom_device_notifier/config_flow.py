@@ -814,7 +814,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Safety net: if nothing chosen at all, default to declared order
                 final_priority = services
 
-            self._data.update({CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority})
+            self._data.update(
+                {CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority}
+            )
             # Next: choose fallback
             notify_svcs = self.hass.services.async_services().get("notify", {})
             placeholders = _order_placeholders(services, final_priority)
