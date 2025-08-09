@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import textwrap
 from typing import Any
 
 import voluptuous as vol
@@ -57,8 +58,56 @@ ENTITY_DOMAINS = [
     "input_datetime",
 ]
 
-
 # ──────────────────────────── helper utils ────────────────────────────────
+
+# width for wrapped lines in the pretty list on the Targets screen
+_WRAP_WIDTH = 75
+
+
+def _wrap_hanging(text: str, *, initial: str = "", hang_under: str = "") -> str:
+    """Wrap one logical line with a hanging indent that keeps overflow aligned."""
+    if not hang_under:
+        hang_under = " " * len(initial)
+    return textwrap.fill(
+        text,
+        width=_WRAP_WIDTH,
+        initial_indent=initial,
+        subsequent_indent=hang_under,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
+def _format_targets_pretty(
+    targets: list[dict[str, Any]], working: dict[str, Any] | None = None
+) -> str:
+    """Bullet list of targets with an indented sublist of conditions."""
+    def one_block(tgt: dict[str, Any], *, editing: bool = False) -> str:
+        svc = tgt.get(KEY_SERVICE, "(unknown)")
+        head = _wrap_hanging(
+            f"{svc}{' (editing)' if editing else ''}", initial="• ", hang_under="  "
+        )
+        conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
+        if not conds:
+            body = _wrap_hanging("(no conditions)", initial="    - ", hang_under="      ")
+            return "\n".join([head, body])
+
+        lines: list[str] = [head]
+        for c in conds:
+            eid = c.get("entity_id", "<?>")
+            op = c.get("operator", "?")
+            val = c.get("value", "?")
+            lines.append(
+                _wrap_hanging(f"{eid} {op} {val}", initial="    - ", hang_under="      ")
+            )
+        return "\n".join(lines)
+
+    blocks = [one_block(t) for t in targets]
+    if working and working.get(KEY_SERVICE):
+        blocks.append(one_block(working, editing=True))
+    return "\n\n".join(blocks) if blocks else "No targets yet"
+
+
 def _order_placeholders(
     services: list[str], current: list[str] | None
 ) -> dict[str, str]:
@@ -154,7 +203,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        return {"current_targets": self._get_target_names_overview()}
+        # *** changed: pretty, indented/hanging list for the 'Targets' screen ***
+        return {
+            "current_targets": _format_targets_pretty(
+                self._targets, self._working_target or None
+            )
+        }
 
     # ───────── order helpers ─────────
 
@@ -973,7 +1027,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        return {"current_targets": self._get_targets_overview()}
+        # *** changed: pretty, indented/hanging list for the 'Targets' screen ***
+        return {
+            "current_targets": _format_targets_pretty(
+                self._targets, self._working_target or None
+            )
+        }
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         conds = self._working_target.get(KEY_CONDITIONS, [])
@@ -1563,6 +1622,21 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             ),
             description_placeholders=self._get_target_more_placeholders(),
         )
+
+    async def async_step_order_targets(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        services = [t[KEY_SERVICE] for t in self._targets]
+        self._priority_bootstrap()
+        _LOGGER.debug(
+            "STEP order_targets (options) | input=%s | current=%s | services=%s",
+            user_input,
+            self._priority_list,
+            services,
+        )
+
+    if False:  # just to preserve exact structure; actual code continues below
+        pass
 
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
