@@ -114,17 +114,24 @@ def _format_targets_pretty(
         - sensor.foo == bar
         - binary_sensor.baz != on
     """
+
     def one_block(tgt: dict[str, Any], suffix: str = "") -> str:
         svc = tgt.get(KEY_SERVICE, "(unknown)")
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
         lines: list[str] = []
-        lines.append(_wrap_hanging(f"• {svc}{suffix}", width=width, indent=_BULLET_INDENT))
+        lines.append(
+            _wrap_hanging(f"• {svc}{suffix}", width=width, indent=_BULLET_INDENT)
+        )
         if conds:
             for c in conds:
                 eid = c.get("entity_id", "<?>")
                 op = c.get("operator", "?")
                 val = c.get("value", "?")
-                lines.append(_wrap_hanging(f"- {eid} {op} {val}", width=width, indent=_SUB_INDENT))
+                lines.append(
+                    _wrap_hanging(
+                        f"- {eid} {op} {val}", width=width, indent=_SUB_INDENT
+                    )
+                )
         else:
             lines.append(" " * _SUB_INDENT + "- (no conditions)")
         return "\n".join(lines)
