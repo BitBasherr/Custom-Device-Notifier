@@ -58,20 +58,24 @@ ENTITY_DOMAINS = [
     "input_datetime",
 ]
 
-# ──────────────────────────── helper utils ────────────────────────────────
 
-_WRAP_WIDTH = 75  # width used for the pretty-wrapped targets list
+# ──────────────────────────── text formatting helpers ─────────────────────────
+_NBSP = "\u00A0"  # non-breaking space – prevents HTML/Markdown collapsing
 
+def _wrap_with_hanging_indent(
+    text: str, *, first_indent: int, hang_indent: int, width: int = 76
+) -> str:
+    """Return wrapped text with a hanging indent that survives HA Markdown.
 
-def _wrap_hanging(text: str, *, initial: str = "", hang_under: str = "") -> str:
-    """Wrap one logical line with a hanging indent that keeps overflow aligned."""
-    if not hang_under:
-        hang_under = " " * len(initial)
+    Uses NBSPs so leading spaces are not collapsed by the renderer.
+    """
+    initial = _NBSP * first_indent
+    subsequent = _NBSP * hang_indent
     return textwrap.fill(
         text,
-        width=_WRAP_WIDTH,
+        width=width,
         initial_indent=initial,
-        subsequent_indent=hang_under,
+        subsequent_indent=subsequent,
         break_long_words=False,
         break_on_hyphens=False,
     )
@@ -80,36 +84,50 @@ def _wrap_hanging(text: str, *, initial: str = "", hang_under: str = "") -> str:
 def _format_targets_pretty(
     targets: list[dict[str, Any]], working: dict[str, Any] | None = None
 ) -> str:
-    """Bullet list of targets with an indented sublist of conditions."""
+    """Pretty, wrapped overview of targets and their conditions.
 
-    def one_block(tgt: dict[str, Any], *, editing: bool = False) -> str:
+    Example shape:
+      • notify.mobile_app_phone
+        - sensor.battery_level >= 20
+        - sensor.last_update_trigger != android.intent.action.ACTION_SHUTDOWN
+
+    Bullet lines are left-aligned; sub-bullets are indented with NBSPs and keep
+    alignment when they wrap.
+    """
+    blocks: list[str] = []
+
+    def add_block(tgt: dict[str, Any], *, suffix: str = "") -> None:
         svc = tgt.get(KEY_SERVICE, "(unknown)")
-        head = _wrap_hanging(
-            f"{svc}{' (editing)' if editing else ''}", initial="• ", hang_under="  "
-        )
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
-        if not conds:
-            body = _wrap_hanging(
-                "(no conditions)", initial="    - ", hang_under="      "
-            )
-            return "\n".join([head, body])
+        # Target line (no indent; just the bullet)
+        blocks.append(f"• {svc}{suffix}")
 
-        lines: list[str] = [head]
+        if not conds:
+            blocks.append(_wrap_with_hanging_indent("- (no conditions)", first_indent=2, hang_indent=4))
+            return
+
+        # Each condition as a wrapped, hanging line
         for c in conds:
             eid = c.get("entity_id", "<?>")
             op = c.get("operator", "?")
             val = c.get("value", "?")
-            lines.append(
-                _wrap_hanging(
-                    f"{eid} {op} {val}", initial="    - ", hang_under="      "
-                )
-            )
-        return "\n".join(lines)
+            line = f"- {eid} {op} {val}"
+            # indent: 2 NBSPs before "-", then wrap continuation at 4 NBSPs
+            blocks.append(_wrap_with_hanging_indent(line, first_indent=2, hang_indent=4))
 
-    blocks = [one_block(t) for t in targets]
+    for t in targets:
+        add_block(t)
+        blocks.append("")  # blank line between targets
+
     if working and working.get(KEY_SERVICE):
-        blocks.append(one_block(working, editing=True))
-    return "\n\n".join(blocks) if blocks else "No targets yet"
+        add_block(working, suffix=" (editing)")
+        blocks.append("")
+
+    # Trim possible trailing blank line
+    while blocks and not blocks[-1]:
+        blocks.pop()
+
+    return "\n".join(blocks) if blocks else "No targets yet"
 
 
 def _order_placeholders(
@@ -168,28 +186,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _get_targets_overview(self) -> str:
-        lines: list[str] = []
-        for tgt in self._targets:
-            svc = tgt.get(KEY_SERVICE, "(unknown)")
-            conds = tgt.get(KEY_CONDITIONS, [])
-            if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc}: {cond_desc}")
-            else:
-                lines.append(f"{svc}: (no conditions)")
-        if self._working_target.get(KEY_SERVICE):
-            svc = self._working_target[KEY_SERVICE]
-            conds = self._working_target.get(KEY_CONDITIONS, [])
-            if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc} (editing): {cond_desc}")
-            else:
-                lines.append(f"{svc} (editing): (no conditions)")
-        return "\n".join(lines) if lines else "No targets yet"
+        # Pretty, wrapped, hanging-indent overview for the first screen
+        return _format_targets_pretty(self._targets, self._working_target or None)
 
     def _get_target_names_overview(self) -> str:
         names: list[str] = [t.get(KEY_SERVICE, "(unknown)") for t in self._targets]
@@ -199,20 +197,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         conds = self._working_target.get(KEY_CONDITIONS, [])
-        return {
-            "current_conditions": "\n".join(
-                f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-            )
-            or "No conditions yet"
-        }
+        # Keep the same compact, readable bullet list used elsewhere
+        text = "\n".join(
+            f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
+        ) or "No conditions yet"
+        return {"current_conditions": text}
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # Pretty, indented/hanging list for the 'Targets' screen
-        return {
-            "current_targets": _format_targets_pretty(
-                self._targets, self._working_target or None
-            )
-        }
+        # Options step also shows the pretty overview
+        return {"current_targets": _format_targets_pretty(self._targets, self._working_target or None)}
 
     # ───────── order helpers ─────────
 
@@ -226,7 +219,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ───────── schema helpers ─────────
 
-    def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
+    def _get_condition_value_schema(self, entity_id: string) -> vol.Schema:  # type: ignore[valid-type]
         st = self.hass.states.get(entity_id)
 
         is_num = False
@@ -478,6 +471,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "available_services": ", ".join(service_options),
+                # PRETTY overview with hanging indent:
                 "current_targets": self._get_targets_overview(),
             },
         )
@@ -1001,28 +995,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     def _get_targets_overview(self) -> str:
-        lines: list[str] = []
-        for tgt in self._targets:
-            svc = tgt.get(KEY_SERVICE, "(unknown)")
-            conds = tgt.get(KEY_CONDITIONS, [])
-            if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc}: {cond_desc}")
-            else:
-                lines.append(f"{svc}: (no conditions)")
-        if self._working_target.get(KEY_SERVICE):
-            svc = self._working_target[KEY_SERVICE]
-            conds = self._working_target.get(KEY_CONDITIONS, [])
-            if conds:
-                cond_desc = "; ".join(
-                    f"{c['entity_id']} {c['operator']} {c['value']}" for c in conds
-                )
-                lines.append(f"{svc} (editing): {cond_desc}")
-            else:
-                lines.append(f"{svc} (editing): (no conditions)")
-        return "\n".join(lines) if lines else "No targets yet"
+        # Pretty overview with hanging indents (same as config flow)
+        return _format_targets_pretty(self._targets, self._working_target or None)
 
     def _get_target_names_overview(self) -> str:
         names: list[str] = [t.get(KEY_SERVICE, "(unknown)") for t in self._targets]
@@ -1031,21 +1005,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # Pretty, indented/hanging list for the 'Targets' screen
-        return {
-            "current_targets": _format_targets_pretty(
-                self._targets, self._working_target or None
-            )
-        }
+        return {"current_targets": self._get_targets_overview()}
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         conds = self._working_target.get(KEY_CONDITIONS, [])
-        return {
-            "current_conditions": "\n".join(
-                f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
-            )
-            or "No conditions yet"
-        }
+        text = "\n".join(
+            f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
+        ) or "No conditions yet"
+        return {"current_conditions": text}
 
     def _priority_bootstrap(self) -> None:
         if self._priority_list is None:  # pragma: no cover - defensive
@@ -1288,7 +1255,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
             description_placeholders={
                 "available_services": ", ".join(service_options),
-                **self._get_target_more_placeholders(),
+                "current_targets": self._get_targets_overview(),  # pretty overview
             },
         )
 
@@ -1694,49 +1661,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 services=services, current=self._priority_list
             ),
             description_placeholders=placeholders,
-        )
-
-    async def async_step_choose_fallback(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        _LOGGER.debug("STEP choose_fallback (options) | input=%s", user_input)
-        errors: dict[str, str] = {}
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-        if user_input:
-            if user_input.get("nav") == "back":
-                services = [t[KEY_SERVICE] for t in self._targets]
-                placeholders = _order_placeholders(
-                    services, self._data.get(CONF_PRIORITY)
-                )
-                return self.async_show_form(
-                    step_id=STEP_ORDER_TARGETS,
-                    data_schema=self._get_order_targets_schema(
-                        services=services, current=self._data.get(CONF_PRIORITY)
-                    ),
-                    description_placeholders=placeholders,
-                )
-            fb = user_input["fallback"]
-            if fb not in notify_svcs:
-                errors["fallback"] = "must_be_notify"
-            else:
-                self._data[CONF_FALLBACK] = f"notify.{fb}"
-                title = (
-                    self._data.get(CONF_SERVICE_NAME_RAW)
-                    or self._data.get("service_name_raw")
-                    or ""
-                )
-                return self.async_create_entry(title=title, data=self._data)
-        services = [t[KEY_SERVICE] for t in self._targets]
-        placeholders = _order_placeholders(services, self._data.get(CONF_PRIORITY))
-        return self.async_show_form(
-            step_id=STEP_CHOOSE_FALLBACK,
-            data_schema=self._get_choose_fallback_schema(),
-            errors=errors,
-            description_placeholders={
-                "available_services": ", ".join(service_options),
-                **placeholders,
-            },
         )
 
 
