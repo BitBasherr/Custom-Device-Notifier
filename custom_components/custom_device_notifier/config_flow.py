@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import textwrap
 from typing import Any
 
 import voluptuous as vol
@@ -82,61 +81,40 @@ def _order_placeholders(
     }
 
 
-# Pretty/wrapped rendering for the first Targets screen
-_WRAP_WIDTH = 76  # tweak if you want tighter/wider wrapping
-_BULLET_INDENT = 0
-_SUB_INDENT = 4
-
-
-def _wrap_hanging(text: str, *, width: int, indent: int) -> str:
-    """Wrap with a 'hanging' indent so wrapped lines stay aligned."""
-    pad = " " * indent
-    return "\n".join(
-        textwrap.wrap(
-            text,
-            width=width,
-            initial_indent=pad,
-            subsequent_indent=pad,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-    )
-
-
 def _format_targets_pretty(
     targets: list[dict[str, Any]],
     working: dict[str, Any] | None = None,
-    *,
-    width: int = _WRAP_WIDTH,
 ) -> str:
-    """Render targets like:
-    • notify.mobile_app_x
+    """Render as a real nested Markdown list so wrapped lines hang correctly.
+
+    Example:
+
+    - notify.mobile_app_x
         - sensor.foo == bar
         - binary_sensor.baz != on
     """
+    blocks: list[str] = []
 
     def one_block(tgt: dict[str, Any], suffix: str = "") -> str:
         svc = tgt.get(KEY_SERVICE, "(unknown)")
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
         lines: list[str] = []
-        lines.append(
-            _wrap_hanging(f"• {svc}{suffix}", width=width, indent=_BULLET_INDENT)
-        )
+        # top-level bullet (Markdown)
+        lines.append(f"- {svc}{suffix}")
         if conds:
             for c in conds:
                 eid = c.get("entity_id", "<?>")
                 op = c.get("operator", "?")
                 val = c.get("value", "?")
-                lines.append(
-                    _wrap_hanging(
-                        f"- {eid} {op} {val}", width=width, indent=_SUB_INDENT
-                    )
-                )
+                # child bullets (4-space indent so it’s a nested list)
+                lines.append(f"    - {eid} {op} {val}")
         else:
-            lines.append(" " * _SUB_INDENT + "- (no conditions)")
+            lines.append("    - (no conditions)")
         return "\n".join(lines)
 
-    blocks = [one_block(t) for t in targets]
+    for t in targets:
+        blocks.append(one_block(t))
+
     if working and working.get(KEY_SERVICE):
         blocks.append(one_block(working, " (editing)"))
 
@@ -217,7 +195,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # Use the pretty, wrapped version for the first step
+        # Use the pretty, nested Markdown list for the first screen
         return {
             "current_targets": _format_targets_pretty(
                 self._targets, self._working_target
@@ -488,7 +466,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "available_services": ", ".join(service_options),
-                # pretty, wrapped list for the first screen
+                # pretty, nested Markdown list for the first screen
                 "current_targets": _format_targets_pretty(
                     self._targets, self._working_target
                 ),
@@ -1045,7 +1023,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # Pretty/wrapped list for the first screen in Options flow too
+        # Pretty/nested list for the first screen in Options flow too
         return {
             "current_targets": _format_targets_pretty(
                 self._targets, self._working_target
