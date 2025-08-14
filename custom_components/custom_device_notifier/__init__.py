@@ -1,272 +1,425 @@
-"""Custom Device Notifier integration."""
-
 from __future__ import annotations
 
-import asyncio
+from dataclasses import dataclass
+from datetime import timedelta
 import logging
-from typing import Any, Final
+from typing import Any, Callable, Iterable
 
-import voluptuous as vol
-from homeassistant.components.notify import BaseNotificationService
-from homeassistant.components.notify.const import ATTR_MESSAGE, ATTR_TITLE
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_FALLBACK,
-    CONF_PRIORITY,
-    CONF_SERVICE_NAME,
-    CONF_TARGETS,
     DOMAIN,
-    KEY_CONDITIONS,
-    KEY_MATCH,
+    # base config
+    CONF_SERVICE_NAME,
+    CONF_SERVICE_NAME_RAW,
+    CONF_TARGETS,
+    CONF_PRIORITY,
+    CONF_FALLBACK,
+    CONF_MATCH_MODE,
     KEY_SERVICE,
+    KEY_CONDITIONS,
+    # routing mode
+    CONF_ROUTING_MODE,
+    ROUTING_CONDITIONAL,
+    ROUTING_SMART,
+    DEFAULT_ROUTING_MODE,
+    # smart select
+    CONF_SMART_PC_NOTIFY,
+    CONF_SMART_PC_SESSION,
+    CONF_SMART_PHONE_ORDER,
+    CONF_SMART_MIN_BATTERY,
+    CONF_SMART_PHONE_FRESH_S,
+    CONF_SMART_PC_FRESH_S,
+    CONF_SMART_REQUIRE_AWAKE,
+    CONF_SMART_REQUIRE_UNLOCKED,
+    CONF_SMART_POLICY,
+    SMART_POLICY_PC_FIRST,
+    SMART_POLICY_PHONE_IF_PC_UNLOCKED,
+    SMART_POLICY_PHONE_FIRST,
+    DEFAULT_SMART_MIN_BATTERY,
+    DEFAULT_SMART_PHONE_FRESH_S,
+    DEFAULT_SMART_PC_FRESH_S,
+    DEFAULT_SMART_REQUIRE_AWAKE,
+    DEFAULT_SMART_REQUIRE_UNLOCKED,
+    DEFAULT_SMART_POLICY,
 )
-from .evaluate import evaluate_condition
 
-_LOGGER: Final = logging.getLogger(DOMAIN)
+_LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+# ──────────────────────────────────────────────────────────────────────────────
+# Storage
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ---------- service schemas -------------------------------------------------
-
-SERVICE_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_MESSAGE): cv.string,
-        vol.Optional(ATTR_TITLE): cv.string,
-        vol.Optional("target"): vol.Any(str, [str]),
-        vol.Optional("data"): dict,
-    }
-)
-
-EVALUATE_SCHEMA = vol.Schema({vol.Optional("entry_id"): str})
+DATA = f"{DOMAIN}.data"
+SERVICE_HANDLES = f"{DOMAIN}.service_handles"
 
 
-def _get_entry_data(entry: ConfigEntry) -> dict[str, Any]:
-    """Prefer options over data; options flow writes there."""
-    return entry.options or entry.data  # type: ignore[return-value]
+@dataclass
+class EntryRuntime:
+    entry: ConfigEntry
+    service_name: str  # notify service name (slug)
 
 
-# ---------- setup / unload -------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# HA entry points
+# ──────────────────────────────────────────────────────────────────────────────
 
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Create the notify service and sensor platform from a ConfigEntry."""
-    try:
-        data = _get_entry_data(entry)
-        slug: str = data[CONF_SERVICE_NAME]
-        targets: list[dict[str, Any]] = data[CONF_TARGETS]
-        priority: list[str] = data[CONF_PRIORITY]
-        fallback: str = data[CONF_FALLBACK]
-
-        # Per-entry notifier object
-        service = _NotifierService(hass, slug, targets, priority, fallback)
-
-        # Wrapper that accepts ServiceCall, extracts fields, and delegates correctly.
-        async def _handle_notify(call):
-            payload: dict[str, Any] = dict(call.data)
-
-            message: str = payload.pop(ATTR_MESSAGE, "") or ""
-            title: str | None = payload.pop(ATTR_TITLE, None)
-            target = payload.pop("target", None)
-            nested_data = payload.pop("data", None)
-
-            # Only pass known kwargs to our async_send_message; ignore unexpected keys
-            kwargs: dict[str, Any] = {}
-            if title is not None:
-                kwargs[ATTR_TITLE] = title
-            if target is not None:
-                kwargs["target"] = target
-            if nested_data is not None:
-                kwargs["data"] = nested_data
-
-            await service.async_send_message(message, **kwargs)
-
-        # Register the per-entry notify service using the wrapper
-        hass.services.async_register(
-            "notify", slug, _handle_notify, schema=SERVICE_SCHEMA
-        )
-
-        # Register the debug evaluate service once per HA instance
-        domain_state = hass.data.setdefault(DOMAIN, {})
-        if not domain_state.get("evaluate_registered"):
-
-            async def handle_evaluate(call):
-                target_entry_id = call.data.get("entry_id")
-                entries = [
-                    e
-                    for e in hass.config_entries.async_entries(DOMAIN)
-                    if not target_entry_id or e.entry_id == target_entry_id
-                ]
-                if not entries:
-                    _LOGGER.info(
-                        "No entries to evaluate (entry_id=%s).", target_entry_id
-                    )
-                    return
-
-                for e in entries:
-                    ed = _get_entry_data(e)
-                    prio: list[str] = ed.get(CONF_PRIORITY, [])
-                    tgts: list[dict[str, Any]] = ed.get(CONF_TARGETS, [])
-                    fb: str = ed.get(CONF_FALLBACK, "")
-                    _LOGGER.debug("Evaluating entry %s (%s)", e.entry_id, e.title)
-
-                    for svc in prio:
-                        tgt = next((t for t in tgts if t[KEY_SERVICE] == svc), None)
-                        if not tgt:
-                            continue
-                        mode = tgt.get(KEY_MATCH, "all")
-                        results = await asyncio.gather(
-                            *(evaluate_condition(hass, c) for c in tgt[KEY_CONDITIONS])
-                        )
-                        matched = all(results) if mode == "all" else any(results)
-                        _LOGGER.debug(
-                            "  target %s match=%s (conditions: %s)",
-                            svc,
-                            matched,
-                            results,
-                        )
-                        if matched:
-                            _LOGGER.debug("  → would forward to %s", svc)
-                            break
-                    else:
-                        _LOGGER.debug("  → would fallback to %s", fb)
-
-            hass.services.async_register(
-                DOMAIN, "evaluate", handle_evaluate, schema=EVALUATE_SCHEMA
-            )
-            domain_state["evaluate_registered"] = True
-
-        # Forward platforms (sensor reflects current dynamic target)
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-        # Reload on config/option updates
-        async def _reload_on_update(
-            hass_: HomeAssistant, updated_entry: ConfigEntry
-        ) -> None:
-            _LOGGER.debug("Config entry updated, reloading %s", updated_entry.entry_id)
-            await hass_.config_entries.async_reload(updated_entry.entry_id)
-
-        entry.async_on_unload(entry.add_update_listener(_reload_on_update))
-
-        return True
-
-    except Exception:  # pragma: no cover – log & signal failure
-        _LOGGER.exception("Error setting up %s", DOMAIN)
-        return False
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the entry cleanly so reload works (no stale config)."""
-    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    # Remove the per-entry notify service
-    try:
-        data = _get_entry_data(entry)
-        slug: str = data[CONF_SERVICE_NAME]
-        if hass.services.has_service("notify", slug):
-            hass.services.async_remove("notify", slug)
-    except Exception:  # pragma: no cover
-        _LOGGER.exception("Error while removing notify service for %s", entry.entry_id)
-        ok = False
-
-    return ok
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Normalize config entry data regardless of stored version."""
-    _LOGGER.debug(
-        "Running unconditional migration for %s (v%s)", entry.title, entry.version
-    )
-
-    data = {**entry.data}  # mutable copy
-
-    # Normalize fallback
-    fallback = data.get(CONF_FALLBACK)
-    if isinstance(fallback, str) and "." in fallback:
-        domain, name = fallback.split(".", 1)
-        data[CONF_FALLBACK] = f"{domain.strip().lower()}.{name.strip()}"
-
-    # Normalize priority list
-    if CONF_PRIORITY in data:
-        data[CONF_PRIORITY] = [svc.strip().lower() for svc in data[CONF_PRIORITY]]
-
-    # Normalize targets
-    normalized_targets = []
-    for tgt in data.get(CONF_TARGETS, []):
-        new_tgt = dict(tgt)
-        new_tgt.setdefault(KEY_MATCH, "all")
-        new_tgt.setdefault(KEY_CONDITIONS, [])
-        new_tgt[KEY_SERVICE] = new_tgt[KEY_SERVICE].strip().lower()
-        normalized_targets.append(new_tgt)
-    data[CONF_TARGETS] = normalized_targets
-
-    # Save back even if version is unchanged
-    hass.config_entries.async_update_entry(entry, data=data)
-    _LOGGER.info("Config entry for %s migrated/normalized successfully", entry.title)
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """YAML not supported; everything is config-entry based."""
+    hass.data.setdefault(DOMAIN, {})
+    hass.data.setdefault(DATA, {})
+    hass.data.setdefault(SERVICE_HANDLES, {})
     return True
 
 
-# ---------- service implementation ----------------------------------------
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up from UI config entry."""
+    slug = entry.data.get(CONF_SERVICE_NAME)
+    if not slug:
+        _LOGGER.error("Missing %s in entry data; cannot register service", CONF_SERVICE_NAME)
+        return False
+
+    # Remember runtime data
+    hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=slug)
+
+    # Register the notify.<slug> service
+    async def _handle_notify(call: ServiceCall) -> None:
+        await _route_and_forward(hass, entry, call.data)
+
+    # If the service already exists (reload), remove and re-add to avoid stacking handlers
+    if hass.services.has_service("notify", slug):
+        await hass.services.async_remove("notify", slug)
+
+    hass.services.async_register("notify", slug, _handle_notify)
+    hass.data[SERVICE_HANDLES][entry.entry_id] = slug
+
+    # Watch for options updates
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    _LOGGER.info("Registered notify.%s for %s", slug, entry.data.get(CONF_SERVICE_NAME_RAW, slug))
+    return True
 
 
-class _NotifierService(BaseNotificationService):
-    """Forward a message to the highest-priority target whose conditions match."""
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """React to options updates. We keep the same service name; handler reads new options each call."""
+    _LOGGER.debug("Options updated for %s", entry.entry_id)
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        slug: str,
-        targets: list[dict[str, Any]],
-        priority: list[str],
-        fallback: str,
-    ) -> None:
-        self.hass = hass
-        self._slug = slug
-        self._targets = targets
-        self._priority = priority
-        self._fallback = fallback
 
-    async def async_send_message(self, message: str = "", **kwargs: Any) -> None:
-        """Dispatch *message* to the highest-priority matching target (else fallback)."""
-        title = kwargs.get(ATTR_TITLE)
-        target = kwargs.get("target")
-        nested_data = kwargs.get("data")
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Clean up on removal."""
+    # Remove service
+    slug = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
+    if slug and hass.services.has_service("notify", slug):
+        await hass.services.async_remove("notify", slug)
 
-        # Build the downstream payload: keep rich options under 'data'
-        downstream: dict[str, Any] = {ATTR_MESSAGE: message}
-        if title:
-            downstream[ATTR_TITLE] = title
-        if target is not None:
-            downstream["target"] = target
-        if isinstance(nested_data, dict):
-            downstream["data"] = nested_data
+    # Drop runtime
+    hass.data[DATA].pop(entry.entry_id, None)
+    return True
 
-        _LOGGER.debug("notify.%s called: %s / %s", self._slug, title, message)
 
-        # Always evaluate fresh — ensures dynamic reassessment per send.
-        for svc in self._priority:
-            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc), None)
-            if not tgt:
-                continue
+# ──────────────────────────────────────────────────────────────────────────────
+# Core routing
+# ──────────────────────────────────────────────────────────────────────────────
 
-            mode = tgt.get(KEY_MATCH, "all")
-            results = await asyncio.gather(
-                *(evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS])
-            )
-            matched = all(results) if mode == "all" else any(results)
-            _LOGGER.debug("  target %s match=%s", svc, matched)
+async def _route_and_forward(hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any]) -> None:
+    """Decide a target notify service and forward the payload."""
+    cfg = _config_view(entry)
 
-            if matched:
-                dom, name = svc.split(".", 1)
-                _LOGGER.debug("  → forwarding to %s.%s", dom, name)
-                await self.hass.services.async_call(
-                    dom, name, downstream, blocking=True
-                )
-                return  # stop after first successful target
+    # choose service according to routing mode
+    target_service: str | None
+    mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
+    if mode == ROUTING_SMART:
+        target_service = _choose_service_smart(hass, cfg)
+    else:
+        target_service = _choose_service_conditional(hass, cfg)
 
-        # Nothing matched ⇒ fallback
-        dom, name = self._fallback.split(".", 1)
-        _LOGGER.debug("  → fallback to %s.%s", dom, name)
-        await self.hass.services.async_call(dom, name, downstream, blocking=True)
+    if not target_service:
+        # If everything fails, try configured fallback; else bail
+        fb = cfg.get(CONF_FALLBACK)
+        if fb:
+            target_service = fb
+            _LOGGER.debug("Using fallback %s", fb)
+        else:
+            _LOGGER.warning("No matching target and no fallback; dropping notification")
+            return
+
+    # Strip our own keys if a caller sent them (defensive)
+    clean = dict(payload)
+    clean.pop("service", None)
+    clean.pop("services", None)
+
+    domain, service = _split_service(target_service)
+    _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, clean.get("title"))
+    await hass.services.async_call(domain, service, clean, blocking=False)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Conditional mode (existing behavior)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str | None:
+    """Evaluate targets; pick the first matching by global priority, else None."""
+    targets: list[dict[str, Any]] = list(cfg.get(CONF_TARGETS, []))
+    if not targets:
+        return None
+
+    # Gather matches
+    matched_services: set[str] = set()
+    for tgt in targets:
+        svc: str = tgt.get(KEY_SERVICE)
+        conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
+        mode: str = tgt.get(CONF_MATCH_MODE, "all")
+        if _evaluate_conditions(hass, conds, mode):
+            matched_services.add(svc)
+
+    if not matched_services:
+        _LOGGER.debug("No conditional target matched")
+        return None
+
+    # Choose by priority if provided
+    priority: list[str] = list(cfg.get(CONF_PRIORITY, []))
+    if priority:
+        for svc in priority:
+            if svc in matched_services:
+                _LOGGER.debug("Matched by priority: %s", svc)
+                return svc
+
+    # Otherwise, fall back to first matched in declaration order
+    for tgt in targets:
+        if tgt.get(KEY_SERVICE) in matched_services:
+            svc = tgt.get(KEY_SERVICE)
+            _LOGGER.debug("Matched by declaration order: %s", svc)
+            return svc
+
+    return None
+
+
+def _evaluate_conditions(hass: HomeAssistant, conds: list[dict[str, Any]], mode: str) -> bool:
+    if not conds:
+        # No conditions means "always matches"
+        return True
+
+    results: list[bool] = []
+    for c in conds:
+        entity_id = c.get("entity_id")
+        op = c.get("operator") or "=="
+        val = c.get("value")
+        ok = _compare_entity(hass, entity_id, op, val)
+        results.append(ok)
+
+    return all(results) if mode == "all" else any(results)
+
+
+def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) -> bool:
+    st = hass.states.get(entity_id)
+    # Special matcher: "unknown or unavailable"
+    if isinstance(value, str) and value.strip().lower() == "unknown or unavailable":
+        if st is None or st.state in ("unknown", "unavailable"):
+            return op == "=="  # equal matches the special case
+        return op == "!="
+
+    # If entity missing
+    if st is None:
+        return False
+
+    # Try numeric comparison if both look numeric
+    s = st.state
+    lhs = _as_float(s)
+    rhs = _as_float(value)
+
+    if lhs is not None and rhs is not None and op in (">", "<", ">=", "<=", "==", "!="):
+        if op == ">":
+            return lhs > rhs
+        if op == "<":
+            return lhs < rhs
+        if op == ">=":
+            return lhs >= rhs
+        if op == "<=":
+            return lhs <= rhs
+        if op == "==":
+            return lhs == rhs
+        if op == "!=":
+            return lhs != rhs
+
+    # Fallback to string compare
+    lstr = str(s)
+    rstr = str(value)
+    if op == "==":
+        return lstr == rstr
+    if op == "!=":
+        return lstr != rstr
+
+    # Unknown operator → don't match
+    _LOGGER.debug("Unknown operator %s for %s", op, entity_id)
+    return False
+
+
+def _as_float(v: Any) -> float | None:
+    try:
+        return float(str(v))
+    except Exception:
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Smart Select mode
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | None:
+    """PC/Phone policy chooser."""
+    pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
+    pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
+    phone_order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
+
+    min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
+    phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
+    pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
+    require_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
+    require_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
+    policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
+
+    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_awake, require_unlocked)
+
+    def first_ok_phone() -> str | None:
+        for svc in phone_order:
+            if _phone_is_eligible(hass, svc, min_batt, phone_fresh):
+                return svc
+        return None
+
+    if policy == SMART_POLICY_PC_FIRST:
+        if pc_service and pc_ok:
+            return pc_service
+        return first_ok_phone()
+
+    if policy == SMART_POLICY_PHONE_FIRST:
+        svc = first_ok_phone()
+        if svc:
+            return svc
+        if pc_service and pc_ok:
+            return pc_service
+        return None
+
+    # SMART_POLICY_PHONE_IF_PC_UNLOCKED
+    if pc_unlocked:
+        svc = first_ok_phone()
+        if svc:
+            return svc
+        # unlocked but no good phone → still allow PC if otherwise OK
+        if pc_service and pc_ok:
+            return pc_service
+        return None
+    # PC not unlocked → go to PC if OK; else phones
+    if pc_service and pc_ok:
+        return pc_service
+    return first_ok_phone()
+
+
+def _pc_is_eligible(
+    hass: HomeAssistant,
+    session_entity: str | None,
+    fresh_s: int,
+    require_awake: bool,
+    require_unlocked: bool,
+) -> tuple[bool, bool]:
+    """Return (eligible, unlocked_flag)."""
+    if not session_entity:
+        return (False, False)
+
+    st = hass.states.get(session_entity)
+    if st is None:
+        return (False, False)
+
+    # recency
+    now = dt_util.utcnow()
+    fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
+
+    state = (st.state or "").lower().strip()
+    unlocked = "unlock" in state and "locked" not in state  # "unlocked"
+    awake = _looks_awake(state)
+
+    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    _LOGGER.debug(
+        "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
+        session_entity, st.state, fresh_ok, awake, unlocked, eligible
+    )
+    return (eligible, unlocked)
+
+
+def _looks_awake(state: str) -> bool:
+    s = state.lower()
+    if any(k in s for k in ("awake", "active", "online", "available")):
+        return True
+    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
+        return False
+    # Unknown text → assume awake to avoid being too strict
+    return True
+
+
+def _phone_is_eligible(hass: HomeAssistant, notify_service: str, min_batt: int, fresh_s: int) -> bool:
+    """Heuristic using mobile_app naming to find battery + freshness signals."""
+    domain, svc = _split_service(notify_service)
+    if domain != "notify":
+        return False
+
+    slug = svc  # e.g. "mobile_app_pixel_7"
+    if slug.startswith("mobile_app_"):
+        slug = slug[len("mobile_app_") :]
+
+    # Battery sensors commonly used by the mobile_app
+    cand_batt = [
+        f"sensor.{slug}_battery_level",
+        f"sensor.{slug}_battery",
+    ]
+    batt_ok = True  # if we cannot find a battery sensor, don't block
+    for ent_id in cand_batt:
+        st = hass.states.get(ent_id)
+        if st is None:
+            continue
+        val = _as_float(st.state)
+        if val is not None:
+            batt_ok = val >= float(min_batt)
+            break
+
+    # Freshness signals (pick the freshest)
+    cand_fresh: list[str] = [
+        f"sensor.{slug}_last_update_trigger",  # android
+        f"sensor.{slug}_last_update",          # sometimes exists
+        f"device_tracker.{slug}",              # device tracker updates often
+    ]
+    now = dt_util.utcnow()
+    fresh_ok_any = False
+    for ent_id in cand_fresh:
+        st = hass.states.get(ent_id)
+        if st is None:
+            continue
+        if (now - st.last_updated) <= timedelta(seconds=fresh_s):
+            fresh_ok_any = True
+            break
+
+    _LOGGER.debug(
+        "Phone %s | batt_ok=%s (min=%s) fresh_ok=%s",
+        notify_service, batt_ok, min_batt, fresh_ok_any
+    )
+    return batt_ok and fresh_ok_any
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _split_service(full: str) -> tuple[str, str]:
+    """'notify.mobile_app_x' -> ('notify', 'mobile_app_x')."""
+    if "." not in full:
+        # be forgiving
+        return ("notify", full)
+    d, s = full.split(".", 1)
+    return (d, s)
+
+
+def _config_view(entry: ConfigEntry) -> dict[str, Any]:
+    """Options override data."""
+    cfg = dict(entry.data)
+    cfg.update(entry.options or {})
+    return cfg
