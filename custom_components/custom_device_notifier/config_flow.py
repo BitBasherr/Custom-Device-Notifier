@@ -64,8 +64,8 @@ STEP_ORDER_TARGETS = "order_targets"
 STEP_CHOOSE_FALLBACK = "choose_fallback"
 STEP_SELECT_TARGET_TO_EDIT = "select_target_to_edit"
 STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
-STEP_ROUTING_MODE = "routing_mode"   # new
-STEP_SMART_SETUP  = "smart_setup"    # new
+STEP_ROUTING_MODE = "routing_mode"  # new
+STEP_SMART_SETUP = "smart_setup"  # new
 
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
@@ -143,12 +143,16 @@ def _format_targets_pretty(
         blocks.append(one_block(working, " (editing)"))
 
     return "\n\n".join(blocks) if blocks else "No targets yet"
+
+
 def _notify_services(hass) -> list[str]:
     return sorted(hass.services.async_services().get("notify", {}))
+
 
 def _mobile_app_services(services: list[str]) -> list[str]:
     # options in your flow are service names w/o "notify."
     return [s for s in services if s.startswith("mobile_app_")]
+
 
 def _default_pc_notify(services: list[str]) -> str:
     # Best-effort sensible default
@@ -173,53 +177,128 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._editing_condition_index: int | None = None
         # Live, incremental ordering buffer for the "order_targets" step
         self._priority_list: list[str] = []  # <- never None
-    def _get_routing_mode_schema(self) -> vol.Schema:
-        return vol.Schema({
-            vol.Required(CONF_ROUTING_MODE, default=DEFAULT_ROUTING_MODE): selector({
-                "select": { "options": [
-                    {"value": ROUTING_CONDITIONAL, "label": "Conditional (use targets & conditions)"},
-                    {"value": ROUTING_SMART,       "label": "Smart Select (PC/Phone policy)"},
-                ]}
-            })
-        })
 
-    def _get_smart_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+    def _get_routing_mode_schema(self) -> vol.Schema:
+        return vol.Schema(
+            {
+                vol.Required(CONF_ROUTING_MODE, default=DEFAULT_ROUTING_MODE): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {
+                                    "value": ROUTING_CONDITIONAL,
+                                    "label": "Conditional (use targets & conditions)",
+                                },
+                                {
+                                    "value": ROUTING_SMART,
+                                    "label": "Smart Select (PC/Phone policy)",
+                                },
+                            ]
+                        }
+                    }
+                )
+            }
+        )
+
+    def _get_smart_setup_schema(
+        self, existing: dict[str, Any] | None = None
+    ) -> vol.Schema:
         existing = existing or {}
         services = _notify_services(self.hass)
-        mobiles  = _mobile_app_services(services)
+        mobiles = _mobile_app_services(services)
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
-        phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [f"notify.{m}" for m in mobiles]
+        phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
+            f"notify.{m}" for m in mobiles
+        ]
 
-        return vol.Schema({
-            vol.Required(CONF_SMART_PC_NOTIFY,  default=existing.get(CONF_SMART_PC_NOTIFY,  f"notify.{pc_default}" if pc_default else "")):
-                selector({ "select": { "options": [f"notify.{s}" for s in services], "custom_value": True }}),
-            vol.Required(CONF_SMART_PC_SESSION, default=existing.get(CONF_SMART_PC_SESSION, pc_session_default)):
-                selector({ "entity": { "domain": "sensor" }}),
-            vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default):
-                selector({ "select": { "options": [f"notify.{m}" for m in mobiles], "multiple": True, "custom_value": True }}),
-
-            vol.Required(CONF_SMART_POLICY, default=existing.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)):
-                selector({ "select": { "options": [
-                    {"value": SMART_POLICY_PC_FIRST,               "label": "PC first, else phones"},
-                    {"value": SMART_POLICY_PHONE_IF_PC_UNLOCKED,   "label": "If PC unlocked, prefer phones"},
-                    {"value": SMART_POLICY_PHONE_FIRST,            "label": "Phones first, else PC"},
-                ]}}),
-
-            vol.Required(CONF_SMART_MIN_BATTERY,   default=existing.get(CONF_SMART_MIN_BATTERY,   DEFAULT_SMART_MIN_BATTERY)):
-                selector({ "number": { "min": 0, "max": 100, "step": 1 }}),
-            vol.Required(CONF_SMART_PHONE_FRESH_S, default=existing.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S)):
-                selector({ "number": { "min": 30, "max": 1800, "step": 10 }}),
-            vol.Required(CONF_SMART_PC_FRESH_S,    default=existing.get(CONF_SMART_PC_FRESH_S,    DEFAULT_SMART_PC_FRESH_S)):
-                selector({ "number": { "min": 30, "max": 3600, "step": 10 }}),
-            vol.Required(CONF_SMART_REQUIRE_AWAKE, default=existing.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)):
-                selector({ "boolean": {} }),
-            vol.Required(CONF_SMART_REQUIRE_UNLOCKED, default=existing.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)):
-                selector({ "boolean": {} }),
-        })
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_SMART_PC_NOTIFY,
+                    default=existing.get(
+                        CONF_SMART_PC_NOTIFY,
+                        f"notify.{pc_default}" if pc_default else "",
+                    ),
+                ): selector(
+                    {
+                        "select": {
+                            "options": [f"notify.{s}" for s in services],
+                            "custom_value": True,
+                        }
+                    }
+                ),
+                vol.Required(
+                    CONF_SMART_PC_SESSION,
+                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
+                ): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
+                    {
+                        "select": {
+                            "options": [f"notify.{m}" for m in mobiles],
+                            "multiple": True,
+                            "custom_value": True,
+                        }
+                    }
+                ),
+                vol.Required(
+                    CONF_SMART_POLICY,
+                    default=existing.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY),
+                ): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {
+                                    "value": SMART_POLICY_PC_FIRST,
+                                    "label": "PC first, else phones",
+                                },
+                                {
+                                    "value": SMART_POLICY_PHONE_IF_PC_UNLOCKED,
+                                    "label": "If PC unlocked, prefer phones",
+                                },
+                                {
+                                    "value": SMART_POLICY_PHONE_FIRST,
+                                    "label": "Phones first, else PC",
+                                },
+                            ]
+                        }
+                    }
+                ),
+                vol.Required(
+                    CONF_SMART_MIN_BATTERY,
+                    default=existing.get(
+                        CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY
+                    ),
+                ): selector({"number": {"min": 0, "max": 100, "step": 1}}),
+                vol.Required(
+                    CONF_SMART_PHONE_FRESH_S,
+                    default=existing.get(
+                        CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S
+                    ),
+                ): selector({"number": {"min": 30, "max": 1800, "step": 10}}),
+                vol.Required(
+                    CONF_SMART_PC_FRESH_S,
+                    default=existing.get(
+                        CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S
+                    ),
+                ): selector({"number": {"min": 30, "max": 3600, "step": 10}}),
+                vol.Required(
+                    CONF_SMART_REQUIRE_AWAKE,
+                    default=existing.get(
+                        CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE
+                    ),
+                ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_SMART_REQUIRE_UNLOCKED,
+                    default=existing.get(
+                        CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED
+                    ),
+                ): selector({"boolean": {}}),
+            }
+        )
 
     # ───────── basic overview helpers ─────────
     def _get_condition_more_schema(self) -> vol.Schema:
@@ -497,31 +576,54 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-    async def async_step_routing_mode(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_routing_mode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         if user_input:
             self._data[CONF_ROUTING_MODE] = user_input[CONF_ROUTING_MODE]
             if self._data[CONF_ROUTING_MODE] == ROUTING_SMART:
-                return self.async_show_form(step_id=STEP_SMART_SETUP, data_schema=self._get_smart_setup_schema(self._data))
+                return self.async_show_form(
+                    step_id=STEP_SMART_SETUP,
+                    data_schema=self._get_smart_setup_schema(self._data),
+                )
             # Conditional path: finish/save
-            title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
+            title = (
+                self._data.get(CONF_SERVICE_NAME_RAW)
+                or self._data.get("service_name_raw")
+                or ""
+            )
             if isinstance(self, config_entries.OptionsFlow):
-                self.hass.config_entries.async_update_entry(self._config_entry, options=self._data)
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, options=self._data
+                )
                 return self.async_create_entry(title="", data={})
             return self.async_create_entry(title=title, data=self._data)
 
-        return self.async_show_form(step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema())
+        return self.async_show_form(
+            step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+        )
 
-    async def async_step_smart_setup(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_smart_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         if user_input:
             self._data.update(user_input)
-            title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
+            title = (
+                self._data.get(CONF_SERVICE_NAME_RAW)
+                or self._data.get("service_name_raw")
+                or ""
+            )
             if isinstance(self, config_entries.OptionsFlow):
-                self.hass.config_entries.async_update_entry(self._config_entry, options=self._data)
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, options=self._data
+                )
                 return self.async_create_entry(title="", data={})
             return self.async_create_entry(title=title, data=self._data)
 
-        return self.async_show_form(step_id=STEP_SMART_SETUP, data_schema=self._get_smart_setup_schema(self._data))
-
+        return self.async_show_form(
+            step_id=STEP_SMART_SETUP,
+            data_schema=self._get_smart_setup_schema(self._data),
+        )
 
     # ─── STEP: user ───
     async def async_step_user(
@@ -869,7 +971,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
             if nxt == "routing":
-                return self.async_show_form(step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema())
+                return self.async_show_form(
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
+                )
             if nxt == "done":
                 # Go to order step
                 services = [t[KEY_SERVICE] for t in self._targets]
@@ -1043,15 +1148,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
-                #self._data[CONF_FALLBACK] = f"notify.{fb}"
-                #title = (
+                # self._data[CONF_FALLBACK] = f"notify.{fb}"
+                # title = (
                 #    self._data.get(CONF_SERVICE_NAME_RAW)
                 #    or self._data.get("service_name_raw")
                 #    or ""
-                #)
-                #return self.async_create_entry(title=title, data=self._data)
+                # )
+                # return self.async_create_entry(title=title, data=self._data)
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                return self.async_show_form(step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema())
+                return self.async_show_form(
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
+                )
 
         services = [t[KEY_SERVICE] for t in self._targets]
         placeholders = _order_placeholders(services, self._data.get(CONF_PRIORITY))
@@ -1090,30 +1198,54 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._priority_list: list[str] = list(self._data.get(CONF_PRIORITY, []))
 
     # ───────── shared helpers (options) ─────────
-    async def async_step_routing_mode(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_routing_mode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         if user_input:
             self._data[CONF_ROUTING_MODE] = user_input[CONF_ROUTING_MODE]
             if self._data[CONF_ROUTING_MODE] == ROUTING_SMART:
-                return self.async_show_form(step_id=STEP_SMART_SETUP, data_schema=self._get_smart_setup_schema(self._data))
+                return self.async_show_form(
+                    step_id=STEP_SMART_SETUP,
+                    data_schema=self._get_smart_setup_schema(self._data),
+                )
             # Conditional path: finish/save
-            title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
+            title = (
+                self._data.get(CONF_SERVICE_NAME_RAW)
+                or self._data.get("service_name_raw")
+                or ""
+            )
             if isinstance(self, config_entries.OptionsFlow):
-                self.hass.config_entries.async_update_entry(self._config_entry, options=self._data)
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, options=self._data
+                )
                 return self.async_create_entry(title="", data={})
             return self.async_create_entry(title=title, data=self._data)
 
-        return self.async_show_form(step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema())
+        return self.async_show_form(
+            step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+        )
 
-    async def async_step_smart_setup(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_smart_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         if user_input:
             self._data.update(user_input)
-            title = self._data.get(CONF_SERVICE_NAME_RAW) or self._data.get("service_name_raw") or ""
+            title = (
+                self._data.get(CONF_SERVICE_NAME_RAW)
+                or self._data.get("service_name_raw")
+                or ""
+            )
             if isinstance(self, config_entries.OptionsFlow):
-                self.hass.config_entries.async_update_entry(self._config_entry, options=self._data)
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, options=self._data
+                )
                 return self.async_create_entry(title="", data={})
             return self.async_create_entry(title=title, data=self._data)
 
-        return self.async_show_form(step_id=STEP_SMART_SETUP, data_schema=self._get_smart_setup_schema(self._data))
+        return self.async_show_form(
+            step_id=STEP_SMART_SETUP,
+            data_schema=self._get_smart_setup_schema(self._data),
+        )
 
     def _get_condition_more_schema(self) -> vol.Schema:
         options = [
@@ -1187,52 +1319,126 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     # ───────── schema helpers (options) ─────────
     def _get_routing_mode_schema(self) -> vol.Schema:
-        return vol.Schema({
-            vol.Required(CONF_ROUTING_MODE, default=DEFAULT_ROUTING_MODE): selector({
-                "select": { "options": [
-                    {"value": ROUTING_CONDITIONAL, "label": "Conditional (use targets & conditions)"},
-                    {"value": ROUTING_SMART,       "label": "Smart Select (PC/Phone policy)"},
-                ]}
-            })
-        })
+        return vol.Schema(
+            {
+                vol.Required(CONF_ROUTING_MODE, default=DEFAULT_ROUTING_MODE): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {
+                                    "value": ROUTING_CONDITIONAL,
+                                    "label": "Conditional (use targets & conditions)",
+                                },
+                                {
+                                    "value": ROUTING_SMART,
+                                    "label": "Smart Select (PC/Phone policy)",
+                                },
+                            ]
+                        }
+                    }
+                )
+            }
+        )
 
-    def _get_smart_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+    def _get_smart_setup_schema(
+        self, existing: dict[str, Any] | None = None
+    ) -> vol.Schema:
         existing = existing or {}
         services = _notify_services(self.hass)
-        mobiles  = _mobile_app_services(services)
+        mobiles = _mobile_app_services(services)
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
-        phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [f"notify.{m}" for m in mobiles]
+        phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
+            f"notify.{m}" for m in mobiles
+        ]
 
-        return vol.Schema({
-            vol.Required(CONF_SMART_PC_NOTIFY,  default=existing.get(CONF_SMART_PC_NOTIFY,  f"notify.{pc_default}" if pc_default else "")):
-                selector({ "select": { "options": [f"notify.{s}" for s in services], "custom_value": True }}),
-            vol.Required(CONF_SMART_PC_SESSION, default=existing.get(CONF_SMART_PC_SESSION, pc_session_default)):
-                selector({ "entity": { "domain": "sensor" }}),
-            vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default):
-                selector({ "select": { "options": [f"notify.{m}" for m in mobiles], "multiple": True, "custom_value": True }}),
-
-            vol.Required(CONF_SMART_POLICY, default=existing.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)):
-                selector({ "select": { "options": [
-                    {"value": SMART_POLICY_PC_FIRST,               "label": "PC first, else phones"},
-                    {"value": SMART_POLICY_PHONE_IF_PC_UNLOCKED,   "label": "If PC unlocked, prefer phones"},
-                    {"value": SMART_POLICY_PHONE_FIRST,            "label": "Phones first, else PC"},
-                ]}}),
-
-            vol.Required(CONF_SMART_MIN_BATTERY,   default=existing.get(CONF_SMART_MIN_BATTERY,   DEFAULT_SMART_MIN_BATTERY)):
-                selector({ "number": { "min": 0, "max": 100, "step": 1 }}),
-            vol.Required(CONF_SMART_PHONE_FRESH_S, default=existing.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S)):
-                selector({ "number": { "min": 30, "max": 1800, "step": 10 }}),
-            vol.Required(CONF_SMART_PC_FRESH_S,    default=existing.get(CONF_SMART_PC_FRESH_S,    DEFAULT_SMART_PC_FRESH_S)):
-                selector({ "number": { "min": 30, "max": 3600, "step": 10 }}),
-            vol.Required(CONF_SMART_REQUIRE_AWAKE, default=existing.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)):
-                selector({ "boolean": {} }),
-            vol.Required(CONF_SMART_REQUIRE_UNLOCKED, default=existing.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)):
-                selector({ "boolean": {} }),
-        })
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_SMART_PC_NOTIFY,
+                    default=existing.get(
+                        CONF_SMART_PC_NOTIFY,
+                        f"notify.{pc_default}" if pc_default else "",
+                    ),
+                ): selector(
+                    {
+                        "select": {
+                            "options": [f"notify.{s}" for s in services],
+                            "custom_value": True,
+                        }
+                    }
+                ),
+                vol.Required(
+                    CONF_SMART_PC_SESSION,
+                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
+                ): selector({"entity": {"domain": "sensor"}}),
+                vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
+                    {
+                        "select": {
+                            "options": [f"notify.{m}" for m in mobiles],
+                            "multiple": True,
+                            "custom_value": True,
+                        }
+                    }
+                ),
+                vol.Required(
+                    CONF_SMART_POLICY,
+                    default=existing.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY),
+                ): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {
+                                    "value": SMART_POLICY_PC_FIRST,
+                                    "label": "PC first, else phones",
+                                },
+                                {
+                                    "value": SMART_POLICY_PHONE_IF_PC_UNLOCKED,
+                                    "label": "If PC unlocked, prefer phones",
+                                },
+                                {
+                                    "value": SMART_POLICY_PHONE_FIRST,
+                                    "label": "Phones first, else PC",
+                                },
+                            ]
+                        }
+                    }
+                ),
+                vol.Required(
+                    CONF_SMART_MIN_BATTERY,
+                    default=existing.get(
+                        CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY
+                    ),
+                ): selector({"number": {"min": 0, "max": 100, "step": 1}}),
+                vol.Required(
+                    CONF_SMART_PHONE_FRESH_S,
+                    default=existing.get(
+                        CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S
+                    ),
+                ): selector({"number": {"min": 30, "max": 1800, "step": 10}}),
+                vol.Required(
+                    CONF_SMART_PC_FRESH_S,
+                    default=existing.get(
+                        CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S
+                    ),
+                ): selector({"number": {"min": 30, "max": 3600, "step": 10}}),
+                vol.Required(
+                    CONF_SMART_REQUIRE_AWAKE,
+                    default=existing.get(
+                        CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE
+                    ),
+                ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_SMART_REQUIRE_UNLOCKED,
+                    default=existing.get(
+                        CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED
+                    ),
+                ): selector({"boolean": {}}),
+            }
+        )
 
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         st = self.hass.states.get(entity_id)
@@ -1743,7 +1949,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
             if nxt == "routing":
-                return self.async_show_form(step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema())
+                return self.async_show_form(
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
+                )
             if nxt == "done":
                 services = [t[KEY_SERVICE] for t in self._targets]
                 self._priority_bootstrap()
