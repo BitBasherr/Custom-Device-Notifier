@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any, Callable, Iterable
+from typing import Any
 
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -127,12 +126,15 @@ async def _route_and_forward(hass: HomeAssistant, entry: ConfigEntry, payload: d
     """Decide a target notify service and forward the payload."""
     cfg = _config_view(entry)
 
-    # choose service according to routing mode
-    target_service: str | None
+    target_service: str | None = None
     mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
+
     if mode == ROUTING_SMART:
         target_service = _choose_service_smart(hass, cfg)
+    elif mode == ROUTING_CONDITIONAL:
+        target_service = _choose_service_conditional(hass, cfg)
     else:
+        _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
         target_service = _choose_service_conditional(hass, cfg)
 
     if not target_service:
@@ -301,16 +303,21 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
             return pc_service
         return None
 
-    # SMART_POLICY_PHONE_IF_PC_UNLOCKED
-    if pc_unlocked:
-        svc = first_ok_phone()
-        if svc:
-            return svc
-        # unlocked but no good phone → still allow PC if otherwise OK
+    if policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
+        if pc_unlocked:
+            svc = first_ok_phone()
+            if svc:
+                return svc
+            if pc_service and pc_ok:
+                return pc_service
+            return None
+        # PC not unlocked → go to PC if OK; else phones
         if pc_service and pc_ok:
             return pc_service
-        return None
-    # PC not unlocked → go to PC if OK; else phones
+        return first_ok_phone()
+
+    # Unknown policy → log and default to PC_FIRST semantics
+    _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
     if pc_service and pc_ok:
         return pc_service
     return first_ok_phone()
