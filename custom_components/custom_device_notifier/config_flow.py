@@ -360,18 +360,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_condition_more_placeholders(self) -> dict[str, str]:
         conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
-            "current_conditions": "\njoin".replace(
-                "join",
-                "("
-                + ")".join(
-                    []
-                ),  # harmless no-op to prevent accidental formatting issues in code blocks
-            )
-        }  # placeholder fixed below
-
-    def _get_condition_more_placeholders(self) -> dict[str, str]:  # real one
-        conds = self._working_target.get(KEY_CONDITIONS, [])
-        return {
             "current_conditions": "\n".join(
                 f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
             )
