@@ -1109,9 +1109,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SMART_MIN_BATTERY: user_input.get(CONF_SMART_MIN_BATTERY),
                     CONF_SMART_PHONE_FRESH_S: user_input.get(CONF_SMART_PHONE_FRESH_S),
                     CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S),
-                    CONF_SMART_REQUIRE_AWAKE: user_input.get(
-                        CONF_SMART_REQUIRE_AWAKE
-                    ),
+                    CONF_SMART_REQUIRE_AWAKE: user_input.get(CONF_SMART_REQUIRE_AWAKE),
                     CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
                         CONF_SMART_REQUIRE_UNLOCKED
                     ),
