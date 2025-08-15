@@ -211,7 +211,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> vol.Schema:
         existing = existing or {}
         services = _notify_services(self.hass)  # raw names without "notify."
-        mobiles = _mobile_app_services(services)
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY)
         if not pc_default:
@@ -220,9 +219,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
-        phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
-            f"notify.{m}" for m in mobiles
-        ]
+        # Phone order UI is handled in STEP_SMART_ORDER_PHONES
 
         return vol.Schema(
             {
@@ -244,7 +241,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
                 ): selector({"entity": {"domain": "sensor"}}),
-                # Use the dedicated numbered builder instead of chip multi-select
+                # Button to jump to the numbered phone-order builder
                 vol.Optional("nav"): selector(
                     {
                         "select": {
@@ -1022,7 +1019,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
-                # Finish the classic wizard here to satisfy tests
+                # Finish the classic wizard here
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
                 title = (
                     self._data.get(CONF_SERVICE_NAME_RAW)
@@ -1070,9 +1067,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         # Open reorder builder
         if user_input and user_input.get("nav") == "reorder_phones":
-            self._phone_order_list = list(
-                user_input.get(CONF_SMART_PHONE_ORDER, self._phone_order_list)
-            )
+            # if empty, keep empty (user will add explicitly)
             services = self._smart_phone_candidates()
             placeholders = _order_placeholders(services, self._phone_order_list)
             return self.async_show_form(
@@ -1084,24 +1079,21 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         if user_input:
-            # Always persist the current phone ordering we maintain
+            # Persist the phone ordering we maintain
             if hasattr(self, "_phone_order_list"):
                 self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
-
-            # Do not keep the nav field
-            ui = dict(user_input)
-            ui.pop("nav", None)
-
             self._data.update(
                 {
-                    CONF_SMART_PC_NOTIFY: ui.get(CONF_SMART_PC_NOTIFY),
-                    CONF_SMART_PC_SESSION: ui.get(CONF_SMART_PC_SESSION),
-                    CONF_SMART_POLICY: ui.get(CONF_SMART_POLICY),
-                    CONF_SMART_MIN_BATTERY: ui.get(CONF_SMART_MIN_BATTERY),
-                    CONF_SMART_PHONE_FRESH_S: ui.get(CONF_SMART_PHONE_FRESH_S),
-                    CONF_SMART_PC_FRESH_S: ui.get(CONF_SMART_PC_FRESH_S),
-                    CONF_SMART_REQUIRE_AWAKE: ui.get(CONF_SMART_REQUIRE_AWAKE),
-                    CONF_SMART_REQUIRE_UNLOCKED: ui.get(CONF_SMART_REQUIRE_UNLOCKED),
+                    CONF_SMART_PC_NOTIFY: user_input.get(CONF_SMART_PC_NOTIFY),
+                    CONF_SMART_PC_SESSION: user_input.get(CONF_SMART_PC_SESSION),
+                    CONF_SMART_POLICY: user_input.get(CONF_SMART_POLICY),
+                    CONF_SMART_MIN_BATTERY: user_input.get(CONF_SMART_MIN_BATTERY),
+                    CONF_SMART_PHONE_FRESH_S: user_input.get(CONF_SMART_PHONE_FRESH_S),
+                    CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S),
+                    CONF_SMART_REQUIRE_AWAKE: user_input.get(CONF_SMART_REQUIRE_AWAKE),
+                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
+                        CONF_SMART_REQUIRE_UNLOCKED
+                    ),
                 }
             )
             # return to main wizard
@@ -1230,15 +1222,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> vol.Schema:
         existing = existing or {}
         services = _notify_services(self.hass)
-        mobiles = _mobile_app_services(services)
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
-        phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
-            f"notify.{m}" for m in mobiles
-        ]
+        # Phone order UI is handled in STEP_SMART_ORDER_PHONES
 
         return vol.Schema(
             {
@@ -1260,7 +1249,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
                 ): selector({"entity": {"domain": "sensor"}}),
-                # Dedicated numbered builder navigation
+                # Button to jump to the numbered phone-order builder
                 vol.Optional("nav"): selector(
                     {
                         "select": {
@@ -1531,9 +1520,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         # open reorder
         if user_input and user_input.get("nav") == "reorder_phones":
-            self._phone_order_list = list(
-                user_input.get(CONF_SMART_PHONE_ORDER, self._phone_order_list)
-            )
             services = self._smart_phone_candidates()
             placeholders = _order_placeholders(services, self._phone_order_list)
             return self.async_show_form(
@@ -1545,14 +1531,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         if user_input:
-            # Always persist the current phone ordering we maintain
+            self._data.update(user_input)
+            # ensure we persist phone order list as currently built
             self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
-
-            # Drop nav before saving
-            ui = dict(user_input)
-            ui.pop("nav", None)
-            self._data.update(ui)
-
             self.hass.config_entries.async_update_entry(
                 self._config_entry, options=self._data
             )
