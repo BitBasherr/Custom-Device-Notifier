@@ -75,6 +75,34 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate older entries to the current version (v3)."""
+    if entry.version >= 3:
+        return True
+
+    data = dict(entry.data)
+
+    # Ensure we have a service slug; derive from RAW if missing.
+    if not data.get(CONF_SERVICE_NAME):
+        raw = str(data.get(CONF_SERVICE_NAME_RAW, "") or "")
+        try:
+            # >=2025.7
+            from homeassistant.helpers.text import slugify  # type: ignore[attr-defined]
+        except Exception:
+            # <=2025.6
+            from homeassistant.util import slugify  # type: ignore[attr-defined]
+        data[CONF_SERVICE_NAME] = slugify(raw) or "custom_notifier"
+
+    # Ensure core keys exist
+    data.setdefault(CONF_TARGETS, list(data.get(CONF_TARGETS, [])))
+    data.setdefault(CONF_PRIORITY, list(data.get(CONF_PRIORITY, [])))
+    data.setdefault(CONF_FALLBACK, str(data.get(CONF_FALLBACK, "") or ""))
+
+    hass.config_entries.async_update_entry(entry, data=data, version=3)
+    _LOGGER.info("Migrated %s entry to version 3", DOMAIN)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from UI config entry."""
     slug = entry.data.get(CONF_SERVICE_NAME)
@@ -181,7 +209,8 @@ async def _route_and_forward(
             return
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, clean.get("title"))
-    await hass.services.async_call(domain, service, clean, blocking=False)
+    # Use blocking=True so tests observing the downstream call are deterministic
+    await hass.services.async_call(domain, service, clean, blocking=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
