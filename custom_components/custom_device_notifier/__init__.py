@@ -179,9 +179,13 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
     # Gather matches
     matched_services: set[str] = set()
     for tgt in targets:
-        svc: str = tgt.get(KEY_SERVICE)
+        svc_any = tgt.get(KEY_SERVICE)
+        if not isinstance(svc_any, str) or not svc_any:
+            continue  # malformed item
+        svc = svc_any
+
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
-        mode: str = tgt.get(CONF_MATCH_MODE, "all")
+        mode = str(tgt.get(CONF_MATCH_MODE, "all"))
         if _evaluate_conditions(hass, conds, mode):
             matched_services.add(svc)
 
@@ -199,8 +203,9 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
 
     # Otherwise, fall back to first matched in declaration order
     for tgt in targets:
-        if tgt.get(KEY_SERVICE) in matched_services:
-            svc = tgt.get(KEY_SERVICE)
+        svc_any = tgt.get(KEY_SERVICE)
+        if isinstance(svc_any, str) and svc_any in matched_services:
+            svc = svc_any
             _LOGGER.debug("Matched by declaration order: %s", svc)
             return svc
 
@@ -216,8 +221,13 @@ def _evaluate_conditions(
 
     results: list[bool] = []
     for c in conds:
-        entity_id = c.get("entity_id")
-        op = c.get("operator") or "=="
+        entity_id_any = c.get("entity_id")
+        if not isinstance(entity_id_any, str) or not entity_id_any:
+            results.append(False)
+            continue
+
+        entity_id = entity_id_any
+        op = str(c.get("operator") or "==")
         val = c.get("value")
         ok = _compare_entity(hass, entity_id, op, val)
         results.append(ok)
