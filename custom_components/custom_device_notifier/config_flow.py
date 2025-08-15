@@ -205,8 +205,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> vol.Schema:
         """PC options = all notify services except mobile_app_*; Phone options = mobile_app_* only."""
         existing = existing or {}
-        services = _notify_services(self.hass)           # bare names e.g. ["main_pc", "mobile_app_pixel", "html5_push"]
-        mobiles = _mobile_app_services(services)         # ["mobile_app_pixel", ...]
+        services = _notify_services(self.hass)  # bare names
+        mobiles = _mobile_app_services(services)
 
         # PC candidates exclude mobile_app_*. If none remain, fall back to all.
         pc_candidates = [s for s in services if s not in mobiles] or services
@@ -358,6 +358,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
+        conds = self._working_target.get(KEY_CONDITIONS, [])
+        return {
+            "current_conditions": "\njoin".replace(
+                "join",
+                "("
+                + ")".join(
+                    []
+                ),  # harmless no-op to prevent accidental formatting issues in code blocks
+            )
+        }  # placeholder fixed below
+
+    def _get_condition_more_placeholders(self) -> dict[str, str]:  # real one
         conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
             "current_conditions": "\n".join(
@@ -1473,9 +1485,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
             default_operator = prev_op if use_prev else ">"
@@ -2034,7 +2044,53 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             services,
         )
 
-    ...
+        if user_input:
+            action = user_input.get("action", "confirm")
+            next_item = user_input.get("next_priority")
+            if action == "add" and next_item:
+                if next_item not in self._priority_list:
+                    self._priority_list.append(next_item)
+                placeholders = _order_placeholders(services, self._priority_list)
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._priority_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+            if action == "reset":
+                self._priority_list = []
+                placeholders = _order_placeholders(services, self._priority_list)
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._priority_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+
+            selected = user_input.get("priority")
+            if isinstance(selected, list) and selected:
+                final_priority = [s for s in selected if s in services]
+            elif self._priority_list:
+                final_priority = [s for s in self._priority_list if s in services]
+            else:
+                final_priority = services
+
+            self._data.update(
+                {CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority}
+            )
+            notify_svcs = self.hass.services.async_services().get("notify", {})
+            placeholders = _order_placeholders(services, final_priority)
+            return self.async_show_form(
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._get_choose_fallback_schema(),
+                errors={},
+                description_placeholders={
+                    "available_services": ", ".join(sorted(notify_svcs)),
+                    **placeholders,
+                },
+            )
 
         placeholders = _order_placeholders(services, self._priority_list)
         return self.async_show_form(
