@@ -64,8 +64,8 @@ STEP_ORDER_TARGETS = "order_targets"
 STEP_CHOOSE_FALLBACK = "choose_fallback"
 STEP_SELECT_TARGET_TO_EDIT = "select_target_to_edit"
 STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
-STEP_ROUTING_MODE = "routing_mode"  # new
-STEP_SMART_SETUP = "smart_setup"  # new
+STEP_ROUTING_MODE = "routing_mode"  # optional branch
+STEP_SMART_SETUP = "smart_setup"  # optional branch
 
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
@@ -109,28 +109,19 @@ def _format_targets_pretty(
     targets: list[dict[str, Any]],
     working: dict[str, Any] | None = None,
 ) -> str:
-    """Render as a real nested Markdown list so wrapped lines hang correctly.
-
-    Example:
-
-    - notify.mobile_app_x
-        - sensor.foo == bar
-        - binary_sensor.baz != on
-    """
+    """Render as a real nested Markdown list so wrapped lines hang correctly."""
     blocks: list[str] = []
 
     def one_block(tgt: dict[str, Any], suffix: str = "") -> str:
         svc = tgt.get(KEY_SERVICE, "(unknown)")
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
         lines: list[str] = []
-        # top-level bullet (Markdown)
         lines.append(f"- {svc}{suffix}")
         if conds:
             for c in conds:
                 eid = c.get("entity_id", "<?>")
                 op = c.get("operator", "?")
                 val = c.get("value", "?")
-                # child bullets (4-space indent so it’s a nested list)
                 lines.append(f"    - {eid} {op} {val}")
         else:
             lines.append("    - (no conditions)")
@@ -142,7 +133,7 @@ def _format_targets_pretty(
     if working and working.get(KEY_SERVICE):
         blocks.append(one_block(working, " (editing)"))
 
-    return "\n\n".join(blocks) if blocks else "No targets yet"
+    return "\n".join(blocks) if blocks else "No targets yet"
 
 
 def _notify_services(hass) -> list[str]:
@@ -175,7 +166,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        # Live, incremental ordering buffer for the "order_targets" step
         self._priority_list: list[str] = []  # <- never None
 
     def _get_routing_mode_schema(self) -> vol.Schema:
@@ -203,49 +193,42 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
-        """PC options = all notify services except mobile_app_*; Phone options = mobile_app_* only."""
         existing = existing or {}
-        services = _notify_services(self.hass)  # bare names
+        services = _notify_services(self.hass)
         mobiles = _mobile_app_services(services)
 
-        # PC candidates exclude mobile_app_*. If none remain, fall back to all.
-        pc_candidates = [s for s in services if s not in mobiles] or services
-
-        # Defaults for PC
-        existing_pc_full = str(existing.get(CONF_SMART_PC_NOTIFY, "") or "")
-        if existing_pc_full.startswith("notify."):
-            pc_default_full = existing_pc_full
-            pc_default_name = existing_pc_full.split(".", 1)[1]
-        else:
-            pc_default_name = existing_pc_full or _default_pc_notify(pc_candidates)
-            pc_default_full = f"notify.{pc_default_name}" if pc_default_name else ""
-
+        pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
-            f"sensor.{pc_default_name}_sessionstate" if pc_default_name else ""
+            f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
-
-        # Defaults for phones
         phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
             f"notify.{m}" for m in mobiles
         ]
-
-        pc_options = [f"notify.{s}" for s in pc_candidates]
-        phone_options = [f"notify.{m}" for m in mobiles]
 
         return vol.Schema(
             {
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
-                    default=pc_default_full,
-                ): selector({"select": {"options": pc_options, "custom_value": True}}),
+                    default=existing.get(
+                        CONF_SMART_PC_NOTIFY,
+                        f"notify.{pc_default}" if pc_default else "",
+                    ),
+                ): selector(
+                    {
+                        "select": {
+                            "options": [f"notify.{s}" for s in services],
+                            "custom_value": True,
+                        }
+                    }
+                ),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
-                    default=pc_session_default,
+                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
                 ): selector({"entity": {"domain": "sensor"}}),
                 vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
                     {
                         "select": {
-                            "options": phone_options,
+                            "options": [f"notify.{m}" for m in mobiles],
                             "multiple": True,
                             "custom_value": True,
                         }
@@ -325,7 +308,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _get_targets_overview(self) -> str:
-        # Kept for any other places that want the terse, single-line style
         lines: list[str] = []
         for tgt in self._targets:
             svc = tgt.get(KEY_SERVICE, "(unknown)")
@@ -356,16 +338,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
-        conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
             "current_conditions": "\n".join(
-                f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
+                f"- {c['entity_id']} {c['operator']} {c['value']}"
+                for c in self._working_target.get(KEY_CONDITIONS, [])
             )
             or "No conditions yet"
         }
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # Use the pretty, nested Markdown list for the first screen
         return {
             "current_targets": _format_targets_pretty(
                 self._targets, self._working_target
@@ -375,11 +356,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ───────── order helpers ─────────
 
     def _priority_bootstrap(self) -> None:
-        """Ensure self._priority_list exists (legacy no-op since it's always a list)."""
         if self._priority_list is None:  # pragma: no cover - defensive
             self._priority_list = []
 
-    # Legacy alias (if any older code referenced it)
     _order_bootstrap = _priority_bootstrap
 
     # ───────── schema helpers ─────────
@@ -526,12 +505,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_order_targets_schema(
         self, *, services: list[str], current: list[str] | None
     ) -> vol.Schema:
-        """Order/priority step schema.
-
-        - `priority`     : multi-select to set final order directly (optional)
-        - `next_priority`: single-select to append one more to a live buffer
-        - `action`       : add/reset/confirm
-        """
         current = current or []
         remaining = [s for s in services if s not in current]
         return vol.Schema(
@@ -564,7 +537,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self._targets
             else ""
         )
-        # Include nav control to support tests that send {"nav": "back"}
         return vol.Schema(
             {
                 vol.Required("fallback", default=default_fb): selector(
@@ -593,7 +565,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_SMART_SETUP,
                     data_schema=self._get_smart_setup_schema(self._data),
                 )
-            # Conditional path: finish/save
             title = (
                 self._data.get(CONF_SERVICE_NAME_RAW)
                 or self._data.get("service_name_raw")
@@ -686,7 +657,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "available_services": ", ".join(service_options),
-                # pretty, nested Markdown list for the first screen
                 "current_targets": _format_targets_pretty(
                     self._targets, self._working_target
                 ),
@@ -721,7 +691,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 options = sorted(all_entities)
 
-            # Allow custom_value so tests and users can type directly.
             return self.async_show_form(
                 step_id=STEP_ADD_COND_ENTITY,
                 data_schema=vol.Schema(
@@ -983,7 +952,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=self._get_routing_mode_schema(),
                 )
             if nxt == "done":
-                # Go to order step
                 services = [t[KEY_SERVICE] for t in self._targets]
                 self._priority_bootstrap()
                 placeholders = _order_placeholders(services, self._priority_list)
@@ -1092,20 +1060,17 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     description_placeholders=placeholders,
                 )
 
-            # Confirm path: prefer explicit 'priority' field if provided
             selected = user_input.get("priority")
             if isinstance(selected, list) and selected:
                 final_priority = [s for s in selected if s in services]
             elif self._priority_list:
                 final_priority = [s for s in self._priority_list if s in services]
             else:
-                # Safety net: if nothing chosen at all, default to declared order
                 final_priority = services
 
             self._data.update(
                 {CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority}
             )
-            # Next: choose fallback
             notify_svcs = self.hass.services.async_services().get("notify", {})
             placeholders = _order_placeholders(services, final_priority)
             return self.async_show_form(
@@ -1137,7 +1102,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         service_options = sorted(notify_svcs)
 
         if user_input:
-            # Tests may send {"nav": "back"} here
+            # Allow back navigation
             if user_input.get("nav") == "back":
                 services = [t[KEY_SERVICE] for t in self._targets]
                 placeholders = _order_placeholders(
@@ -1155,11 +1120,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
+                # finalize immediately (back-compat with tests)
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
-                return self.async_show_form(
-                    step_id=STEP_ROUTING_MODE,
-                    data_schema=self._get_routing_mode_schema(),
+                title = (
+                    self._data.get(CONF_SERVICE_NAME_RAW)
+                    or self._data.get("service_name_raw")
+                    or ""
                 )
+                return self.async_create_entry(title=title, data=self._data)
 
         services = [t[KEY_SERVICE] for t in self._targets]
         placeholders = _order_placeholders(services, self._data.get(CONF_PRIORITY))
@@ -1187,17 +1155,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
-        # Start from options if present; otherwise from data (initial config)
         self._data = dict(config_entry.options or config_entry.data).copy()
         self._targets = list(self._data.get(CONF_TARGETS, [])).copy()
         self._working_target: dict[str, Any] = {}
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        # Always a list, never None
         self._priority_list: list[str] = list(self._data.get(CONF_PRIORITY, []))
 
-    # ───────── shared helpers (options) ─────────
     async def async_step_routing_mode(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1208,7 +1173,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     step_id=STEP_SMART_SETUP,
                     data_schema=self._get_smart_setup_schema(self._data),
                 )
-            # Conditional path: finish/save
             title = (
                 self._data.get(CONF_SERVICE_NAME_RAW)
                 or self._data.get("service_name_raw")
@@ -1264,7 +1228,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     def _get_targets_overview(self) -> str:
-        # Terse style kept for any non-first-screen usages
         lines: list[str] = []
         for tgt in self._targets:
             svc = tgt.get(KEY_SERVICE, "(unknown)")
@@ -1295,7 +1258,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return "\n".join(names) if names else "No targets yet"
 
     def _get_target_more_placeholders(self) -> dict[str, str]:
-        # Pretty/nested list for the first screen in Options flow too
         return {
             "current_targets": _format_targets_pretty(
                 self._targets, self._working_target
@@ -1303,10 +1265,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         }
 
     def _get_condition_more_placeholders(self) -> dict[str, str]:
-        conds = self._working_target.get(KEY_CONDITIONS, [])
         return {
             "current_conditions": "\n".join(
-                f"- {c['entity_id']} {c['operator']} {c['value']}" for c in conds
+                f"- {c['entity_id']} {c['operator']} {c['value']}"
+                for c in self._working_target.get(KEY_CONDITIONS, [])
             )
             or "No conditions yet"
         }
@@ -1317,7 +1279,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
     _order_bootstrap = _priority_bootstrap
 
-    # ───────── schema helpers (options) ─────────
     def _get_routing_mode_schema(self) -> vol.Schema:
         return vol.Schema(
             {
@@ -1343,42 +1304,42 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
-        """PC options = all notify services except mobile_app_*; Phone options = mobile_app_* only (OptionsFlow)."""
         existing = existing or {}
         services = _notify_services(self.hass)
         mobiles = _mobile_app_services(services)
-        pc_candidates = [s for s in services if s not in mobiles] or services
 
-        existing_pc_full = str(existing.get(CONF_SMART_PC_NOTIFY, "") or "")
-        if existing_pc_full.startswith("notify."):
-            pc_default_full = existing_pc_full
-            pc_default_name = existing_pc_full.split(".", 1)[1]
-        else:
-            pc_default_name = existing_pc_full or _default_pc_notify(pc_candidates)
-            pc_default_full = f"notify.{pc_default_name}" if pc_default_name else ""
-
+        pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
-            f"sensor.{pc_default_name}_sessionstate" if pc_default_name else ""
+            f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
         phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
             f"notify.{m}" for m in mobiles
         ]
 
-        pc_options = [f"notify.{s}" for s in pc_candidates]
-        phone_options = [f"notify.{m}" for m in mobiles]
-
         return vol.Schema(
             {
-                vol.Required(CONF_SMART_PC_NOTIFY, default=pc_default_full): selector(
-                    {"select": {"options": pc_options, "custom_value": True}}
+                vol.Required(
+                    CONF_SMART_PC_NOTIFY,
+                    default=existing.get(
+                        CONF_SMART_PC_NOTIFY,
+                        f"notify.{pc_default}" if pc_default else "",
+                    ),
+                ): selector(
+                    {
+                        "select": {
+                            "options": [f"notify.{s}" for s in services],
+                            "custom_value": True,
+                        }
+                    }
                 ),
                 vol.Required(
-                    CONF_SMART_PC_SESSION, default=pc_session_default
+                    CONF_SMART_PC_SESSION,
+                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
                 ): selector({"entity": {"domain": "sensor"}}),
                 vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
                     {
                         "select": {
-                            "options": phone_options,
+                            "options": [f"notify.{m}" for m in mobiles],
                             "multiple": True,
                             "custom_value": True,
                         }
@@ -1626,8 +1587,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
-    # --- entry point (options) ---
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1638,7 +1597,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    # --- mirrors of config steps (options) ---
+    # Mirrors follow (add/edit/remove/order/choose_fallback) – unchanged semantics:
 
     async def async_step_add_target(
         self, user_input: dict[str, Any] | None = None
@@ -2133,7 +2092,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
 
-# ───── expose options flow handler to Home Assistant (legacy path) ─────
 @callback
 def async_get_options_flow(
     config_entry: config_entries.ConfigEntry,
