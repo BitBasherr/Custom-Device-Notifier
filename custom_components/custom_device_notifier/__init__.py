@@ -113,18 +113,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     # Remember runtime data
-    hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=slug)
+    hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=str(slug))
 
     # Register the notify.<slug> service
     async def _handle_notify(call: ServiceCall) -> None:
         await _route_and_forward(hass, entry, call.data)
 
     # If the service already exists (reload), remove and re-add to avoid stacking handlers
-    if hass.services.has_service("notify", slug):
-        await hass.services.async_remove("notify", slug)
+    if hass.services.has_service("notify", str(slug)):
+        await hass.services.async_remove("notify", str(slug))
 
-    hass.services.async_register("notify", slug, _handle_notify)
-    hass.data[SERVICE_HANDLES][entry.entry_id] = slug
+    hass.services.async_register("notify", str(slug), _handle_notify)
+    hass.data[SERVICE_HANDLES][entry.entry_id] = str(slug)
 
     # Watch for options updates
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -506,6 +506,6 @@ def _split_service(full: str) -> tuple[str, str]:
 
 def _config_view(entry: ConfigEntry) -> dict[str, Any]:
     """Options override data."""
-    cfg = dict(entry.data)
+    cfg: dict[str, Any] = dict(entry.data)
     cfg.update(entry.options or {})
     return cfg
