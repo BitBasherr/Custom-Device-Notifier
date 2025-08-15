@@ -245,7 +245,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             pc_full_default = existing_pc_full
         else:
             pc_raw_for_session = _default_pc_notify(services)
-            pc_full_default = f"notify.{pc_raw_for_session}" if pc_raw_for_session else ""
+            pc_full_default = (
+                f"notify.{pc_raw_for_session}" if pc_raw_for_session else ""
+            )
 
         # Build a good default for session entity if user hasn't set one
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
@@ -1258,7 +1260,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             pc_full_default = existing_pc_full
         else:
             pc_raw_for_session = _default_pc_notify(services)
-            pc_full_default = f"notify.{pc_raw_for_session}" if pc_raw_for_session else ""
+            pc_full_default = (
+                f"notify.{pc_raw_for_session}" if pc_raw_for_session else ""
+            )
 
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{pc_raw_for_session}_sessionstate" if pc_raw_for_session else ""
