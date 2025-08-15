@@ -75,6 +75,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate older config entry versions to the current format."""
+    ver = getattr(config_entry, "version", 1)
+    if ver < 3:
+        # No schema change required; just bump version for HA’s bookkeeping.
+        new_data = dict(config_entry.data)
+        hass.config_entries.async_update_entry(config_entry, data=new_data)
+        config_entry.version = 3
+        _LOGGER.debug("Migrated entry %s from v%s to v3", config_entry.entry_id, ver)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from UI config entry."""
     slug = entry.data.get(CONF_SERVICE_NAME)
@@ -179,13 +191,9 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
     # Gather matches
     matched_services: set[str] = set()
     for tgt in targets:
-        svc_any = tgt.get(KEY_SERVICE)
-        if not isinstance(svc_any, str) or not svc_any:
-            continue  # malformed item
-        svc = svc_any
-
+        svc: str = tgt.get(KEY_SERVICE)
         conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
-        mode = str(tgt.get(CONF_MATCH_MODE, "all"))
+        mode: str = tgt.get(CONF_MATCH_MODE, "all")
         if _evaluate_conditions(hass, conds, mode):
             matched_services.add(svc)
 
@@ -201,11 +209,10 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
                 _LOGGER.debug("Matched by priority: %s", svc)
                 return svc
 
-    # Otherwise, fall back to first matched in declaration order
+    # Otherwise, declaration order
     for tgt in targets:
-        svc_any = tgt.get(KEY_SERVICE)
-        if isinstance(svc_any, str) and svc_any in matched_services:
-            svc = svc_any
+        if tgt.get(KEY_SERVICE) in matched_services:
+            svc = tgt.get(KEY_SERVICE)
             _LOGGER.debug("Matched by declaration order: %s", svc)
             return svc
 
@@ -216,17 +223,11 @@ def _evaluate_conditions(
     hass: HomeAssistant, conds: list[dict[str, Any]], mode: str
 ) -> bool:
     if not conds:
-        # No conditions means "always matches"
         return True
 
     results: list[bool] = []
     for c in conds:
-        entity_id_any = c.get("entity_id")
-        if not isinstance(entity_id_any, str) or not entity_id_any:
-            results.append(False)
-            continue
-
-        entity_id = entity_id_any
+        entity_id = str(c.get("entity_id", ""))
         op = str(c.get("operator") or "==")
         val = c.get("value")
         ok = _compare_entity(hass, entity_id, op, val)
@@ -243,7 +244,6 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return op == "=="  # equal matches the special case
         return op == "!="
 
-    # If entity missing
     if st is None:
         return False
 
@@ -274,7 +274,6 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     if op == "!=":
         return lstr != rstr
 
-    # Unknown operator → don't match
     _LOGGER.debug("Unknown operator %s for %s", op, entity_id)
     return False
 
@@ -337,12 +336,10 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
             if pc_service and pc_ok:
                 return pc_service
             return None
-        # PC not unlocked → go to PC if OK; else phones
         if pc_service and pc_ok:
             return pc_service
         return first_ok_phone()
 
-    # Unknown policy → log and default to PC_FIRST semantics
     _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
     if pc_service and pc_ok:
         return pc_service
@@ -395,7 +392,6 @@ def _looks_awake(state: str) -> bool:
         k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
     ):
         return False
-    # Unknown text → assume awake to avoid being too strict
     return True
 
 
@@ -426,11 +422,11 @@ def _phone_is_eligible(
             batt_ok = val >= float(min_batt)
             break
 
-    # Freshness signals (pick the freshest)
+    # Freshness signals
     cand_fresh: list[str] = [
-        f"sensor.{slug}_last_update_trigger",  # android
-        f"sensor.{slug}_last_update",  # sometimes exists
-        f"device_tracker.{slug}",  # device tracker updates often
+        f"sensor.{slug}_last_update_trigger",
+        f"sensor.{slug}_last_update",
+        f"device_tracker.{slug}",
     ]
     now = dt_util.utcnow()
     fresh_ok_any = False
@@ -460,7 +456,6 @@ def _phone_is_eligible(
 def _split_service(full: str) -> tuple[str, str]:
     """'notify.mobile_app_x' -> ('notify', 'mobile_app_x')."""
     if "." not in full:
-        # be forgiving
         return ("notify", full)
     d, s = full.split(".", 1)
     return (d, s)
