@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
@@ -75,22 +75,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
-async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate older config entry versions to the current format."""
-    ver = getattr(config_entry, "version", 1)
-    if ver < 3:
-        # No schema change required; just bump version for HA’s bookkeeping.
-        new_data = dict(config_entry.data)
-        hass.config_entries.async_update_entry(config_entry, data=new_data)
-        config_entry.version = 3
-        _LOGGER.debug("Migrated entry %s from v%s to v3", config_entry.entry_id, ver)
-    return True
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from UI config entry."""
-    slug = entry.data.get(CONF_SERVICE_NAME)
-    if not slug:
+    slug = cast(str | None, entry.data.get(CONF_SERVICE_NAME))
+    if not isinstance(slug, str) or not slug:
         _LOGGER.error(
             "Missing %s in entry data; cannot register service", CONF_SERVICE_NAME
         )
@@ -108,7 +96,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.services.async_remove("notify", slug)
 
     hass.services.async_register("notify", slug, _handle_notify)
-    hass.data[SERVICE_HANDLES][entry.entry_id] = slug
+    # ensure we only store a str for mypy
+    hass.data[SERVICE_HANDLES][entry.entry_id] = cast(str, slug)
 
     # Watch for options updates
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -126,12 +115,22 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Clean up on removal."""
     # Remove service
-    slug = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
-    if slug and hass.services.has_service("notify", slug):
+    slug_any = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
+    slug = slug_any if isinstance(slug_any, str) else None
+    if slug is not None and hass.services.has_service("notify", slug):
         await hass.services.async_remove("notify", slug)
 
     # Drop runtime
     hass.data[DATA].pop(entry.entry_id, None)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate old entry versions to the current schema.
+
+    We don't change data shape right now; just accept any prior version.
+    """
+    # If you later bump ConfigFlow.VERSION, you can add per-version migrations here.
     return True
 
 
@@ -161,7 +160,7 @@ async def _route_and_forward(
         # If everything fails, try configured fallback; else bail
         fb = cfg.get(CONF_FALLBACK)
         if fb:
-            target_service = fb
+            target_service = cast(str, fb)
             _LOGGER.debug("Using fallback %s", fb)
         else:
             _LOGGER.warning("No matching target and no fallback; dropping notification")
@@ -209,7 +208,7 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
                 _LOGGER.debug("Matched by priority: %s", svc)
                 return svc
 
-    # Otherwise, declaration order
+    # Otherwise, fall back to first matched in declaration order
     for tgt in targets:
         if tgt.get(KEY_SERVICE) in matched_services:
             svc = tgt.get(KEY_SERVICE)
@@ -223,14 +222,15 @@ def _evaluate_conditions(
     hass: HomeAssistant, conds: list[dict[str, Any]], mode: str
 ) -> bool:
     if not conds:
+        # No conditions means "always matches"
         return True
 
     results: list[bool] = []
     for c in conds:
-        entity_id = str(c.get("entity_id", ""))
-        op = str(c.get("operator") or "==")
+        entity_id = c.get("entity_id")
+        op = c.get("operator") or "=="
         val = c.get("value")
-        ok = _compare_entity(hass, entity_id, op, val)
+        ok = _compare_entity(hass, cast(str, entity_id), op, val)
         results.append(ok)
 
     return all(results) if mode == "all" else any(results)
@@ -244,6 +244,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return op == "=="  # equal matches the special case
         return op == "!="
 
+    # If entity missing
     if st is None:
         return False
 
@@ -263,7 +264,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return lhs <= rhs
         if op == "==":
             return lhs == rhs
-        if op == "!=":
+        if op == "!="":
             return lhs != rhs
 
     # Fallback to string compare
@@ -274,6 +275,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     if op == "!=":
         return lstr != rstr
 
+    # Unknown operator → don't match
     _LOGGER.debug("Unknown operator %s for %s", op, entity_id)
     return False
 
@@ -292,9 +294,9 @@ def _as_float(v: Any) -> float | None:
 
 def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | None:
     """PC/Phone policy chooser."""
-    pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
-    pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
-    phone_order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
+    pc_service: str | None = cast(str | None, cfg.get(CONF_SMART_PC_NOTIFY))
+    pc_session: str | None = cast(str | None, cfg.get(CONF_SMART_PC_SESSION))
+    phone_order: list[str] = list(cast(list[str] | None, cfg.get(CONF_SMART_PHONE_ORDER, [])))
 
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
@@ -336,10 +338,12 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
             if pc_service and pc_ok:
                 return pc_service
             return None
+        # PC not unlocked → go to PC if OK; else phones
         if pc_service and pc_ok:
             return pc_service
         return first_ok_phone()
 
+    # Unknown policy → log and default to PC_FIRST semantics
     _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
     if pc_service and pc_ok:
         return pc_service
@@ -392,6 +396,7 @@ def _looks_awake(state: str) -> bool:
         k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
     ):
         return False
+    # Unknown text → assume awake to avoid being too strict
     return True
 
 
@@ -422,11 +427,11 @@ def _phone_is_eligible(
             batt_ok = val >= float(min_batt)
             break
 
-    # Freshness signals
+    # Freshness signals (pick the freshest)
     cand_fresh: list[str] = [
-        f"sensor.{slug}_last_update_trigger",
-        f"sensor.{slug}_last_update",
-        f"device_tracker.{slug}",
+        f"sensor.{slug}_last_update_trigger",  # android
+        f"sensor.{slug}_last_update",  # sometimes exists
+        f"device_tracker.{slug}",  # device tracker updates often
     ]
     now = dt_util.utcnow()
     fresh_ok_any = False
@@ -456,6 +461,7 @@ def _phone_is_eligible(
 def _split_service(full: str) -> tuple[str, str]:
     """'notify.mobile_app_x' -> ('notify', 'mobile_app_x')."""
     if "." not in full:
+        # be forgiving
         return ("notify", full)
     d, s = full.split(".", 1)
     return (d, s)
