@@ -150,11 +150,37 @@ def _mobile_app_services(services: list[str]) -> list[str]:
 
 
 def _default_pc_notify(services: list[str]) -> str:
-    """Best-effort sensible default for PC notify service (raw name)."""
-    for s in services:
-        if "pc" in s or "desktop" in s or "laptop" in s:
-            return s
-    return services[0] if services else ""
+    """Best-effort sensible default for a *PC* notify service (raw name, no 'notify.')."""
+    if not services:
+        return ""
+
+    # Prefer non-mobile services for PC default
+    candidates = [s for s in services if not s.startswith("mobile_app_")] or services
+
+    PC_KEYWORDS = (
+        "pc",
+        "desktop",
+        "computer",
+        "laptop",
+        "workstation",
+        "win",
+        "windows",
+        "mac",  # some folks name desktop notifiers "mac_*"
+        "pop",  # pop-os desktop notifier names are common
+    )
+
+    def score(name: str) -> tuple[int, int]:
+        n = name.lower()
+        hits = sum(1 for kw in PC_KEYWORDS if kw in n)
+        # prefer shorter names a bit (often the "main" computer)
+        return (hits, -len(n))
+
+    best = max(candidates, key=score)
+    if any(kw in best.lower() for kw in PC_KEYWORDS):
+        return best
+
+    # Fallback to first non-mobile service, else first service overall
+    return candidates[0]
 
 
 # ──────────────────────────── Config Flow ────────────────────────────────
@@ -212,12 +238,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         existing = existing or {}
         services = _notify_services(self.hass)  # raw names without "notify."
 
-        pc_default = existing.get(CONF_SMART_PC_NOTIFY)
-        if not pc_default:
-            pc_default = _default_pc_notify(services)
+        # Respect existing choice; else choose a sensible PC-ish default from all notify services
+        existing_pc_full = existing.get(CONF_SMART_PC_NOTIFY)
+        if isinstance(existing_pc_full, str) and existing_pc_full:
+            pc_raw_for_session = existing_pc_full.removeprefix("notify.")
+            pc_full_default = existing_pc_full
+        else:
+            pc_raw_for_session = _default_pc_notify(services)
+            pc_full_default = f"notify.{pc_raw_for_session}" if pc_raw_for_session else ""
 
+        # Build a good default for session entity if user hasn't set one
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
-            f"sensor.{pc_default}_sessionstate" if pc_default else ""
+            f"sensor.{pc_raw_for_session}_sessionstate" if pc_raw_for_session else ""
         )
         # Phone order UI is handled in STEP_SMART_ORDER_PHONES
 
@@ -225,10 +257,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
-                    default=existing.get(
-                        CONF_SMART_PC_NOTIFY,
-                        f"notify.{pc_default}" if pc_default else "",
-                    ),
+                    default=pc_full_default,
                 ): selector(
                     {
                         "select": {
@@ -239,7 +268,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
-                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
+                    default=pc_session_default,
                 ): selector({"entity": {"domain": "sensor"}}),
                 # Button to jump to the numbered phone-order builder
                 vol.Optional("nav"): selector(
@@ -1223,9 +1252,16 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         existing = existing or {}
         services = _notify_services(self.hass)
 
-        pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
+        existing_pc_full = existing.get(CONF_SMART_PC_NOTIFY)
+        if isinstance(existing_pc_full, str) and existing_pc_full:
+            pc_raw_for_session = existing_pc_full.removeprefix("notify.")
+            pc_full_default = existing_pc_full
+        else:
+            pc_raw_for_session = _default_pc_notify(services)
+            pc_full_default = f"notify.{pc_raw_for_session}" if pc_raw_for_session else ""
+
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
-            f"sensor.{pc_default}_sessionstate" if pc_default else ""
+            f"sensor.{pc_raw_for_session}_sessionstate" if pc_raw_for_session else ""
         )
         # Phone order UI is handled in STEP_SMART_ORDER_PHONES
 
@@ -1233,10 +1269,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
-                    default=existing.get(
-                        CONF_SMART_PC_NOTIFY,
-                        f"notify.{pc_default}" if pc_default else "",
-                    ),
+                    default=pc_full_default,
                 ): selector(
                     {
                         "select": {
@@ -1247,7 +1280,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
-                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
+                    default=pc_session_default,
                 ): selector({"entity": {"domain": "sensor"}}),
                 # Button to jump to the numbered phone-order builder
                 vol.Optional("nav"): selector(
