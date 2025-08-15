@@ -555,11 +555,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
             if isinstance(final_value, (int, float)):
-                final_value = (
-                    str(int(final_value))
-                    if float(final_value).is_integer()
-                    else str(final_value)
-                )
+                final_value = str(int(final_value)) if float(final_value).is_integer() else str(final_value)
             else:
                 final_value = str(final_value)
 
@@ -1453,11 +1449,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             final_value = user_input.get("manual_value") or user_input.get("value")
             if isinstance(final_value, (int, float)):
-                final_value = (
-                    str(int(final_value))
-                    if float(final_value).is_integer()
-                    else str(final_value)
-                )
+                final_value = str(int(final_value)) if float(final_value).is_integer() else str(final_value)
             else:
                 final_value = str(final_value)
             self._working_condition.update(
