@@ -168,11 +168,7 @@ async def _route_and_forward(
     domain, service = _split_service(target_service)
 
     # Prevent infinite recursion: don’t call our own notify service
-    own_slug_data = (entry.options or {}).get(CONF_SERVICE_NAME)
-    if not own_slug_data:
-        own_slug_data = entry.data.get(CONF_SERVICE_NAME)
-    own_slug = str(own_slug_data) if own_slug_data else ""
-
+    own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if own_slug and domain == "notify" and service == own_slug:
         _LOGGER.warning(
             "Refusing to call notifier onto itself (%s); using fallback if set.",
@@ -202,10 +198,10 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
     # Gather matches
     matched_services: set[str] = set()
     for tgt in targets:
-        svc: str = tgt.get(KEY_SERVICE)
-        conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
-        mode: str = tgt.get(CONF_MATCH_MODE, "all")
-        if _evaluate_conditions(hass, conds, mode):
+        svc = str(tgt.get(KEY_SERVICE) or "")
+        conds: list[dict[str, Any]] = list(tgt.get(KEY_CONDITIONS, []))
+        mode: str = str(tgt.get(CONF_MATCH_MODE, "all"))
+        if svc and _evaluate_conditions(hass, conds, mode):
             matched_services.add(svc)
 
     if not matched_services:
@@ -222,8 +218,8 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
 
     # Otherwise, fall back to first matched in declaration order
     for tgt in targets:
-        if tgt.get(KEY_SERVICE) in matched_services:
-            svc = tgt.get(KEY_SERVICE)
+        svc = str(tgt.get(KEY_SERVICE) or "")
+        if svc and svc in matched_services:
             _LOGGER.debug("Matched by declaration order: %s", svc)
             return svc
 
@@ -239,8 +235,8 @@ def _evaluate_conditions(
 
     results: list[bool] = []
     for c in conds:
-        entity_id = c.get("entity_id")
-        op = c.get("operator") or "=="
+        entity_id = str(c.get("entity_id") or "")
+        op = str(c.get("operator") or "==")
         val = c.get("value")
         ok = _compare_entity(hass, entity_id, op, val)
         results.append(ok)
