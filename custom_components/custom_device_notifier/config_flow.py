@@ -24,7 +24,7 @@ from .const import (
     DOMAIN,
     KEY_CONDITIONS,
     KEY_SERVICE,
-    # routing/smart
+    # routing / smart-select
     CONF_ROUTING_MODE,
     ROUTING_CONDITIONAL,
     ROUTING_SMART,
@@ -67,6 +67,7 @@ STEP_SELECT_TARGET_TO_EDIT = "select_target_to_edit"
 STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
 STEP_ROUTING_MODE = "routing_mode"  # optional wizard branch
 STEP_SMART_SETUP = "smart_setup"  # optional wizard branch
+STEP_SMART_ORDER_PHONES = "smart_phone_order"  # numbered phone order builder
 
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
@@ -82,12 +83,13 @@ ENTITY_DOMAINS = [
     "input_datetime",
 ]
 
-
 # ──────────────────────────── helper utils ────────────────────────────────
+
+
 def _order_placeholders(
     services: list[str], current: list[str] | None
 ) -> dict[str, str]:
-    """Build description placeholders for the order/priority step."""
+    """Build description placeholders for a priority/order step."""
     if not services:
         return {"current_order": "—", "remaining": "—"}
 
@@ -110,7 +112,7 @@ def _format_targets_pretty(
     targets: list[dict[str, Any]],
     working: dict[str, Any] | None = None,
 ) -> str:
-    """Render as a real nested Markdown list so wrapped lines hang correctly."""
+    """Render as a nested Markdown list so wrapped lines hang correctly."""
     blocks: list[str] = []
 
     def one_block(tgt: dict[str, Any], suffix: str = "") -> str:
@@ -138,17 +140,17 @@ def _format_targets_pretty(
 
 
 def _notify_services(hass) -> list[str]:
-    # returns *names* without "notify."
+    """Return service names in the 'notify' domain (without 'notify.' prefix)."""
     return sorted(hass.services.async_services().get("notify", {}))
 
 
 def _mobile_app_services(services: list[str]) -> list[str]:
-    # options in your flow are service names w/o "notify."
+    """Filter raw service names to just mobile_app_* ones (without prefix)."""
     return [s for s in services if s.startswith("mobile_app_")]
 
 
 def _default_pc_notify(services: list[str]) -> str:
-    # Best-effort sensible default, no hard-coding
+    """Best-effort sensible default for PC notify service (raw name)."""
     for s in services:
         if "pc" in s or "desktop" in s or "laptop" in s:
             return s
@@ -168,7 +170,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._working_condition: dict[str, Any] = {}
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
-        self._priority_list: list[str] = []  # live ordering buffer
+        self._priority_list: list[str] = []  # live ordering buffer for targets
+        self._phone_order_list: list[str] = []  # live phone-order builder
 
     # ───────── schema helpers ─────────
     def _get_routing_mode_schema(self) -> vol.Schema:
@@ -193,17 +196,27 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
+    def _smart_phone_candidates(self) -> list[str]:
+        """Fully-qualified 'notify.*' phone services."""
+        services = _notify_services(self.hass)
+        mobiles = [f"notify.{s}" for s in services if s.startswith("mobile_app_")]
+        # Ensure previously chosen items remain selectable
+        for s in self._phone_order_list:
+            if s not in mobiles:
+                mobiles.append(s)
+        return sorted(mobiles)
+
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
         existing = existing or {}
-        services = _notify_services(self.hass)  # list of names without "notify."
+        services = _notify_services(self.hass)  # raw names without "notify."
         mobiles = _mobile_app_services(services)
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY)
         if not pc_default:
-            # choose best guess from all notify services
             pc_default = _default_pc_notify(services)
+
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{pc_default}_sessionstate" if pc_default else ""
         )
@@ -293,6 +306,21 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED
                     ),
                 ): selector({"boolean": {}}),
+                # Navigation control to open the numbered phone-order builder
+                vol.Optional("nav"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {
+                                    "value": "reorder_phones",
+                                    "label": "Reorder phones…",
+                                },
+                                {"value": "stay", "label": "Stay here"},
+                            ],
+                            "custom_value": False,
+                        }
+                    }
+                ),
             }
         )
 
@@ -450,7 +478,24 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-    # ─── steps ───
+    def _get_target_more_schema(self) -> vol.Schema:
+        options = [
+            {"value": "add", "label": "➕ Add target"},
+            {"value": "routing", "label": "🧠 Routing / Smart Select"},
+            {"value": "done", "label": "✅ Done"},
+        ]
+        if self._targets:
+            options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
+            options.insert(2, {"value": "remove", "label": "➖ Remove target"})
+        return vol.Schema(
+            {
+                vol.Required("next", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
+
+    # ─── steps (config) ───
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -745,23 +790,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    def _get_target_more_schema(self) -> vol.Schema:
-        options = [
-            {"value": "add", "label": "➕ Add target"},
-            {"value": "routing", "label": "🧠 Routing / Smart Select"},
-            {"value": "done", "label": "✅ Done"},
-        ]
-        if self._targets:
-            options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
-            options.insert(2, {"value": "remove", "label": "➖ Remove target"})
-        return vol.Schema(
-            {
-                vol.Required("next", default="add"): selector(
-                    {"select": {"options": options}}
-                )
-            }
-        )
-
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1027,6 +1055,133 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_routing_mode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input:
+            self._data[CONF_ROUTING_MODE] = user_input[CONF_ROUTING_MODE]
+            if self._data[CONF_ROUTING_MODE] == ROUTING_SMART:
+                return self.async_show_form(
+                    step_id=STEP_SMART_SETUP,
+                    data_schema=self._get_smart_setup_schema(self._data),
+                )
+            # back to main wizard
+            return self.async_show_form(
+                step_id=STEP_TARGET_MORE,
+                data_schema=self._get_target_more_schema(),
+                description_placeholders=self._get_target_more_placeholders(),
+            )
+
+        return self.async_show_form(
+            step_id=STEP_ROUTING_MODE,
+            data_schema=self._get_routing_mode_schema(),
+        )
+
+    async def async_step_smart_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        # Open reorder builder
+        if user_input and user_input.get("nav") == "reorder_phones":
+            self._phone_order_list = list(
+                user_input.get(CONF_SMART_PHONE_ORDER, self._phone_order_list)
+            )
+            services = self._smart_phone_candidates()
+            placeholders = _order_placeholders(services, self._phone_order_list)
+            return self.async_show_form(
+                step_id=STEP_SMART_ORDER_PHONES,
+                data_schema=self._get_order_targets_schema(
+                    services=services, current=self._phone_order_list
+                ),
+                description_placeholders=placeholders,
+            )
+
+        if user_input:
+            # stash Smart values into _data while configuring
+            if CONF_SMART_PHONE_ORDER in user_input:
+                self._data[CONF_SMART_PHONE_ORDER] = list(
+                    user_input[CONF_SMART_PHONE_ORDER]
+                )
+            self._data.update(
+                {
+                    CONF_SMART_PC_NOTIFY: user_input.get(CONF_SMART_PC_NOTIFY),
+                    CONF_SMART_PC_SESSION: user_input.get(CONF_SMART_PC_SESSION),
+                    CONF_SMART_POLICY: user_input.get(CONF_SMART_POLICY),
+                    CONF_SMART_MIN_BATTERY: user_input.get(CONF_SMART_MIN_BATTERY),
+                    CONF_SMART_PHONE_FRESH_S: user_input.get(CONF_SMART_PHONE_FRESH_S),
+                    CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S),
+                    CONF_SMART_REQUIRE_AWAKE: user_input.get(
+                        CONF_SMART_REQUIRE_AWAKE
+                    ),
+                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
+                        CONF_SMART_REQUIRE_UNLOCKED
+                    ),
+                }
+            )
+            # return to main wizard
+            return self.async_show_form(
+                step_id=STEP_TARGET_MORE,
+                data_schema=self._get_target_more_schema(),
+                description_placeholders=self._get_target_more_placeholders(),
+            )
+
+        return self.async_show_form(
+            step_id=STEP_SMART_SETUP,
+            data_schema=self._get_smart_setup_schema(self._data),
+        )
+
+    async def async_step_smart_phone_order(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        services = self._smart_phone_candidates()
+        if user_input:
+            action = user_input.get("action", "confirm")
+            next_item = user_input.get("next_priority")
+            if action == "add" and next_item:
+                if next_item not in self._phone_order_list:
+                    self._phone_order_list.append(next_item)
+                placeholders = _order_placeholders(services, self._phone_order_list)
+                return self.async_show_form(
+                    step_id=STEP_SMART_ORDER_PHONES,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._phone_order_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+            if action == "reset":
+                self._phone_order_list = []
+                placeholders = _order_placeholders(services, self._phone_order_list)
+                return self.async_show_form(
+                    step_id=STEP_SMART_ORDER_PHONES,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._phone_order_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+
+            # Confirm → persist into data and jump back to Smart setup
+            selected = user_input.get("priority")
+            if isinstance(selected, list) and selected:
+                final_priority = [s for s in selected if s in services]
+            elif self._phone_order_list:
+                final_priority = [s for s in self._phone_order_list if s in services]
+            else:
+                final_priority = services
+
+            self._data[CONF_SMART_PHONE_ORDER] = final_priority
+            return self.async_show_form(
+                step_id=STEP_SMART_SETUP,
+                data_schema=self._get_smart_setup_schema(self._data),
+            )
+
+        placeholders = _order_placeholders(services, self._phone_order_list)
+        return self.async_show_form(
+            step_id=STEP_SMART_ORDER_PHONES,
+            data_schema=self._get_order_targets_schema(
+                services=services, current=self._phone_order_list
+            ),
+            description_placeholders=placeholders,
+        )
+
     @staticmethod
     @callback
     def async_get_options_flow(
@@ -1048,6 +1203,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._editing_target_index: int | None = None
         self._editing_condition_index: int | None = None
         self._priority_list: list[str] = list(self._data.get(CONF_PRIORITY, []))
+        self._phone_order_list: list[str] = list(
+            self._data.get(CONF_SMART_PHONE_ORDER, [])
+        )
 
     # ───────── schema helpers (mirror) ─────────
     def _get_routing_mode_schema(self) -> vol.Schema:
@@ -1071,6 +1229,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 )
             }
         )
+
+    def _smart_phone_candidates(self) -> list[str]:
+        services = _notify_services(self.hass)
+        mobiles = [f"notify.{s}" for s in services if s.startswith("mobile_app_")]
+        for s in self._phone_order_list:
+            if s not in mobiles:
+                mobiles.append(s)
+        return sorted(mobiles)
 
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
@@ -1169,6 +1335,20 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED
                     ),
                 ): selector({"boolean": {}}),
+                vol.Optional("nav"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {
+                                    "value": "reorder_phones",
+                                    "label": "Reorder phones…",
+                                },
+                                {"value": "stay", "label": "Stay here"},
+                            ],
+                            "custom_value": False,
+                        }
+                    }
+                ),
             }
         )
 
@@ -1339,32 +1519,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
-    def _get_choose_fallback_schema(self) -> vol.Schema:
-        notify_svcs = self.hass.services.async_services().get("notify", {})
-        service_options = sorted(notify_svcs)
-        default_fb = (
-            self._targets[0][KEY_SERVICE].removeprefix("notify.")
-            if self._targets
-            else ""
-        )
-        return vol.Schema(
-            {
-                vol.Required("fallback", default=default_fb): selector(
-                    {"select": {"options": service_options, "custom_value": True}}
-                ),
-                vol.Optional("nav", default="continue"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "back", "label": "⬅ Back"},
-                                {"value": "continue", "label": "Continue"},
-                            ]
-                        }
-                    }
-                ),
-            }
-        )
-
     # ─── entry point (options) ───
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1386,7 +1540,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     step_id=STEP_SMART_SETUP,
                     data_schema=self._get_smart_setup_schema(self._data),
                 )
-            # finish save
+            # finish save if user switched back
             self.hass.config_entries.async_update_entry(
                 self._config_entry, options=self._data
             )
@@ -1399,6 +1553,21 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_smart_setup(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        # open reorder
+        if user_input and user_input.get("nav") == "reorder_phones":
+            self._phone_order_list = list(
+                user_input.get(CONF_SMART_PHONE_ORDER, self._phone_order_list)
+            )
+            services = self._smart_phone_candidates()
+            placeholders = _order_placeholders(services, self._phone_order_list)
+            return self.async_show_form(
+                step_id=STEP_SMART_ORDER_PHONES,
+                data_schema=self._get_order_targets_schema(
+                    services=services, current=self._phone_order_list
+                ),
+                description_placeholders=placeholders,
+            )
+
         if user_input:
             self._data.update(user_input)
             self.hass.config_entries.async_update_entry(
@@ -1409,6 +1578,59 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id=STEP_SMART_SETUP,
             data_schema=self._get_smart_setup_schema(self._data),
+        )
+
+    async def async_step_smart_phone_order(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        services = self._smart_phone_candidates()
+        if user_input:
+            action = user_input.get("action", "confirm")
+            next_item = user_input.get("next_priority")
+            if action == "add" and next_item:
+                if next_item not in self._phone_order_list:
+                    self._phone_order_list.append(next_item)
+                placeholders = _order_placeholders(services, self._phone_order_list)
+                return self.async_show_form(
+                    step_id=STEP_SMART_ORDER_PHONES,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._phone_order_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+            if action == "reset":
+                self._phone_order_list = []
+                placeholders = _order_placeholders(services, self._phone_order_list)
+                return self.async_show_form(
+                    step_id=STEP_SMART_ORDER_PHONES,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._phone_order_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+
+            selected = user_input.get("priority")
+            if isinstance(selected, list) and selected:
+                final_priority = [s for s in selected if s in services]
+            elif self._phone_order_list:
+                final_priority = [s for s in self._phone_order_list if s in services]
+            else:
+                final_priority = services
+
+            self._data[CONF_SMART_PHONE_ORDER] = final_priority
+            # Return to smart setup, preserving changes
+            return self.async_show_form(
+                step_id=STEP_SMART_SETUP,
+                data_schema=self._get_smart_setup_schema(self._data),
+            )
+
+        placeholders = _order_placeholders(services, self._phone_order_list)
+        return self.async_show_form(
+            step_id=STEP_SMART_ORDER_PHONES,
+            data_schema=self._get_order_targets_schema(
+                services=services, current=self._phone_order_list
+            ),
+            description_placeholders=placeholders,
         )
 
     async def async_step_add_target(
@@ -1841,6 +2063,32 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 services=services, current=self._priority_list
             ),
             description_placeholders=placeholders,
+        )
+
+    def _get_choose_fallback_schema(self) -> vol.Schema:
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+        default_fb = (
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else ""
+        )
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": service_options, "custom_value": True}}
+                ),
+                vol.Optional("nav", default="continue"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "back", "label": "⬅ Back"},
+                                {"value": "continue", "label": "Continue"},
+                            ]
+                        }
+                    }
+                ),
+            }
         )
 
     async def async_step_choose_fallback(
