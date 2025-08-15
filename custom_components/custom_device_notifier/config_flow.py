@@ -244,12 +244,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
                 ): selector({"entity": {"domain": "sensor"}}),
-                vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
+                # Use the dedicated numbered builder instead of chip multi-select
+                vol.Optional("nav"): selector(
                     {
                         "select": {
-                            "options": [f"notify.{m}" for m in mobiles],
-                            "multiple": True,
-                            "custom_value": True,
+                            "options": [
+                                {"value": "reorder_phones", "label": "Reorder phones…"},
+                                {"value": "stay", "label": "Stay here"},
+                            ],
+                            "custom_value": False,
                         }
                     }
                 ),
@@ -306,21 +309,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED
                     ),
                 ): selector({"boolean": {}}),
-                # Navigation control to open the numbered phone-order builder
-                vol.Optional("nav"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {
-                                    "value": "reorder_phones",
-                                    "label": "Reorder phones…",
-                                },
-                                {"value": "stay", "label": "Stay here"},
-                            ],
-                            "custom_value": False,
-                        }
-                    }
-                ),
             }
         )
 
@@ -1096,23 +1084,24 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         if user_input:
-            # stash Smart values into _data while configuring
-            if CONF_SMART_PHONE_ORDER in user_input:
-                self._data[CONF_SMART_PHONE_ORDER] = list(
-                    user_input[CONF_SMART_PHONE_ORDER]
-                )
+            # Always persist the current phone ordering we maintain
+            if hasattr(self, "_phone_order_list"):
+                self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
+
+            # Do not keep the nav field
+            ui = dict(user_input)
+            ui.pop("nav", None)
+
             self._data.update(
                 {
-                    CONF_SMART_PC_NOTIFY: user_input.get(CONF_SMART_PC_NOTIFY),
-                    CONF_SMART_PC_SESSION: user_input.get(CONF_SMART_PC_SESSION),
-                    CONF_SMART_POLICY: user_input.get(CONF_SMART_POLICY),
-                    CONF_SMART_MIN_BATTERY: user_input.get(CONF_SMART_MIN_BATTERY),
-                    CONF_SMART_PHONE_FRESH_S: user_input.get(CONF_SMART_PHONE_FRESH_S),
-                    CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S),
-                    CONF_SMART_REQUIRE_AWAKE: user_input.get(CONF_SMART_REQUIRE_AWAKE),
-                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_UNLOCKED
-                    ),
+                    CONF_SMART_PC_NOTIFY: ui.get(CONF_SMART_PC_NOTIFY),
+                    CONF_SMART_PC_SESSION: ui.get(CONF_SMART_PC_SESSION),
+                    CONF_SMART_POLICY: ui.get(CONF_SMART_POLICY),
+                    CONF_SMART_MIN_BATTERY: ui.get(CONF_SMART_MIN_BATTERY),
+                    CONF_SMART_PHONE_FRESH_S: ui.get(CONF_SMART_PHONE_FRESH_S),
+                    CONF_SMART_PC_FRESH_S: ui.get(CONF_SMART_PC_FRESH_S),
+                    CONF_SMART_REQUIRE_AWAKE: ui.get(CONF_SMART_REQUIRE_AWAKE),
+                    CONF_SMART_REQUIRE_UNLOCKED: ui.get(CONF_SMART_REQUIRE_UNLOCKED),
                 }
             )
             # return to main wizard
@@ -1271,12 +1260,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
                 ): selector({"entity": {"domain": "sensor"}}),
-                vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
+                # Dedicated numbered builder navigation
+                vol.Optional("nav"): selector(
                     {
                         "select": {
-                            "options": [f"notify.{m}" for m in mobiles],
-                            "multiple": True,
-                            "custom_value": True,
+                            "options": [
+                                {"value": "reorder_phones", "label": "Reorder phones…"},
+                                {"value": "stay", "label": "Stay here"},
+                            ],
+                            "custom_value": False,
                         }
                     }
                 ),
@@ -1333,20 +1325,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED
                     ),
                 ): selector({"boolean": {}}),
-                vol.Optional("nav"): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {
-                                    "value": "reorder_phones",
-                                    "label": "Reorder phones…",
-                                },
-                                {"value": "stay", "label": "Stay here"},
-                            ],
-                            "custom_value": False,
-                        }
-                    }
-                ),
             }
         )
 
@@ -1567,7 +1545,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         if user_input:
-            self._data.update(user_input)
+            # Always persist the current phone ordering we maintain
+            self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
+
+            # Drop nav before saving
+            ui = dict(user_input)
+            ui.pop("nav", None)
+            self._data.update(ui)
+
             self.hass.config_entries.async_update_entry(
                 self._config_entry, options=self._data
             )
