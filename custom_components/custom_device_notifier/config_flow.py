@@ -203,42 +203,51 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
+        """PC options = all notify services except mobile_app_*; Phone options = mobile_app_* only."""
         existing = existing or {}
-        services = _notify_services(self.hass)
-        mobiles = _mobile_app_services(services)
+        services = _notify_services(self.hass)           # bare names e.g. ["main_pc", "mobile_app_pixel", "html5_push"]
+        mobiles = _mobile_app_services(services)         # ["mobile_app_pixel", ...]
 
-        pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
+        # PC candidates exclude mobile_app_*. If none remain, fall back to all.
+        pc_candidates = [s for s in services if s not in mobiles] or services
+
+        # Defaults for PC
+        existing_pc_full = str(existing.get(CONF_SMART_PC_NOTIFY, "") or "")
+        if existing_pc_full.startswith("notify."):
+            pc_default_full = existing_pc_full
+            pc_default_name = existing_pc_full.split(".", 1)[1]
+        else:
+            pc_default_name = existing_pc_full or _default_pc_notify(pc_candidates)
+            pc_default_full = f"notify.{pc_default_name}" if pc_default_name else ""
+
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
-            f"sensor.{pc_default}_sessionstate" if pc_default else ""
+            f"sensor.{pc_default_name}_sessionstate" if pc_default_name else ""
         )
+
+        # Defaults for phones
         phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
             f"notify.{m}" for m in mobiles
         ]
+
+        pc_options = [f"notify.{s}" for s in pc_candidates]
+        phone_options = [f"notify.{m}" for m in mobiles]
 
         return vol.Schema(
             {
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
-                    default=existing.get(
-                        CONF_SMART_PC_NOTIFY,
-                        f"notify.{pc_default}" if pc_default else "",
-                    ),
+                    default=pc_default_full,
                 ): selector(
-                    {
-                        "select": {
-                            "options": [f"notify.{s}" for s in services],
-                            "custom_value": True,
-                        }
-                    }
+                    {"select": {"options": pc_options, "custom_value": True}}
                 ),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
-                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
+                    default=pc_session_default,
                 ): selector({"entity": {"domain": "sensor"}}),
                 vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
                     {
                         "select": {
-                            "options": [f"notify.{m}" for m in mobiles],
+                            "options": phone_options,
                             "multiple": True,
                             "custom_value": True,
                         }
@@ -1148,13 +1157,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
-                # self._data[CONF_FALLBACK] = f"notify.{fb}"
-                # title = (
-                #    self._data.get(CONF_SERVICE_NAME_RAW)
-                #    or self._data.get("service_name_raw")
-                #    or ""
-                # )
-                # return self.async_create_entry(title=title, data=self._data)
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
                 return self.async_show_form(
                     step_id=STEP_ROUTING_MODE,
@@ -1343,42 +1345,42 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
+        """PC options = all notify services except mobile_app_*; Phone options = mobile_app_* only (OptionsFlow)."""
         existing = existing or {}
         services = _notify_services(self.hass)
         mobiles = _mobile_app_services(services)
+        pc_candidates = [s for s in services if s not in mobiles] or services
 
-        pc_default = existing.get(CONF_SMART_PC_NOTIFY) or _default_pc_notify(services)
+        existing_pc_full = str(existing.get(CONF_SMART_PC_NOTIFY, "") or "")
+        if existing_pc_full.startswith("notify."):
+            pc_default_full = existing_pc_full
+            pc_default_name = existing_pc_full.split(".", 1)[1]
+        else:
+            pc_default_name = existing_pc_full or _default_pc_notify(pc_candidates)
+            pc_default_full = f"notify.{pc_default_name}" if pc_default_name else ""
+
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
-            f"sensor.{pc_default}_sessionstate" if pc_default else ""
+            f"sensor.{pc_default_name}_sessionstate" if pc_default_name else ""
         )
         phone_default = existing.get(CONF_SMART_PHONE_ORDER) or [
             f"notify.{m}" for m in mobiles
         ]
 
+        pc_options = [f"notify.{s}" for s in pc_candidates]
+        phone_options = [f"notify.{m}" for m in mobiles]
+
         return vol.Schema(
             {
-                vol.Required(
-                    CONF_SMART_PC_NOTIFY,
-                    default=existing.get(
-                        CONF_SMART_PC_NOTIFY,
-                        f"notify.{pc_default}" if pc_default else "",
-                    ),
-                ): selector(
-                    {
-                        "select": {
-                            "options": [f"notify.{s}" for s in services],
-                            "custom_value": True,
-                        }
-                    }
+                vol.Required(CONF_SMART_PC_NOTIFY, default=pc_default_full): selector(
+                    {"select": {"options": pc_options, "custom_value": True}}
                 ),
                 vol.Required(
-                    CONF_SMART_PC_SESSION,
-                    default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
+                    CONF_SMART_PC_SESSION, default=pc_session_default
                 ): selector({"entity": {"domain": "sensor"}}),
                 vol.Optional(CONF_SMART_PHONE_ORDER, default=phone_default): selector(
                     {
                         "select": {
-                            "options": [f"notify.{m}" for m in mobiles],
+                            "options": phone_options,
                             "multiple": True,
                             "custom_value": True,
                         }
@@ -2032,53 +2034,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             services,
         )
 
-        if user_input:
-            action = user_input.get("action", "confirm")
-            next_item = user_input.get("next_priority")
-            if action == "add" and next_item:
-                if next_item not in self._priority_list:
-                    self._priority_list.append(next_item)
-                placeholders = _order_placeholders(services, self._priority_list)
-                return self.async_show_form(
-                    step_id=STEP_ORDER_TARGETS,
-                    data_schema=self._get_order_targets_schema(
-                        services=services, current=self._priority_list
-                    ),
-                    description_placeholders=placeholders,
-                )
-            if action == "reset":
-                self._priority_list = []
-                placeholders = _order_placeholders(services, self._priority_list)
-                return self.async_show_form(
-                    step_id=STEP_ORDER_TARGETS,
-                    data_schema=self._get_order_targets_schema(
-                        services=services, current=self._priority_list
-                    ),
-                    description_placeholders=placeholders,
-                )
-
-            selected = user_input.get("priority")
-            if isinstance(selected, list) and selected:
-                final_priority = [s for s in selected if s in services]
-            elif self._priority_list:
-                final_priority = [s for s in self._priority_list if s in services]
-            else:
-                final_priority = services
-
-            self._data.update(
-                {CONF_TARGETS: self._targets, CONF_PRIORITY: final_priority}
-            )
-            notify_svcs = self.hass.services.async_services().get("notify", {})
-            placeholders = _order_placeholders(services, final_priority)
-            return self.async_show_form(
-                step_id=STEP_CHOOSE_FALLBACK,
-                data_schema=self._get_choose_fallback_schema(),
-                errors={},
-                description_placeholders={
-                    "available_services": ", ".join(sorted(notify_svcs)),
-                    **placeholders,
-                },
-            )
+    ...
 
         placeholders = _order_placeholders(services, self._priority_list)
         return self.async_show_form(
