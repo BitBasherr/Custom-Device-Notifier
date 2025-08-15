@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
     KEY_CONDITIONS,
     KEY_SERVICE,
+    # routing/smart
     CONF_ROUTING_MODE,
     ROUTING_CONDITIONAL,
     ROUTING_SMART,
@@ -137,6 +138,7 @@ def _format_targets_pretty(
 
 
 def _notify_services(hass) -> list[str]:
+    # returns *names* without "notify."
     return sorted(hass.services.async_services().get("notify", {}))
 
 
@@ -1320,6 +1322,49 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
+    def _get_target_more_schema(self) -> vol.Schema:
+        options = [
+            {"value": "add", "label": "➕ Add target"},
+            {"value": "routing", "label": "🧠 Routing / Smart Select"},
+            {"value": "done", "label": "✅ Done"},
+        ]
+        if self._targets:
+            options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
+            options.insert(2, {"value": "remove", "label": "➖ Remove target"})
+        return vol.Schema(
+            {
+                vol.Required("next", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
+        )
+
+    def _get_choose_fallback_schema(self) -> vol.Schema:
+        notify_svcs = self.hass.services.async_services().get("notify", {})
+        service_options = sorted(notify_svcs)
+        default_fb = (
+            self._targets[0][KEY_SERVICE].removeprefix("notify.")
+            if self._targets
+            else ""
+        )
+        return vol.Schema(
+            {
+                vol.Required("fallback", default=default_fb): selector(
+                    {"select": {"options": service_options, "custom_value": True}}
+                ),
+                vol.Optional("nav", default="continue"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "back", "label": "⬅ Back"},
+                                {"value": "continue", "label": "Continue"},
+                            ]
+                        }
+                    }
+                ),
+            }
+        )
+
     # ─── entry point (options) ───
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1612,8 +1657,55 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_target_more(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        # (implemented above in class; duplicate not needed here)
-        return await super().async_step_target_more(user_input)  # type: ignore[misc]
+        if user_input:
+            nxt = user_input["next"]
+            if nxt == "add":
+                service_options = sorted(
+                    self.hass.services.async_services().get("notify", {})
+                )
+                return self.async_show_form(
+                    step_id=STEP_ADD_TARGET,
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required("target_service"): selector(
+                                {
+                                    "select": {
+                                        "options": service_options,
+                                        "custom_value": True,
+                                    }
+                                }
+                            )
+                        }
+                    ),
+                    description_placeholders={
+                        "available_services": ", ".join(service_options),
+                        **self._get_target_more_placeholders(),
+                    },
+                )
+            if nxt == "edit":
+                return await self.async_step_select_target_to_edit()
+            if nxt == "remove":
+                return await self.async_step_select_target_to_remove()
+            if nxt == "routing":
+                return self.async_show_form(
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
+                )
+            if nxt == "done":
+                services = [t[KEY_SERVICE] for t in self._targets]
+                placeholders = _order_placeholders(services, self._priority_list)
+                return self.async_show_form(
+                    step_id=STEP_ORDER_TARGETS,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._priority_list
+                    ),
+                    description_placeholders=placeholders,
+                )
+        return self.async_show_form(
+            step_id=STEP_TARGET_MORE,
+            data_schema=self._get_target_more_schema(),
+            description_placeholders=self._get_target_more_placeholders(),
+        )
 
     async def async_step_select_target_to_edit(
         self, user_input: dict[str, Any] | None = None
