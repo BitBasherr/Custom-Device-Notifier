@@ -5,8 +5,8 @@ from datetime import timedelta
 import logging
 from typing import Any
 
-from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -134,7 +134,8 @@ async def _route_and_forward(
     """Decide a target notify service and forward the payload."""
     cfg = _config_view(entry)
 
-    target_service: str = ""  # keep non-optional for mypy
+    # Keep concrete str for mypy; empty string means "no decision"
+    target_service: str = ""
 
     mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
 
@@ -167,7 +168,7 @@ async def _route_and_forward(
     domain, service = _split_service(target_service)
 
     # Prevent infinite recursion: don’t call our own notify service
-    own_slug_data = entry.options.get(CONF_SERVICE_NAME) if entry.options else None
+    own_slug_data = (entry.options or {}).get(CONF_SERVICE_NAME)
     if not own_slug_data:
         own_slug_data = entry.data.get(CONF_SERVICE_NAME)
     own_slug = str(own_slug_data) if own_slug_data else ""
@@ -198,6 +199,7 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
     if not targets:
         return None
 
+    # Gather matches
     matched_services: set[str] = set()
     for tgt in targets:
         svc: str = tgt.get(KEY_SERVICE)
@@ -210,6 +212,7 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
         _LOGGER.debug("No conditional target matched")
         return None
 
+    # Choose by priority if provided
     priority: list[str] = list(cfg.get(CONF_PRIORITY, []))
     if priority:
         for svc in priority:
@@ -217,6 +220,7 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
                 _LOGGER.debug("Matched by priority: %s", svc)
                 return svc
 
+    # Otherwise, fall back to first matched in declaration order
     for tgt in targets:
         if tgt.get(KEY_SERVICE) in matched_services:
             svc = tgt.get(KEY_SERVICE)
@@ -230,6 +234,7 @@ def _evaluate_conditions(
     hass: HomeAssistant, conds: list[dict[str, Any]], mode: str
 ) -> bool:
     if not conds:
+        # No conditions means "always matches"
         return True
 
     results: list[bool] = []
@@ -251,9 +256,11 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return op == "=="  # equal matches the special case
         return op == "!="
 
+    # If entity missing
     if st is None:
         return False
 
+    # Try numeric comparison if both look numeric
     s = st.state
     lhs = _as_float(s)
     rhs = _as_float(value)
@@ -272,6 +279,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
         if op == "!=":
             return lhs != rhs
 
+    # Fallback to string compare
     lstr = str(s)
     rstr = str(value)
     if op == "==":
@@ -279,6 +287,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     if op == "!=":
         return lstr != rstr
 
+    # Unknown operator → don't match
     _LOGGER.debug("Unknown operator %s for %s", op, entity_id)
     return False
 
@@ -341,10 +350,12 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
             if pc_service and pc_ok:
                 return pc_service
             return None
+        # PC not unlocked → go to PC if OK; else phones
         if pc_service and pc_ok:
             return pc_service
         return first_ok_phone()
 
+    # Unknown policy → log and default to PC_FIRST semantics
     _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
     if pc_service and pc_ok:
         return pc_service
@@ -366,16 +377,16 @@ def _pc_is_eligible(
     if st is None:
         return (False, False)
 
+    # recency
     now = dt_util.utcnow()
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = "unlock" in state and "locked" not in state  # "unlocked"
     awake = _looks_awake(state)
 
     eligible = (
-        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlock
-ed)
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
     )
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
@@ -397,6 +408,7 @@ def _looks_awake(state: str) -> bool:
         k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
     ):
         return False
+    # Unknown text → assume awake to avoid being too strict
     return True
 
 
@@ -408,15 +420,16 @@ def _phone_is_eligible(
     if domain != "notify":
         return False
 
-    slug = svc
+    slug = svc  # e.g. "mobile_app_pixel_7"
     if slug.startswith("mobile_app_"):
         slug = slug[len("mobile_app_") :]
 
+    # Battery sensors commonly used by the mobile_app
     cand_batt = [
         f"sensor.{slug}_battery_level",
         f"sensor.{slug}_battery",
     ]
-    batt_ok = True
+    batt_ok = True  # if we cannot find a battery sensor, don't block
     for ent_id in cand_batt:
         st = hass.states.get(ent_id)
         if st is None:
@@ -426,10 +439,11 @@ def _phone_is_eligible(
             batt_ok = val >= float(min_batt)
             break
 
+    # Freshness signals (pick the freshest)
     cand_fresh: list[str] = [
-        f"sensor.{slug}_last_update_trigger",
-        f"sensor.{slug}_last_update",
-        f"device_tracker.{slug}",
+        f"sensor.{slug}_last_update_trigger",  # android
+        f"sensor.{slug}_last_update",  # sometimes exists
+        f"device_tracker.{slug}",  # device tracker updates often
     ]
     now = dt_util.utcnow()
     fresh_ok_any = False
@@ -459,6 +473,7 @@ def _phone_is_eligible(
 def _split_service(full: str) -> tuple[str, str]:
     """'notify.mobile_app_x' -> ('notify', 'mobile_app_x')."""
     if "." not in full:
+        # be forgiving
         return ("notify", full)
     d, s = full.split(".", 1)
     return (d, s)
