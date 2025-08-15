@@ -237,9 +237,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
                     default=pc_default_full,
-                ): selector(
-                    {"select": {"options": pc_options, "custom_value": True}}
-                ),
+                ): selector({"select": {"options": pc_options, "custom_value": True}}),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
                     default=pc_session_default,
@@ -1473,7 +1471,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
             default_operator = prev_op if use_prev else ">"
