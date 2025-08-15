@@ -190,9 +190,9 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
     # Gather matches
     matched_services: set[str] = set()
     for tgt in targets:
-        svc: str = tgt.get(KEY_SERVICE)
-        conds: list[dict[str, Any]] = tgt.get(KEY_CONDITIONS, [])
-        mode: str = tgt.get(CONF_MATCH_MODE, "all")
+        svc = cast(str, tgt.get(KEY_SERVICE))
+        conds = cast(list[dict[str, Any]], tgt.get(KEY_CONDITIONS, []))
+        mode = cast(str, tgt.get(CONF_MATCH_MODE, "all"))
         if _evaluate_conditions(hass, conds, mode):
             matched_services.add(svc)
 
@@ -201,7 +201,7 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
         return None
 
     # Choose by priority if provided
-    priority: list[str] = list(cfg.get(CONF_PRIORITY, []))
+    priority: list[str] = list(cast(list[str], cfg.get(CONF_PRIORITY, [])))
     if priority:
         for svc in priority:
             if svc in matched_services:
@@ -210,8 +210,8 @@ def _choose_service_conditional(hass: HomeAssistant, cfg: dict[str, Any]) -> str
 
     # Otherwise, fall back to first matched in declaration order
     for tgt in targets:
-        if tgt.get(KEY_SERVICE) in matched_services:
-            svc = tgt.get(KEY_SERVICE)
+        if cast(str, tgt.get(KEY_SERVICE)) in matched_services:
+            svc = cast(str, tgt.get(KEY_SERVICE))
             _LOGGER.debug("Matched by declaration order: %s", svc)
             return svc
 
@@ -230,7 +230,7 @@ def _evaluate_conditions(
         entity_id = c.get("entity_id")
         op = c.get("operator") or "=="
         val = c.get("value")
-        ok = _compare_entity(hass, cast(str, entity_id), op, val)
+        ok = _compare_entity(hass, cast(str, entity_id), cast(str, op), val)
         results.append(ok)
 
     return all(results) if mode == "all" else any(results)
@@ -264,7 +264,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return lhs <= rhs
         if op == "==":
             return lhs == rhs
-        if op == "!="":
+        if op == "!=":
             return lhs != rhs
 
     # Fallback to string compare
@@ -294,9 +294,15 @@ def _as_float(v: Any) -> float | None:
 
 def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | None:
     """PC/Phone policy chooser."""
-    pc_service: str | None = cast(str | None, cfg.get(CONF_SMART_PC_NOTIFY))
-    pc_session: str | None = cast(str | None, cfg.get(CONF_SMART_PC_SESSION))
-    phone_order: list[str] = list(cast(list[str] | None, cfg.get(CONF_SMART_PHONE_ORDER, [])))
+    pc_service = cast(str | None, cfg.get(CONF_SMART_PC_NOTIFY))
+    pc_session = cast(str | None, cfg.get(CONF_SMART_PC_SESSION))
+
+    raw_order = cfg.get(CONF_SMART_PHONE_ORDER)
+    phone_order: list[str]
+    if isinstance(raw_order, list):
+        phone_order = [str(x) for x in raw_order]
+    else:
+        phone_order = []
 
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
