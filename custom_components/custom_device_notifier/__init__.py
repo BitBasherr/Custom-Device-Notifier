@@ -86,11 +86,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not data.get(CONF_SERVICE_NAME):
         raw = str(data.get(CONF_SERVICE_NAME_RAW, "") or "")
         try:
-            # >=2025.7
-            from homeassistant.helpers.text import slugify  # type: ignore[attr-defined]
+            # ≥2025.7
+            from homeassistant.helpers.text import slugify
         except Exception:
-            # <=2025.6
-            from homeassistant.util import slugify  # type: ignore[attr-defined]
+            # ≤2025.6
+            from homeassistant.util import slugify
         data[CONF_SERVICE_NAME] = slugify(raw) or "custom_notifier"
 
     # Ensure core keys exist
