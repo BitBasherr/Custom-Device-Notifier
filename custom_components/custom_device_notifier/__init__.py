@@ -269,7 +269,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return lhs <= rhs
         if op == "==":
             return lhs == rhs
-        if op == "!="":
+        if op == "!=":
             return lhs != rhs
 
     lstr = str(s)
@@ -374,7 +374,8 @@ def _pc_is_eligible(
     awake = _looks_awake(state)
 
     eligible = (
-        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlock
+ed)
     )
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
