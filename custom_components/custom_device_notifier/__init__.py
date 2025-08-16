@@ -346,8 +346,12 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
-    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
+    require_pc_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
+    )
     # NEW: only consider phones that also look unlocked/interactive
     require_phone_unlocked = bool(
         cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
@@ -361,7 +365,11 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
     def first_ok_phone() -> str | None:
         for svc in phone_order:
             if _phone_is_eligible(
-                hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked
+                hass,
+                svc,
+                min_batt,
+                phone_fresh,
+                require_unlocked=require_phone_unlocked,
             ):
                 return svc
         return None
