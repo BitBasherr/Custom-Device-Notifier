@@ -330,81 +330,64 @@ def _choose_service_smart(
     require_pc_unlocked = bool(
         cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
     )
-    require_phone_unlocked = bool(
-        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
-    )
+    # Phones must be unlocked; do NOT allow locked phones in smart select.
+    # (We ignore CONF_SMART_REQUIRE_PHONE_UNLOCKED here intentionally.)
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
         hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
     )
 
-    unlocked_ok: list[str] = []
-    locked_ok: list[str] = []
-
+    # Build strictly-eligible phones: unlocked + not-shutdown + fresh + battery
+    eligible_phones: list[str] = []
     for svc in phone_order:
-        basic_ok = _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=False
-        )
-        if not basic_ok:
-            continue
-
-        domain, short = _split_service(svc)
-        slug = short[11:] if short.startswith("mobile_app_") else short
-        is_unlocked_now = _phone_is_unlocked_awake(hass, slug, phone_fresh)
-
-        if is_unlocked_now:
-            unlocked_ok.append(svc)
-        else:
-            locked_ok.append(svc)
-
-    eligible_phones = (
-        unlocked_ok if require_phone_unlocked else (unlocked_ok + locked_ok)
-    )
+        if _phone_is_eligible(
+            hass,
+            svc,
+            min_batt,
+            phone_fresh,
+            require_unlocked=True,  # hard requirement
+        ):
+            eligible_phones.append(svc)
 
     chosen: str | None = None
+
     if policy == SMART_POLICY_PC_FIRST:
-        if pc_service and pc_ok:
+        # PC gets first shot if eligible; else try phones; else None (fallback)
+        if pc_ok:
             chosen = pc_service
-        else:
-            chosen = (
-                unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None)
-            )
+        elif eligible_phones:
+            chosen = eligible_phones[0]
 
     elif policy == SMART_POLICY_PHONE_FIRST:
-        if unlocked_ok:
-            chosen = unlocked_ok[0]
-        elif locked_ok:
-            chosen = locked_ok[0]
-        elif pc_service and pc_ok:
+        # Prefer phones; if none, try PC if eligible; else None (fallback)
+        if eligible_phones:
+            chosen = eligible_phones[0]
+        elif pc_ok:
             chosen = pc_service
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
+        # If PC is unlocked, we PREFER phones; otherwise (locked/unknown) we don't use PC.
         if pc_unlocked:
-            if unlocked_ok:
-                chosen = unlocked_ok[0]
-            elif locked_ok:
-                chosen = locked_ok[0]
-            elif pc_service and pc_ok:
+            if eligible_phones:
+                chosen = eligible_phones[0]
+            elif pc_ok:
                 chosen = pc_service
         else:
-            if pc_service and pc_ok:
-                chosen = pc_service
-            else:
-                chosen = (
-                    unlocked_ok[0]
-                    if unlocked_ok
-                    else (locked_ok[0] if locked_ok else None)
-                )
+            if eligible_phones:
+                chosen = eligible_phones[0]
+            # else: chosen stays None → fallback
 
     else:
-        _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
-        if pc_service and pc_ok:
-            chosen = pc_service
+        _LOGGER.warning("Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy)
+        if pc_unlocked:
+            if eligible_phones:
+                chosen = eligible_phones[0]
+            elif pc_ok:
+                chosen = pc_service
         else:
-            chosen = (
-                unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None)
-            )
+            if eligible_phones:
+                chosen = eligible_phones[0]
 
     info = {
         "policy": policy,
@@ -413,17 +396,14 @@ def _choose_service_smart(
         "pc_ok": pc_ok,
         "pc_unlocked": pc_unlocked,
         "eligible_phones": eligible_phones,
-        "eligible_unlocked": unlocked_ok,
-        "eligible_locked": locked_ok,
         "min_battery": min_batt,
         "phone_fresh_s": phone_fresh,
         "pc_fresh_s": pc_fresh,
         "require_pc_awake": require_pc_awake,
         "require_pc_unlocked": require_pc_unlocked,
-        "require_phone_unlocked": require_phone_unlocked,
+        "phones_must_be_unlocked": True,
     }
     return (chosen, info)
-
 
 def _pc_is_eligible(
     hass: HomeAssistant,
@@ -510,26 +490,24 @@ def _phone_is_eligible(
     min_batt: int,
     fresh_s: int,
     *,
-    require_unlocked: bool = False,
+    require_unlocked: bool = True,
 ) -> bool:
-    """Battery + freshness + not-shutdown + optional 'usable_for_notify' gate."""
+    """
+    Phone eligibility for Smart Select:
+    - service must be in notify domain
+    - candidate signals are fresh (<= fresh_s)
+    - battery >= min_batt (if available)
+    - NOT recently ACTION_SHUTDOWN (from *_last_update_trigger when fresh)
+    - MUST be unlocked/interactive (require_unlocked=True is enforced)
+    NOTE: We intentionally ignore any *_usable_for_notify binary sensor.
+    """
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
 
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
 
-    usable = hass.states.get(f"binary_sensor.{slug}_usable_for_notify")
-    if usable is not None:
-        usable_val = str(usable.state or "").lower()
-        if usable_val in ("off", "false", "unavailable", "unknown"):
-            _LOGGER.debug(
-                "Phone %s | blocked by usable_for_notify=%s",
-                notify_service,
-                usable.state,
-            )
-            return False
-
+    # Battery gate (best effort)
     cand_batt = [f"sensor.{slug}_battery_level", f"sensor.{slug}_battery"]
     batt_ok = True
     for ent_id in cand_batt:
@@ -541,6 +519,7 @@ def _phone_is_eligible(
             batt_ok = batt_val >= float(min_batt)
             break
 
+    # Freshness + "not shutdown" gate
     cand_fresh = [
         f"sensor.{slug}_last_update_trigger",
         f"sensor.{slug}_last_update",
@@ -555,38 +534,23 @@ def _phone_is_eligible(
             continue
         if (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if (
-                ent_id.endswith("_last_update_trigger")
-                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
-            ):
-                shutdown_recent = True
+            if ent_id.endswith("_last_update_trigger"):
+                val = str(st.state or "").strip()
+                if val == "android.intent.action.ACTION_SHUTDOWN":
+                    shutdown_recent = True
+            # we can stop at first fresh hit
             break
 
     if shutdown_recent:
-        _LOGGER.debug(
-            "Phone %s | rejected due to recent ACTION_SHUTDOWN", notify_service
-        )
         return False
-
     if not (batt_ok and fresh_ok_any):
-        _LOGGER.debug(
-            "Phone %s | batt_ok=%s (min=%s) fresh_ok=%s",
-            notify_service,
-            batt_ok,
-            min_batt,
-            fresh_ok_any,
-        )
         return False
 
-    if require_unlocked:
-        if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug(
-                "Phone %s | rejected (unlock/interactive required)", notify_service
-            )
-            return False
+    # Unlocked/interactive required (always true for smart select)
+    if require_unlocked and not _phone_is_unlocked_awake(hass, slug, fresh_s):
+        return False
 
     return True
-
 
 def _split_service(full: str) -> tuple[str, str]:
     if "." not in full:
