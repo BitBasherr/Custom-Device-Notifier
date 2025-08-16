@@ -10,10 +10,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
     CONF_FALLBACK,
-    CONF_PRIORITY,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
-    CONF_TARGETS,
     DOMAIN,
 )
 
@@ -44,7 +42,9 @@ class CurrentRouteSensor(SensorEntity):
         self._entry = entry
 
         data = _get_entry_data(entry)
-        raw_name = data.get(CONF_SERVICE_NAME_RAW) or data.get(CONF_SERVICE_NAME) or "Notifier"
+        raw_name = (
+            data.get(CONF_SERVICE_NAME_RAW) or data.get(CONF_SERVICE_NAME) or "Notifier"
+        )
         slug = data.get(CONF_SERVICE_NAME) or "custom_notifier"
 
         self._attr_name = f"{raw_name} Last Route"
@@ -85,10 +85,12 @@ class CurrentRouteSensor(SensorEntity):
         result = decision.get("result")
         if result != "forwarded":
             # Keep state but expose last drop reason for visibility
-            self._attrs.update({
-                "last_result": result,
-                "timestamp": decision.get("timestamp"),
-            })
+            self._attrs.update(
+                {
+                    "last_result": result,
+                    "timestamp": decision.get("timestamp"),
+                }
+            )
             self.async_write_ha_state()
             return
 
@@ -96,14 +98,16 @@ class CurrentRouteSensor(SensorEntity):
         svc_short = svc_full.split(".", 1)[1] if "." in svc_full else svc_full
 
         self._attr_native_value = svc_short
-        self._attrs.update({
-            "mode": decision.get("mode"),
-            "via": decision.get("via"),
-            "timestamp": decision.get("timestamp"),
-            "payload_keys": decision.get("payload_keys", []),
-            "smart": decision.get("smart"),
-            "conditional": decision.get("conditional"),
-            "last_result": result,
-            "pending_first_decision": False,
-        })
+        self._attrs.update(
+            {
+                "mode": decision.get("mode"),
+                "via": decision.get("via"),
+                "timestamp": decision.get("timestamp"),
+                "payload_keys": decision.get("payload_keys", []),
+                "smart": decision.get("smart"),
+                "conditional": decision.get("conditional"),
+                "last_result": result,
+                "pending_first_decision": False,
+            }
+        )
         self.async_write_ha_state()

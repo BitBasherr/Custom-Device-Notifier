@@ -75,6 +75,7 @@ class EntryRuntime:
 # HA entry points
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
@@ -115,7 +116,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     slug = entry.data.get(CONF_SERVICE_NAME)
     if not slug:
-        _LOGGER.error("Missing %s in entry data; cannot register service", CONF_SERVICE_NAME)
+        _LOGGER.error(
+            "Missing %s in entry data; cannot register service", CONF_SERVICE_NAME
+        )
         return False
 
     hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=slug)
@@ -134,7 +137,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-    _LOGGER.info("Registered notify.%s for %s", slug, entry.data.get(CONF_SERVICE_NAME_RAW, slug))
+    _LOGGER.info(
+        "Registered notify.%s for %s", slug, entry.data.get(CONF_SERVICE_NAME_RAW, slug)
+    )
     return True
 
 
@@ -156,6 +161,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 # ──────────────────────────────────────────────────────────────────────────────
 # Core routing
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 async def _route_and_forward(
     hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any]
@@ -208,7 +214,10 @@ async def _route_and_forward(
     # Avoid recursion: don't route to ourselves
     own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if own_slug and domain == "notify" and service == own_slug:
-        _LOGGER.warning("Refusing to call notifier onto itself (%s); using fallback if set.", target_service)
+        _LOGGER.warning(
+            "Refusing to call notifier onto itself (%s); using fallback if set.",
+            target_service,
+        )
         fb = cfg.get(CONF_FALLBACK)
         if isinstance(fb, str) and fb and fb != target_service:
             domain, service = _split_service(fb)
@@ -218,11 +227,13 @@ async def _route_and_forward(
             async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
             return
 
-    decision.update({
-        "result": "forwarded",
-        "service_full": f"{domain}.{service}",
-        "via": via,
-    })
+    decision.update(
+        {
+            "result": "forwarded",
+            "service_full": f"{domain}.{service}",
+            "via": via,
+        }
+    )
     # Notify the sensor of the final decision
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
 
@@ -233,6 +244,7 @@ async def _route_and_forward(
 # ──────────────────────────────────────────────────────────────────────────────
 # Conditional mode (now with info for the sensor)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def _choose_service_conditional_with_info(
     hass: HomeAssistant, cfg: dict[str, Any]
@@ -299,16 +311,25 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     lhs = _as_float(s)
     rhs = _as_float(value)
     if lhs is not None and rhs is not None and op in (">", "<", ">=", "<=", "==", "!="):
-        if op == ">": return lhs > rhs
-        if op == "<": return lhs < rhs
-        if op == ">=": return lhs >= rhs
-        if op == "<=": return lhs <= rhs
-        if op == "==": return lhs == rhs
-        if op == "!=": return lhs != rhs
+        if op == ">":
+            return lhs > rhs
+        if op == "<":
+            return lhs < rhs
+        if op == ">=":
+            return lhs >= rhs
+        if op == "<=":
+            return lhs <= rhs
+        if op == "==":
+            return lhs == rhs
+        if op == "!=":
+            return lhs != rhs
 
-    lstr = str(s); rstr = str(value)
-    if op == "==": return lstr == rstr
-    if op == "!=": return lstr != rstr
+    lstr = str(s)
+    rstr = str(value)
+    if op == "==":
+        return lstr == rstr
+    if op == "!=":
+        return lstr != rstr
     _LOGGER.debug("Unknown operator %s for %s", op, entity_id)
     return False
 
@@ -324,7 +345,10 @@ def _as_float(v: Any) -> float | None:
 # Smart Select (returns info for the sensor)
 # ─────────────────────────────────────────────────────────────────────────────-
 
-def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> Tuple[str | None, Dict[str, Any]]:
+
+def _choose_service_smart(
+    hass: HomeAssistant, cfg: dict[str, Any]
+) -> Tuple[str | None, Dict[str, Any]]:
     pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
     pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
     phone_order: List[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
@@ -332,17 +356,27 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> Tuple[str
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
-    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
-    require_phone_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
+    require_pc_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
+    )
+    require_phone_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
+    )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked)
+    pc_ok, pc_unlocked = _pc_is_eligible(
+        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
+    )
 
     eligible_phones: List[str] = []
     first_ok_phone: str | None = None
     for svc in phone_order:
-        ok = _phone_is_eligible(hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked)
+        ok = _phone_is_eligible(
+            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked
+        )
         if ok:
             eligible_phones.append(svc)
             if first_ok_phone is None:
@@ -354,13 +388,17 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> Tuple[str
         chosen = pc_service if (pc_service and pc_ok) else (first_ok_phone or None)
 
     elif policy == SMART_POLICY_PHONE_FIRST:
-        chosen = first_ok_phone if first_ok_phone else (pc_service if pc_service and pc_ok else None)
+        chosen = (
+            first_ok_phone
+            if first_ok_phone
+            else (pc_service if pc_service and pc_ok else None)
+        )
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
             chosen = first_ok_phone or (pc_service if pc_service and pc_ok else None)
         else:
-            chosen = (pc_service if pc_service and pc_ok else (first_ok_phone or None))
+            chosen = pc_service if pc_service and pc_ok else (first_ok_phone or None)
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
         chosen = pc_service if (pc_service and pc_ok) else (first_ok_phone or None)
@@ -404,10 +442,17 @@ def _pc_is_eligible(
     unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
-    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    eligible = (
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    )
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
-        session_entity, st.state, fresh_ok, awake, unlocked, eligible,
+        session_entity,
+        st.state,
+        fresh_ok,
+        awake,
+        unlocked,
+        eligible,
     )
     return (eligible, unlocked)
 
@@ -416,7 +461,9 @@ def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
+    if any(
+        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
+    ):
         return False
     return True
 
@@ -492,13 +539,18 @@ def _phone_is_eligible(
     if not (batt_ok and fresh_ok_any):
         _LOGGER.debug(
             "Phone %s | batt_ok=%s (min=%s) fresh_ok=%s",
-            notify_service, batt_ok, min_batt, fresh_ok_any,
+            notify_service,
+            batt_ok,
+            min_batt,
+            fresh_ok_any,
         )
         return False
 
     if require_unlocked:
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug("Phone %s | rejected (unlock/interactive required)", notify_service)
+            _LOGGER.debug(
+                "Phone %s | rejected (unlock/interactive required)", notify_service
+            )
             return False
 
     return True
@@ -507,6 +559,7 @@ def _phone_is_eligible(
 # ─────────────────────────────────────────────────────────────────────────────-
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────-
+
 
 def _split_service(full: str) -> tuple[str, str]:
     if "." not in full:
