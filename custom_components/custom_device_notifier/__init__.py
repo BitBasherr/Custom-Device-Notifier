@@ -379,7 +379,9 @@ def _choose_service_smart(
             # else: chosen stays None → fallback
 
     else:
-        _LOGGER.warning("Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy)
+        _LOGGER.warning(
+            "Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy
+        )
         if pc_unlocked:
             if eligible_phones:
                 chosen = eligible_phones[0]
@@ -404,6 +406,7 @@ def _choose_service_smart(
         "phones_must_be_unlocked": True,
     }
     return (chosen, info)
+
 
 def _pc_is_eligible(
     hass: HomeAssistant,
@@ -551,6 +554,7 @@ def _phone_is_eligible(
         return False
 
     return True
+
 
 def _split_service(full: str) -> tuple[str, str]:
     if "." not in full:
