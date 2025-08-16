@@ -86,6 +86,10 @@ ENTITY_DOMAINS = [
     "input_datetime",
 ]
 
+# Sentinels for nicer insertion choices
+_INSERT_TOP = "__TOP__"
+_INSERT_BOTTOM = "__BOTTOM__"
+
 # ──────────────────────────── helper utils ────────────────────────────────
 
 
@@ -166,6 +170,35 @@ def _default_pc_notify(services: list[str]) -> str:
         if any(t in low for t in tokens):
             return s
     return services[0] if services else ""
+
+
+def _insert_items_at(
+    current: list[str], items: list[str], anchor: str | None
+) -> list[str]:
+    """
+    Insert items into current before the anchor.
+
+    - anchor == _INSERT_TOP  -> index 0
+    - anchor == _INSERT_BOTTOM or None -> end
+    - anchor in current -> before that item
+    - duplicates are removed by first stripping items from current
+    """
+    items = [i for i in items if i]  # clean Nones
+    if not items:
+        return current
+
+    base = [x for x in current if x not in items]
+    if anchor == _INSERT_TOP:
+        idx = 0
+    elif anchor == _INSERT_BOTTOM or anchor is None:
+        idx = len(base)
+    else:
+        try:
+            idx = base.index(anchor)
+        except ValueError:
+            idx = len(base)
+
+    return base[:idx] + items + base[idx:]
 
 
 # ──────────────────────────── Config Flow ────────────────────────────────
@@ -482,6 +515,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
+    def _insertion_choices(self, current: list[str]) -> list[dict[str, str]]:
+        """Choices for 'insert before' control."""
+        if not current:
+            return [{"value": _INSERT_BOTTOM, "label": "Bottom (first position)"}]
+        choices: list[dict[str, str]] = [
+            {"value": _INSERT_TOP, "label": "Top (before #1)"},
+        ]
+        for i, s in enumerate(current, 1):
+            choices.append({"value": s, "label": f"Before: {i}. {s}"})
+        choices.append({"value": _INSERT_BOTTOM, "label": "Bottom (after last)"})
+        return choices
+
     def _get_target_more_schema(self) -> vol.Schema:
         options = [
             {"value": "add", "label": "➕ Add target"},
@@ -496,6 +541,41 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("next", default="add"): selector(
                     {"select": {"options": options}}
                 )
+            }
+        )
+
+    # Reusable schema for ordering
+    def _get_order_targets_schema(
+        self,
+        *,
+        services: list[str],
+        current: list[str] | None,
+        default_action: str = "confirm",
+    ) -> vol.Schema:
+        current = current or []
+        # When building (default_action == "add"), start with nothing checked.
+        default_priority = [] if default_action == "add" else current
+        insertion_opts = self._insertion_choices(current)
+
+        return vol.Schema(
+            {
+                vol.Optional("priority", default=default_priority): selector(
+                    {"select": {"options": services, "multiple": True}}
+                ),
+                vol.Optional("next_priority", default=_INSERT_BOTTOM): selector(
+                    {"select": {"options": insertion_opts}}
+                ),
+                vol.Optional("action", default=default_action): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "add", "label": "Add to order"},
+                                {"value": "reset", "label": "Reset order"},
+                                {"value": "confirm", "label": "Confirm"},
+                            ]
+                        }
+                    }
+                ),
             }
         )
 
@@ -897,50 +977,19 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    def _get_order_targets_schema(
-        self,
-        *,
-        services: list[str],
-        current: list[str] | None,
-        default_action: str = "confirm",
-    ) -> vol.Schema:
-        current = current or []
-        remaining = [s for s in services if s not in current]
-        return vol.Schema(
-            {
-                vol.Optional("priority", default=current): selector(
-                    {"select": {"options": services, "multiple": True}}
-                ),
-                vol.Optional("next_priority"): selector(
-                    {"select": {"options": remaining}}
-                ),
-                # Default action is configurable (classic flow = "confirm"; phone order = "add").
-                vol.Optional("action", default=default_action): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "add", "label": "Add to order"},
-                                {"value": "reset", "label": "Reset order"},
-                                {"value": "confirm", "label": "Confirm"},
-                            ]
-                        }
-                    }
-                ),
-            }
-        )
-
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         services = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
             action = user_input.get("action", "confirm")
-            next_item = user_input.get("next_priority")
-
-            # Incremental add
-            if action == "add" and next_item:
-                if next_item not in self._priority_list:
-                    self._priority_list.append(next_item)
+            next_anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+            if action == "add":
+                # items to add/move (filter to known services)
+                to_add = [s for s in user_input.get("priority", []) if s in services]
+                self._priority_list = _insert_items_at(
+                    self._priority_list, to_add, next_anchor
+                )
                 placeholders = _order_placeholders(services, self._priority_list)
                 return self.async_show_form(
                     step_id=STEP_ORDER_TARGETS,
@@ -949,8 +998,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     description_placeholders=placeholders,
                 )
-
-            # Reset
             if action == "reset":
                 self._priority_list = []
                 placeholders = _order_placeholders(services, self._priority_list)
@@ -962,7 +1009,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     description_placeholders=placeholders,
                 )
 
-            # Confirm (implicit if only "priority" is posted)
+            # Confirm (or implicit confirm)
             selected = user_input.get("priority")
             if isinstance(selected, list) and selected:
                 final_priority = [s for s in selected if s in services]
@@ -1187,14 +1234,16 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
         if user_input:
-            # If user picked next_priority but didn't switch "action", treat it as "add"
+            # Treat picking next_priority without touching "action" as Add
             action = user_input.get("action") or (
                 "add" if user_input.get("next_priority") else "confirm"
             )
-            next_item = user_input.get("next_priority")
-            if action == "add" and next_item:
-                if next_item not in self._phone_order_list:
-                    self._phone_order_list.append(next_item)
+            anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+            if action == "add":
+                to_add = [s for s in user_input.get("priority", []) if s in services]
+                self._phone_order_list = _insert_items_at(
+                    self._phone_order_list, to_add, anchor
+                )
                 placeholders = _order_placeholders(services, self._phone_order_list)
                 return self.async_show_form(
                     step_id=STEP_SMART_ORDER_PHONES,
@@ -1557,6 +1606,17 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
+    def _insertion_choices(self, current: list[str]) -> list[dict[str, str]]:
+        if not current:
+            return [{"value": _INSERT_BOTTOM, "label": "Bottom (first position)"}]
+        choices: list[dict[str, str]] = [
+            {"value": _INSERT_TOP, "label": "Top (before #1)"},
+        ]
+        for i, s in enumerate(current, 1):
+            choices.append({"value": s, "label": f"Before: {i}. {s}"})
+        choices.append({"value": _INSERT_BOTTOM, "label": "Bottom (after last)"})
+        return choices
+
     def _get_target_more_schema(self) -> vol.Schema:
         options = [
             {"value": "add", "label": "➕ Add target"},
@@ -1571,6 +1631,38 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("next", default="add"): selector(
                     {"select": {"options": options}}
                 )
+            }
+        )
+
+    def _get_order_targets_schema(
+        self,
+        *,
+        services: list[str],
+        current: list[str] | None,
+        default_action: str = "confirm",
+    ) -> vol.Schema:
+        current = current or []
+        default_priority = [] if default_action == "add" else current
+        insertion_opts = self._insertion_choices(current)
+        return vol.Schema(
+            {
+                vol.Optional("priority", default=default_priority): selector(
+                    {"select": {"options": services, "multiple": True}}
+                ),
+                vol.Optional("next_priority", default=_INSERT_BOTTOM): selector(
+                    {"select": {"options": insertion_opts}}
+                ),
+                vol.Optional("action", default=default_action): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "add", "label": "Add to order"},
+                                {"value": "reset", "label": "Reset order"},
+                                {"value": "confirm", "label": "Confirm"},
+                            ]
+                        }
+                    }
+                ),
             }
         )
 
@@ -1686,10 +1778,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             action = user_input.get("action") or (
                 "add" if user_input.get("next_priority") else "confirm"
             )
-            next_item = user_input.get("next_priority")
-            if action == "add" and next_item:
-                if next_item not in self._phone_order_list:
-                    self._phone_order_list.append(next_item)
+            anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+            if action == "add":
+                to_add = [s for s in user_input.get("priority", []) if s in services]
+                self._phone_order_list = _insert_items_at(
+                    self._phone_order_list, to_add, anchor
+                )
                 placeholders = _order_placeholders(services, self._phone_order_list)
                 return self.async_show_form(
                     step_id=STEP_SMART_ORDER_PHONES,
@@ -2081,48 +2175,18 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders=self._get_target_more_placeholders(),
         )
 
-    def _get_order_targets_schema(
-        self,
-        *,
-        services: list[str],
-        current: list[str] | None,
-        default_action: str = "confirm",
-    ) -> vol.Schema:
-        current = current or []
-        remaining = [s for s in services if s not in current]
-        return vol.Schema(
-            {
-                vol.Optional("priority", default=current): selector(
-                    {"select": {"options": services, "multiple": True}}
-                ),
-                vol.Optional("next_priority"): selector(
-                    {"select": {"options": remaining}}
-                ),
-                # Default action is configurable (classic flow = "confirm"; phone order = "add").
-                vol.Optional("action", default=default_action): selector(
-                    {
-                        "select": {
-                            "options": [
-                                {"value": "add", "label": "Add to order"},
-                                {"value": "reset", "label": "Reset order"},
-                                {"value": "confirm", "label": "Confirm"},
-                            ]
-                        }
-                    }
-                ),
-            }
-        )
-
     async def async_step_order_targets(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         services = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
             action = user_input.get("action", "confirm")
-            next_item = user_input.get("next_priority")
-            if action == "add" and next_item:
-                if next_item not in self._priority_list:
-                    self._priority_list.append(next_item)
+            anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+            if action == "add":
+                to_add = [s for s in user_input.get("priority", []) if s in services]
+                self._priority_list = _insert_items_at(
+                    self._priority_list, to_add, anchor
+                )
                 placeholders = _order_placeholders(services, self._priority_list)
                 return self.async_show_form(
                     step_id=STEP_ORDER_TARGETS,
