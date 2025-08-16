@@ -3,61 +3,142 @@
     "step": {
       "user": {
         "title": "Custom Device Notifier",
-        "description": "Give your notifier a name."
+        "description": "Give your notifier a name.",
+        "data": {
+          "service_name_raw": "Service name"
+        }
       },
       "add_target": {
         "title": "Add a target",
-        "description": "Pick a `notify.*` service for this target.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}"
+        "description": "Pick a `notify.*` service for this target.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}",
+        "data": {
+          "target_service": "Notify service"
+        }
       },
       "condition_more": {
         "title": "Conditions",
-        "description": "Current conditions:\n{current_conditions}"
+        "description": "Current conditions:\n{current_conditions}",
+        "data": {
+          "choice": "Action"
+        }
       },
       "add_condition_entity": {
         "title": "Pick an entity to check",
-        "description": "Choose an entity whose state you'll compare in a condition."
+        "description": "Choose an entity whose state you'll compare in a condition.",
+        "data": {
+          "entity": "Entity"
+        }
       },
       "add_condition_value": {
         "title": "Set the condition",
-        "description": "Pick operator & value for {entity_id}."
+        "description": "Pick operator & value for {entity_id}.",
+        "data": {
+          "operator": "Operator",
+          "value_choice": "Pick value",
+          "value": "Value",
+          "manual_value": "Manual value"
+        }
       },
       "match_mode": {
         "title": "Matching mode",
-        "description": "Should **all** conditions match, or is **any** one enough?"
+        "description": "Should **all** conditions match, or is **any** one enough?",
+        "data": {
+          "match_mode": "How to evaluate conditions"
+        }
       },
       "target_more": {
         "title": "Targets",
-        "description": "Current targets:\n{current_targets}"
+        "description": "Current targets:\n{current_targets}",
+        "data": {
+          "next": "Action"
+        }
       },
+
+      "routing_mode": {
+        "title": "Routing mode",
+        "data": {
+          "routing_mode": "Mode"
+        }
+      },
+      "smart_setup": {
+        "title": "Smart Select",
+        "description": "Configure PC/Phone smart routing.\nUse “Reorder phones…” to set the phone order used by Smart Select.",
+        "data": {
+          "smart_pc_notify": "PC notify service",
+          "smart_pc_session_sensor": "PC session state sensor",
+          "nav": "Navigate",
+          "smart_policy": "Policy",
+          "smart_min_battery": "Min phone battery (%)",
+          "smart_phone_fresh_s": "Phone freshness (s)",
+          "smart_pc_fresh_s": "PC freshness (s)",
+          "smart_require_awake": "Require PC awake",
+          "smart_require_unlocked": "Require PC unlocked",
+          "smart_require_phone_unlocked": "Require phones unlocked/interactive",
+          "smart_phone_unlock_fresh_s": "Phone unlock freshness (s)"
+        }
+      },
+      "smart_phone_order": {
+        "title": "Order phones",
+        "description": "Set the order Smart Select will try when using phones.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "priority": "priority",
+          "next_priority": "next_priority",
+          "action": "action"
+        }
+      },
+
       "order_targets": {
         "title": "Order targets",
-        "description": "Set the priority your notifier will try.\n\nCurrent order: {current_order}\nRemaining: {remaining}"
+        "description": "Set the priority your notifier will try.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "priority": "priority",
+          "next_priority": "next_priority",
+          "action": "action"
+        }
       },
       "choose_fallback": {
         "title": "Choose fallback",
-        "description": "Pick the fallback notify service (used if none of the targets match).\n\nAvailable: {available_services}"
+        "description": "Pick the fallback notify service (used if none of the targets match).\n\nAvailable: {available_services}\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "fallback": "Fallback service",
+          "nav": "Navigate"
+        }
       },
+
       "select_target_to_edit": {
         "title": "Edit a target",
-        "description": "Choose which target to edit."
+        "description": "Choose which target to edit.",
+        "data": {
+          "target": "Target"
+        }
       },
       "select_target_to_remove": {
         "title": "Remove targets",
-        "description": "Select one or more targets to remove."
+        "description": "Select one or more targets to remove.",
+        "data": {
+          "targets": "Targets"
+        }
       },
       "select_condition_to_edit": {
         "title": "Edit a condition",
-        "description": "Which condition do you want to edit?"
+        "description": "Which condition do you want to edit?",
+        "data": {
+          "condition": "Condition"
+        }
       },
       "remove_condition": {
         "title": "Remove conditions",
-        "description": "Select one or more conditions to remove."
+        "description": "Select one or more conditions to remove.",
+        "data": {
+          "conditions_to_remove": "Conditions"
+        }
       }
     },
     "error": {
       "must_be_notify": "Must be a notify.* service"
     }
   },
+
   "options": {
     "step": {
       "init": {
@@ -66,51 +147,128 @@
       },
       "add_target": {
         "title": "Add a target",
-        "description": "Pick a `notify.*` service for this target.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}"
+        "description": "Pick a `notify.*` service for this target.\n\nAvailable: {available_services}\n\nCurrent targets:\n{current_targets}",
+        "data": {
+          "target_service": "Notify service"
+        }
       },
       "condition_more": {
         "title": "Conditions",
-        "description": "Current conditions:\n{current_conditions}"
+        "description": "Current conditions:\n{current_conditions}",
+        "data": {
+          "choice": "Action"
+        }
       },
       "add_condition_entity": {
         "title": "Pick an entity to check",
-        "description": "Choose an entity whose state you'll compare in a condition."
+        "description": "Choose an entity whose state you'll compare in a condition.",
+        "data": {
+          "entity": "Entity"
+        }
       },
       "add_condition_value": {
         "title": "Set the condition",
-        "description": "Pick operator & value for {entity_id}."
+        "description": "Pick operator & value for {entity_id}.",
+        "data": {
+          "operator": "Operator",
+          "value_choice": "Pick value",
+          "value": "Value",
+          "manual_value": "Manual value"
+        }
       },
       "match_mode": {
         "title": "Matching mode",
-        "description": "Should **all** conditions match, or is **any** one enough?"
+        "description": "Should **all** conditions match, or is **any** one enough?",
+        "data": {
+          "match_mode": "How to evaluate conditions"
+        }
       },
       "target_more": {
         "title": "Targets",
-        "description": "Current targets:\n{current_targets}"
+        "description": "Current targets:\n{current_targets}",
+        "data": {
+          "next": "Action"
+        }
       },
+
+      "routing_mode": {
+        "title": "Routing mode",
+        "data": {
+          "routing_mode": "Mode"
+        }
+      },
+      "smart_setup": {
+        "title": "Smart Select",
+        "description": "Configure PC/Phone smart routing.\nUse “Reorder phones…” to set the phone order used by Smart Select.",
+        "data": {
+          "smart_pc_notify": "PC notify service",
+          "smart_pc_session_sensor": "PC session state sensor",
+          "nav": "Navigate",
+          "smart_policy": "Policy",
+          "smart_min_battery": "Min phone battery (%)",
+          "smart_phone_fresh_s": "Phone freshness (s)",
+          "smart_pc_fresh_s": "PC freshness (s)",
+          "smart_require_awake": "Require PC awake",
+          "smart_require_unlocked": "Require PC unlocked",
+          "smart_require_phone_unlocked": "Require phones unlocked/interactive",
+          "smart_phone_unlock_fresh_s": "Phone unlock freshness (s)"
+        }
+      },
+      "smart_phone_order": {
+        "title": "Order phones",
+        "description": "Set the order Smart Select will try when using phones.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "priority": "priority",
+          "next_priority": "next_priority",
+          "action": "action"
+        }
+      },
+
       "order_targets": {
         "title": "Order targets",
-        "description": "Set the priority your notifier will try.\n\nCurrent order: {current_order}\nRemaining: {remaining}"
+        "description": "Set the priority your notifier will try.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "priority": "priority",
+          "next_priority": "next_priority",
+          "action": "action"
+        }
       },
       "choose_fallback": {
         "title": "Choose fallback",
-        "description": "Pick the fallback notify service (used if none of the targets match).\n\nAvailable: {available_services}"
+        "description": "Pick the fallback notify service (used if none of the targets match).\n\nAvailable: {available_services}\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "fallback": "Fallback service",
+          "nav": "Navigate"
+        }
       },
+
       "select_target_to_edit": {
         "title": "Edit a target",
-        "description": "Choose which target to edit."
+        "description": "Choose which target to edit.",
+        "data": {
+          "target": "Target"
+        }
       },
       "select_target_to_remove": {
         "title": "Remove targets",
-        "description": "Select one or more targets to remove."
+        "description": "Select one or more targets to remove.",
+        "data": {
+          "targets": "Targets"
+        }
       },
       "select_condition_to_edit": {
         "title": "Edit a condition",
-        "description": "Which condition do you want to edit?"
+        "description": "Which condition do you want to edit?",
+        "data": {
+          "condition": "Condition"
+        }
       },
       "remove_condition": {
         "title": "Remove conditions",
-        "description": "Select one or more conditions to remove."
+        "description": "Select one or more conditions to remove.",
+        "data": {
+          "conditions_to_remove": "Conditions"
+        }
       }
     },
     "error": {
