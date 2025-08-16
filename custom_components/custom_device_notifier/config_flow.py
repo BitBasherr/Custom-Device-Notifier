@@ -259,15 +259,27 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return sorted(phone_like) + sorted(others)
 
+    def _smart_pc_candidates(self) -> list[str]:
+        """PC / other notify services (non-mobile)."""
+        services = _notify_services(self.hass)
+        pcs = [f"notify.{s}" for s in services if not s.startswith("mobile_app_")]
+        return sorted(pcs)
+
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
         existing = existing or {}
-        services = _notify_services(self.hass)  # raw names without "notify."
+
+        # Build PC-only candidate list (non-mobile) for the dropdown.
+        pc_options = self._smart_pc_candidates()
+
+        # Compute a sensible default from *non-mobile* raw service names.
+        raw_services = _notify_services(self.hass)
+        non_mobile_raw = [s for s in raw_services if not s.startswith("mobile_app_")]
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY)
         if not pc_default:
-            guess = _default_pc_notify(services)
+            guess = _default_pc_notify(non_mobile_raw)
             pc_default = f"notify.{guess}" if guess else ""
 
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
@@ -285,7 +297,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): selector(
                     {
                         "select": {
-                            "options": [f"notify.{s}" for s in services],
+                            "options": pc_options,
                             "custom_value": True,
                         }
                     }
@@ -1363,15 +1375,25 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
 
         return sorted(phone_like) + sorted(others)
 
+    def _smart_pc_candidates(self) -> list[str]:
+        """PC / other notify services (non-mobile)."""
+        services = _notify_services(self.hass)
+        pcs = [f"notify.{s}" for s in services if not s.startswith("mobile_app_")]
+        return sorted(pcs)
+
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
         existing = existing or {}
-        services = _notify_services(self.hass)
+
+        pc_options = self._smart_pc_candidates()
+
+        raw_services = _notify_services(self.hass)
+        non_mobile_raw = [s for s in raw_services if not s.startswith("mobile_app_")]
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY)
         if not pc_default:
-            guess = _default_pc_notify(services)
+            guess = _default_pc_notify(non_mobile_raw)
             pc_default = f"notify.{guess}" if guess else ""
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{(pc_default or '').removeprefix('notify.').lower()}_sessionstate"
@@ -1388,7 +1410,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 ): selector(
                     {
                         "select": {
-                            "options": [f"notify.{s}" for s in services],
+                            "options": pc_options,
                             "custom_value": True,
                         }
                     }
