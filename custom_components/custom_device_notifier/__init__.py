@@ -543,7 +543,7 @@ def _phone_is_eligible(
 
     cand_fresh = [
         f"sensor.{slug}_last_update_trigger",
-               f"sensor.{slug}_last_update",
+        f"sensor.{slug}_last_update",
         f"device_tracker.{slug}",
     ]
     now = dt_util.utcnow()
