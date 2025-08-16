@@ -1,12 +1,12 @@
-import asyncio
+from __future__ import annotations
+
 import logging
-from collections.abc import Callable
-from typing import Any, Mapping
+from typing import Any, Mapping, Callable
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
     CONF_FALLBACK,
@@ -15,85 +15,95 @@ from .const import (
     CONF_SERVICE_NAME_RAW,
     CONF_TARGETS,
     DOMAIN,
-    KEY_CONDITIONS,
-    KEY_MATCH,
-    KEY_SERVICE,
 )
-from .evaluate import evaluate_condition
 
 _LOGGER = logging.getLogger(DOMAIN)
 
 
 def _get_entry_data(entry: ConfigEntry) -> Mapping[str, Any]:
-    """Prefer options over data; options flow writes there."""
     return entry.options or entry.data
+
+
+def _signal_name(entry_id: str) -> str:
+    return f"{DOMAIN}_route_update_{entry_id}"
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ) -> None:
-    async_add_entities([CurrentTargetSensor(hass, entry)])
+    async_add_entities([CurrentRouteSensor(hass, entry)])
 
 
-class CurrentTargetSensor(SensorEntity):
+class CurrentRouteSensor(SensorEntity):
+    """Shows the last *actual* notify target chosen by the integration."""
+
+    _attr_icon = "mdi:send"
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self._entry = entry
 
         data = _get_entry_data(entry)
-        self._targets = data[CONF_TARGETS]
-        self._priority = data[CONF_PRIORITY]
-        self._fallback = data[CONF_FALLBACK]
+        raw_name = data.get(CONF_SERVICE_NAME_RAW) or data.get(CONF_SERVICE_NAME) or "Notifier"
+        slug = data.get(CONF_SERVICE_NAME) or "custom_notifier"
 
-        raw_name = data[CONF_SERVICE_NAME_RAW]
-        slug = data[CONF_SERVICE_NAME]
-
-        self._attr_name = f"{raw_name} Current Target"
-        self._attr_unique_id = f"{slug}_current_target"
+        self._attr_name = f"{raw_name} Last Route"
+        self._attr_unique_id = f"{slug}_last_route"
         self._attr_native_value = None
+        self._attrs: dict[str, Any] = {}
+        self._unsub_dispatch: Callable[[], None] | None = None
 
-        self._unsub: Callable[[], None] | None = None
+        # If nothing has been routed yet, show fallback so the sensor isn't empty
+        fb = str(data.get(CONF_FALLBACK) or "")
+        self._attr_native_value = fb.removeprefix("notify.")
+        self._attrs["via"] = "startup"
+        self._attrs["pending_first_decision"] = True
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return dict(self._attrs)
 
     async def async_added_to_hass(self) -> None:
-        entities = {
-            cond["entity_id"]
-            for tgt in self._targets
-            for cond in tgt[KEY_CONDITIONS]
-            if self.hass.states.get(cond["entity_id"]) is not None
-        }
-        self._unsub = async_track_state_change_event(
-            self.hass, list(entities), self._update
+        self._unsub_dispatch = async_dispatcher_connect(
+            self.hass, _signal_name(self._entry.entry_id), self._on_decision
         )
-        await self._async_evaluate_and_update()  # Initial update
 
     async def async_will_remove_from_hass(self) -> None:
-        if self._unsub:
-            self._unsub()
-            self._unsub = None
+        if self._unsub_dispatch:
+            self._unsub_dispatch()
+            self._unsub_dispatch = None
 
     @callback
-    def _update(self, _) -> None:
-        self.hass.async_create_task(self._async_evaluate_and_update())
+    def _on_decision(self, decision: dict[str, Any]) -> None:
+        """Receive routing decisions from the notifier and update state."""
+        # decision keys set by __init__._route_and_forward:
+        #   result: "forwarded" | "dropped" | ...
+        #   service_full: "domain.service"
+        #   via: "matched" | "fallback" | "self-recursion-fallback"
+        #   mode: "conditional" | "smart"
+        #   conditional / smart: {...}
+        result = decision.get("result")
+        if result != "forwarded":
+            # Keep state but expose last drop reason for visibility
+            self._attrs.update({
+                "last_result": result,
+                "timestamp": decision.get("timestamp"),
+            })
+            self.async_write_ha_state()
+            return
 
-    async def _async_evaluate_and_update(self) -> None:
-        new_value = self._fallback  # Default to fallback initially
+        svc_full = str(decision.get("service_full") or "")
+        svc_short = svc_full.split(".", 1)[1] if "." in svc_full else svc_full
 
-        for svc_id in self._priority:
-            tgt = next((t for t in self._targets if t[KEY_SERVICE] == svc_id), None)
-            if not tgt:
-                continue
-
-            mode = tgt.get(KEY_MATCH, "all")
-            results = await asyncio.gather(
-                *(evaluate_condition(self.hass, c) for c in tgt[KEY_CONDITIONS])
-            )
-            matched = all(results) if mode == "all" else any(results)
-            if matched:
-                new_value = svc_id
-                break
-
-        if new_value.startswith("notify."):
-            new_value = new_value[len("notify.") :]
-
-        self._attr_native_value = new_value
+        self._attr_native_value = svc_short
+        self._attrs.update({
+            "mode": decision.get("mode"),
+            "via": decision.get("via"),
+            "timestamp": decision.get("timestamp"),
+            "payload_keys": decision.get("payload_keys", []),
+            "smart": decision.get("smart"),
+            "conditional": decision.get("conditional"),
+            "last_result": result,
+            "pending_first_decision": False,
+        })
         self.async_write_ha_state()
