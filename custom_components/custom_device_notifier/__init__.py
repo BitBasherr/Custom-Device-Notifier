@@ -113,8 +113,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _handle_notify(call: ServiceCall) -> None:
         await _route_and_forward(hass, entry, call.data)
 
+    # If an old handler exists with the same slug, unregister it (async_remove is NOT awaitable)
     if hass.services.has_service("notify", slug):
-        await hass.services.async_remove("notify", slug)
+        hass.services.async_remove("notify", slug)
 
     hass.services.async_register("notify", slug, _handle_notify)
     hass.data[SERVICE_HANDLES][entry.entry_id] = slug
@@ -133,9 +134,10 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Unregister the notify service we registered for this entry (async_remove is NOT awaitable)
     slug = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
     if slug and hass.services.has_service("notify", slug):
-        await hass.services.async_remove("notify", slug)
+        hass.services.async_remove("notify", slug)
 
     ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
     hass.data[DATA].pop(entry.entry_id, None)
@@ -534,16 +536,14 @@ def _phone_is_eligible(
         st = hass.states.get(ent_id)
         if st is None:
             continue
-        batt_val = _as_float(
-            st.state
-        )  # <- renamed to avoid mypy str/float union confusion
+        batt_val = _as_float(st.state)
         if batt_val is not None:
             batt_ok = batt_val >= float(min_batt)
             break
 
     cand_fresh = [
         f"sensor.{slug}_last_update_trigger",
-        f"sensor.{slug}_last_update",
+               f"sensor.{slug}_last_update",
         f"device_tracker.{slug}",
     ]
     now = dt_util.utcnow()
