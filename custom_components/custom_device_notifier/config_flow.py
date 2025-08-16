@@ -470,7 +470,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             )
 
-    # string path
+        # string path
         opts: list[str] = ["unknown or unavailable"]
         if st:
             opts.append(st.state)
@@ -2042,7 +2042,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 description_placeholders={
                     "entity_id": self._working_condition["entity_id"],
-                    **self._get_condition_more_placeholders()},
+                    **self._get_condition_more_placeholders(),
+                },
             )
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
