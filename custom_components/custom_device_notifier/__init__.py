@@ -346,62 +346,84 @@ def _as_float(v: Any) -> float | None:
 # ─────────────────────────────────────────────────────────────────────────────-
 
 
-def _choose_service_smart(
-    hass: HomeAssistant, cfg: dict[str, Any]
-) -> Tuple[str | None, Dict[str, Any]]:
+def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
     pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
     pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
-    phone_order: List[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
+    phone_order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
 
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(
-        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
-    )
-    require_pc_unlocked = bool(
-        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
-    )
-    require_phone_unlocked = bool(
-        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
-    )
+    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
+    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
+    # Global “must be unlocked” toggle
+    require_phone_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED))
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
-    )
+    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked)
 
-    eligible_phones: List[str] = []
-    first_ok_phone: str | None = None
+    # Build two ordered buckets: phones that are both “basic OK” and “unlocked now”
+    unlocked_ok: list[str] = []
+    locked_ok: list[str] = []
     for svc in phone_order:
-        ok = _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked
+        # Basic eligibility = battery + freshness only
+        basic_ok = _phone_is_eligible(
+            hass, svc, min_batt, phone_fresh, require_unlocked=False
         )
-        if ok:
-            eligible_phones.append(svc)
-            if first_ok_phone is None:
-                first_ok_phone = svc
+        if not basic_ok:
+            continue
 
+        # Live unlocked/interactive hint (best-effort; doesn’t enforce freshness on main eligibility)
+        domain, short = _split_service(svc)
+        slug = short[11:] if short.startswith("mobile_app_") else short
+        is_unlocked_now = _phone_is_unlocked_awake(hass, slug, phone_fresh)
+
+        if is_unlocked_now:
+            unlocked_ok.append(svc)
+        else:
+            locked_ok.append(svc)
+
+    # If user explicitly requires unlocked, ignore locked bucket entirely.
+    eligible_phones = unlocked_ok if require_phone_unlocked else (unlocked_ok + locked_ok)
+
+    # Choose per policy, while always preferring unlocked when phones are used.
     chosen: str | None = None
-
     if policy == SMART_POLICY_PC_FIRST:
-        chosen = pc_service if (pc_service and pc_ok) else (first_ok_phone or None)
+        if pc_service and pc_ok:
+            chosen = pc_service
+        else:
+            chosen = (unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None))
 
     elif policy == SMART_POLICY_PHONE_FIRST:
-        chosen = (
-            first_ok_phone
-            if first_ok_phone
-            else (pc_service if pc_service and pc_ok else None)
-        )
+        if unlocked_ok:
+            chosen = unlocked_ok[0]
+        elif locked_ok:
+            chosen = locked_ok[0]
+        elif pc_service and pc_ok:
+            chosen = pc_service
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            chosen = first_ok_phone or (pc_service if pc_service and pc_ok else None)
+            # PC is unlocked → prefer phones (unlocked first), else PC, else nothing
+            if unlocked_ok:
+                chosen = unlocked_ok[0]
+            elif locked_ok:
+                chosen = locked_ok[0]
+            elif pc_service and pc_ok:
+                chosen = pc_service
         else:
-            chosen = pc_service if pc_service and pc_ok else (first_ok_phone or None)
+            # PC not unlocked → prefer PC if eligible, else phones (unlocked first)
+            if pc_service and pc_ok:
+                chosen = pc_service
+            else:
+                chosen = (unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None))
+
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
-        chosen = pc_service if (pc_service and pc_ok) else (first_ok_phone or None)
+        if pc_service and pc_ok:
+            chosen = pc_service
+        else:
+            chosen = (unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None))
 
     info = {
         "policy": policy,
@@ -409,8 +431,9 @@ def _choose_service_smart(
         "pc_session": pc_session,
         "pc_ok": pc_ok,
         "pc_unlocked": pc_unlocked,
-        "eligible_phones": eligible_phones,
-        "first_ok_phone": first_ok_phone,
+        "eligible_phones": eligible_phones,      # what the chooser actually considered in-order
+        "eligible_unlocked": unlocked_ok,        # unlocked phones in-order
+        "eligible_locked": locked_ok,            # locked phones in-order (ignored if require_phone_unlocked=True)
         "min_battery": min_batt,
         "phone_fresh_s": phone_fresh,
         "pc_fresh_s": pc_fresh,
@@ -419,7 +442,6 @@ def _choose_service_smart(
         "require_phone_unlocked": require_phone_unlocked,
     }
     return (chosen, info)
-
 
 def _pc_is_eligible(
     hass: HomeAssistant,
