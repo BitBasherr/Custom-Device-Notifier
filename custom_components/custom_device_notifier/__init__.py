@@ -322,12 +322,20 @@ def _choose_service_smart(
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
-    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
-    require_phone_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
+    require_pc_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
+    )
+    require_phone_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
+    )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked)
+    pc_ok, pc_unlocked = _pc_is_eligible(
+        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
+    )
 
     unlocked_ok: list[str] = []
     locked_ok: list[str] = []
@@ -348,14 +356,18 @@ def _choose_service_smart(
         else:
             locked_ok.append(svc)
 
-    eligible_phones = unlocked_ok if require_phone_unlocked else (unlocked_ok + locked_ok)
+    eligible_phones = (
+        unlocked_ok if require_phone_unlocked else (unlocked_ok + locked_ok)
+    )
 
     chosen: str | None = None
     if policy == SMART_POLICY_PC_FIRST:
         if pc_service and pc_ok:
             chosen = pc_service
         else:
-            chosen = (unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None))
+            chosen = (
+                unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None)
+            )
 
     elif policy == SMART_POLICY_PHONE_FIRST:
         if unlocked_ok:
@@ -377,14 +389,20 @@ def _choose_service_smart(
             if pc_service and pc_ok:
                 chosen = pc_service
             else:
-                chosen = (unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None))
+                chosen = (
+                    unlocked_ok[0]
+                    if unlocked_ok
+                    else (locked_ok[0] if locked_ok else None)
+                )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
         if pc_service and pc_ok:
             chosen = pc_service
         else:
-            chosen = (unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None))
+            chosen = (
+                unlocked_ok[0] if unlocked_ok else (locked_ok[0] if locked_ok else None)
+            )
 
     info = {
         "policy": policy,
@@ -503,7 +521,11 @@ def _phone_is_eligible(
     if usable is not None:
         usable_val = str(usable.state or "").lower()
         if usable_val in ("off", "false", "unavailable", "unknown"):
-            _LOGGER.debug("Phone %s | blocked by usable_for_notify=%s", notify_service, usable.state)
+            _LOGGER.debug(
+                "Phone %s | blocked by usable_for_notify=%s",
+                notify_service,
+                usable.state,
+            )
             return False
 
     cand_batt = [f"sensor.{slug}_battery_level", f"sensor.{slug}_battery"]
@@ -512,7 +534,9 @@ def _phone_is_eligible(
         st = hass.states.get(ent_id)
         if st is None:
             continue
-        batt_val = _as_float(st.state)  # <- renamed to avoid mypy str/float union confusion
+        batt_val = _as_float(
+            st.state
+        )  # <- renamed to avoid mypy str/float union confusion
         if batt_val is not None:
             batt_ok = batt_val >= float(min_batt)
             break
@@ -539,7 +563,9 @@ def _phone_is_eligible(
             break
 
     if shutdown_recent:
-        _LOGGER.debug("Phone %s | rejected due to recent ACTION_SHUTDOWN", notify_service)
+        _LOGGER.debug(
+            "Phone %s | rejected due to recent ACTION_SHUTDOWN", notify_service
+        )
         return False
 
     if not (batt_ok and fresh_ok_any):
@@ -554,7 +580,9 @@ def _phone_is_eligible(
 
     if require_unlocked:
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug("Phone %s | rejected (unlock/interactive required)", notify_service)
+            _LOGGER.debug(
+                "Phone %s | rejected (unlock/interactive required)", notify_service
+            )
             return False
 
     return True
