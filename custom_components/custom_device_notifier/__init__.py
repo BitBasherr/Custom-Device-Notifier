@@ -44,6 +44,9 @@ from .const import (
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
+    # new: phones must be unlocked/awake to be eligible (optional)
+    CONF_SMART_REQUIRE_PHONE_UNLOCKED,
+    DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,6 +101,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data.setdefault(CONF_PRIORITY, list(data.get(CONF_PRIORITY, [])))
     data.setdefault(CONF_FALLBACK, str(data.get(CONF_FALLBACK, "") or ""))
 
+    # New flag default (safe off)
+    data.setdefault(
+        CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED
+    )
+
     hass.config_entries.async_update_entry(entry, data=data, version=3)
     _LOGGER.info("Migrated %s entry to version 3", DOMAIN)
     return True
@@ -113,18 +121,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     # Remember runtime data
-    hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=str(slug))
+    hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=slug)
 
     # Register the notify.<slug> service
     async def _handle_notify(call: ServiceCall) -> None:
         await _route_and_forward(hass, entry, call.data)
 
     # If the service already exists (reload), remove and re-add to avoid stacking handlers
-    if hass.services.has_service("notify", str(slug)):
-        await hass.services.async_remove("notify", str(slug))
+    if hass.services.has_service("notify", slug):
+        await hass.services.async_remove("notify", slug)
 
-    hass.services.async_register("notify", str(slug), _handle_notify)
-    hass.data[SERVICE_HANDLES][entry.entry_id] = str(slug)
+    hass.services.async_register("notify", slug, _handle_notify)
+    hass.data[SERVICE_HANDLES][entry.entry_id] = slug
 
     # Watch for options updates
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -338,19 +346,23 @@ def _choose_service_smart(hass: HomeAssistant, cfg: dict[str, Any]) -> str | Non
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
-    require_unlocked = bool(
-        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
+    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
+    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
+    # NEW: only consider phones that also look unlocked/interactive
+    require_phone_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
     )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_awake, require_unlocked
+        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
     )
 
     def first_ok_phone() -> str | None:
         for svc in phone_order:
-            if _phone_is_eligible(hass, svc, min_batt, phone_fresh):
+            if _phone_is_eligible(
+                hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked
+            ):
                 return svc
         return None
 
@@ -437,10 +449,44 @@ def _looks_awake(state: str) -> bool:
     return True
 
 
+def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
+    """Best-effort check using common mobile_app sensors. True only if we find an affirmative, fresh signal."""
+    # candidate entities (Android/iOS variants seen in the wild)
+    candidates = [
+        f"binary_sensor.{slug}_interactive",
+        f"sensor.{slug}_interactive",
+        f"binary_sensor.{slug}_is_interactive",
+        f"binary_sensor.{slug}_screen_on",
+        f"sensor.{slug}_screen_state",
+        f"sensor.{slug}_display_state",  # iOS "On"/"Off"
+        f"sensor.{slug}_keyguard",  # "locked"/"unlocked"
+        f"sensor.{slug}_lock_state",
+    ]
+    now = dt_util.utcnow()
+    for ent_id in candidates:
+        st = hass.states.get(ent_id)
+        if st is None:
+            continue
+        # require the hint itself to be fresh
+        if (now - st.last_updated) > timedelta(seconds=fresh_s):
+            continue
+        val = str(st.state or "").strip().lower()
+        if val in ("on", "true", "unlocked", "awake", "interactive", "screen_on"):
+            return True
+        if "unlock" in val and "locked" not in val:
+            return True
+    return False
+
+
 def _phone_is_eligible(
-    hass: HomeAssistant, notify_service: str, min_batt: int, fresh_s: int
+    hass: HomeAssistant,
+    notify_service: str,
+    min_batt: int,
+    fresh_s: int,
+    *,
+    require_unlocked: bool = False,
 ) -> bool:
-    """Heuristic using mobile_app naming to find battery + freshness signals."""
+    """Heuristic using mobile_app naming to find battery + freshness signals (+ optional unlock)."""
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
@@ -480,14 +526,28 @@ def _phone_is_eligible(
             fresh_ok_any = True
             break
 
-    _LOGGER.debug(
-        "Phone %s | batt_ok=%s (min=%s) fresh_ok=%s",
-        notify_service,
-        batt_ok,
-        min_batt,
-        fresh_ok_any,
-    )
-    return batt_ok and fresh_ok_any
+    if not (batt_ok and fresh_ok_any):
+        _LOGGER.debug(
+            "Phone %s | batt_ok=%s (min=%s) fresh_ok=%s",
+            notify_service,
+            batt_ok,
+            min_batt,
+            fresh_ok_any,
+        )
+        return False
+
+    if require_unlocked:
+        unlocked_ok = _phone_is_unlocked_awake(hass, slug, fresh_s)
+        _LOGGER.debug(
+            "Phone %s | unlocked_ok=%s (require_unlocked=%s)",
+            notify_service,
+            unlocked_ok,
+            require_unlocked,
+        )
+        if not unlocked_ok:
+            return False
+
+    return True
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -506,6 +566,6 @@ def _split_service(full: str) -> tuple[str, str]:
 
 def _config_view(entry: ConfigEntry) -> dict[str, Any]:
     """Options override data."""
-    cfg: dict[str, Any] = dict(entry.data)
+    cfg = dict(entry.data)
     cfg.update(entry.options or {})
     return cfg
