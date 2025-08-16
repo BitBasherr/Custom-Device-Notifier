@@ -898,11 +898,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _get_order_targets_schema(
-        self,
-        *,
-        services: list[str],
-        current: list[str] | None,
-        default_action: str = "confirm",
+        self, *, services: list[str], current: list[str] | None, default_action: str = "confirm"
     ) -> vol.Schema:
         current = current or []
         remaining = [s for s in services if s not in current]
@@ -1100,9 +1096,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_show_form(
                 step_id=STEP_SMART_ORDER_PHONES,
                 data_schema=self._get_order_targets_schema(
-                    services=services,
-                    current=self._phone_order_list,
-                    default_action="add",
+                    services=services, current=self._phone_order_list, default_action="add"
                 ),
                 description_placeholders=placeholders,
             )
@@ -1112,37 +1106,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
             self._data.update(
                 {
-                    CONF_SMART_PC_NOTIFY: user_input.get(
-                        CONF_SMART_PC_NOTIFY, self._data.get(CONF_SMART_PC_NOTIFY)
-                    ),
-                    CONF_SMART_PC_SESSION: user_input.get(
-                        CONF_SMART_PC_SESSION, self._data.get(CONF_SMART_PC_SESSION)
-                    ),
-                    CONF_SMART_POLICY: user_input.get(
-                        CONF_SMART_POLICY, self._data.get(CONF_SMART_POLICY)
-                    ),
-                    CONF_SMART_MIN_BATTERY: user_input.get(
-                        CONF_SMART_MIN_BATTERY, self._data.get(CONF_SMART_MIN_BATTERY)
-                    ),
-                    CONF_SMART_PHONE_FRESH_S: user_input.get(
-                        CONF_SMART_PHONE_FRESH_S,
-                        self._data.get(CONF_SMART_PHONE_FRESH_S),
-                    ),
-                    CONF_SMART_PC_FRESH_S: user_input.get(
-                        CONF_SMART_PC_FRESH_S, self._data.get(CONF_SMART_PC_FRESH_S)
-                    ),
-                    CONF_SMART_REQUIRE_AWAKE: user_input.get(
-                        CONF_SMART_REQUIRE_AWAKE,
-                        self._data.get(CONF_SMART_REQUIRE_AWAKE),
-                    ),
-                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_UNLOCKED,
-                        self._data.get(CONF_SMART_REQUIRE_UNLOCKED),
-                    ),
-                    CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_PHONE_UNLOCKED,
-                        self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED),
-                    ),
+                    CONF_SMART_PC_NOTIFY: user_input.get(CONF_SMART_PC_NOTIFY, self._data.get(CONF_SMART_PC_NOTIFY)),
+                    CONF_SMART_PC_SESSION: user_input.get(CONF_SMART_PC_SESSION, self._data.get(CONF_SMART_PC_SESSION)),
+                    CONF_SMART_POLICY: user_input.get(CONF_SMART_POLICY, self._data.get(CONF_SMART_POLICY)),
+                    CONF_SMART_MIN_BATTERY: user_input.get(CONF_SMART_MIN_BATTERY, self._data.get(CONF_SMART_MIN_BATTERY)),
+                    CONF_SMART_PHONE_FRESH_S: user_input.get(CONF_SMART_PHONE_FRESH_S, self._data.get(CONF_SMART_PHONE_FRESH_S)),
+                    CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S, self._data.get(CONF_SMART_PC_FRESH_S)),
+                    CONF_SMART_REQUIRE_AWAKE: user_input.get(CONF_SMART_REQUIRE_AWAKE, self._data.get(CONF_SMART_REQUIRE_AWAKE)),
+                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(CONF_SMART_REQUIRE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_UNLOCKED)),
+                    CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED)),
                 }
             )
             return self.async_show_form(
@@ -1188,9 +1160,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         services = self._smart_phone_candidates()
         if user_input:
             # If user picked next_priority but didn't switch "action", treat it as "add"
-            action = user_input.get("action") or (
-                "add" if user_input.get("next_priority") else "confirm"
-            )
+            action = user_input.get("action") or ("add" if user_input.get("next_priority") else "confirm")
             next_item = user_input.get("next_priority")
             if action == "add" and next_item:
                 if next_item not in self._phone_order_list:
@@ -1199,9 +1169,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id=STEP_SMART_ORDER_PHONES,
                     data_schema=self._get_order_targets_schema(
-                        services=services,
-                        current=self._phone_order_list,
-                        default_action="add",
+                        services=services, current=self._phone_order_list, default_action="add"
                     ),
                     description_placeholders=placeholders,
                 )
@@ -1211,9 +1179,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id=STEP_SMART_ORDER_PHONES,
                     data_schema=self._get_order_targets_schema(
-                        services=services,
-                        current=self._phone_order_list,
-                        default_action="add",
+                        services=services, current=self._phone_order_list, default_action="add"
                     ),
                     description_placeholders=placeholders,
                 )
@@ -1615,9 +1581,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_show_form(
                 step_id=STEP_SMART_ORDER_PHONES,
                 data_schema=self._get_order_targets_schema(
-                    services=services,
-                    current=self._phone_order_list,
-                    default_action="add",
+                    services=services, current=self._phone_order_list, default_action="add"
                 ),
                 description_placeholders=placeholders,
             )
@@ -1626,37 +1590,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input and user_input.get("nav") == "stay":
             self._data.update(
                 {
-                    CONF_SMART_PC_NOTIFY: user_input.get(
-                        CONF_SMART_PC_NOTIFY, self._data.get(CONF_SMART_PC_NOTIFY)
-                    ),
-                    CONF_SMART_PC_SESSION: user_input.get(
-                        CONF_SMART_PC_SESSION, self._data.get(CONF_SMART_PC_SESSION)
-                    ),
-                    CONF_SMART_POLICY: user_input.get(
-                        CONF_SMART_POLICY, self._data.get(CONF_SMART_POLICY)
-                    ),
-                    CONF_SMART_MIN_BATTERY: user_input.get(
-                        CONF_SMART_MIN_BATTERY, self._data.get(CONF_SMART_MIN_BATTERY)
-                    ),
-                    CONF_SMART_PHONE_FRESH_S: user_input.get(
-                        CONF_SMART_PHONE_FRESH_S,
-                        self._data.get(CONF_SMART_PHONE_FRESH_S),
-                    ),
-                    CONF_SMART_PC_FRESH_S: user_input.get(
-                        CONF_SMART_PC_FRESH_S, self._data.get(CONF_SMART_PC_FRESH_S)
-                    ),
-                    CONF_SMART_REQUIRE_AWAKE: user_input.get(
-                        CONF_SMART_REQUIRE_AWAKE,
-                        self._data.get(CONF_SMART_REQUIRE_AWAKE),
-                    ),
-                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_UNLOCKED,
-                        self._data.get(CONF_SMART_REQUIRE_UNLOCKED),
-                    ),
-                    CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_PHONE_UNLOCKED,
-                        self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED),
-                    ),
+                    CONF_SMART_PC_NOTIFY: user_input.get(CONF_SMART_PC_NOTIFY, self._data.get(CONF_SMART_PC_NOTIFY)),
+                    CONF_SMART_PC_SESSION: user_input.get(CONF_SMART_PC_SESSION, self._data.get(CONF_SMART_PC_SESSION)),
+                    CONF_SMART_POLICY: user_input.get(CONF_SMART_POLICY, self._data.get(CONF_SMART_POLICY)),
+                    CONF_SMART_MIN_BATTERY: user_input.get(CONF_SMART_MIN_BATTERY, self._data.get(CONF_SMART_MIN_BATTERY)),
+                    CONF_SMART_PHONE_FRESH_S: user_input.get(CONF_SMART_PHONE_FRESH_S, self._data.get(CONF_SMART_PHONE_FRESH_S)),
+                    CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S, self._data.get(CONF_SMART_PC_FRESH_S)),
+                    CONF_SMART_REQUIRE_AWAKE: user_input.get(CONF_SMART_REQUIRE_AWAKE, self._data.get(CONF_SMART_REQUIRE_AWAKE)),
+                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(CONF_SMART_REQUIRE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_UNLOCKED)),
+                    CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED)),
                 }
             )
             return self.async_show_form(
@@ -1683,9 +1625,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
         if user_input:
-            action = user_input.get("action") or (
-                "add" if user_input.get("next_priority") else "confirm"
-            )
+            action = user_input.get("action") or ("add" if user_input.get("next_priority") else "confirm")
             next_item = user_input.get("next_priority")
             if action == "add" and next_item:
                 if next_item not in self._phone_order_list:
@@ -1694,9 +1634,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_show_form(
                     step_id=STEP_SMART_ORDER_PHONES,
                     data_schema=self._get_order_targets_schema(
-                        services=services,
-                        current=self._phone_order_list,
-                        default_action="add",
+                        services=services, current=self._phone_order_list, default_action="add"
                     ),
                     description_placeholders=placeholders,
                 )
@@ -1706,9 +1644,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_show_form(
                     step_id=STEP_SMART_ORDER_PHONES,
                     data_schema=self._get_order_targets_schema(
-                        services=services,
-                        current=self._phone_order_list,
-                        default_action="add",
+                        services=services, current=self._phone_order_list, default_action="add"
                     ),
                     description_placeholders=placeholders,
                 )
@@ -2082,11 +2018,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     def _get_order_targets_schema(
-        self,
-        *,
-        services: list[str],
-        current: list[str] | None,
-        default_action: str = "confirm",
+        self, *, services: list[str], current: list[str] | None, default_action: str = "confirm"
     ) -> vol.Schema:
         current = current or []
         remaining = [s for s in services if s not in current]
