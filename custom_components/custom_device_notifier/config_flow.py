@@ -47,7 +47,7 @@ from .const import (
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # new
+    # NEW
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -910,7 +910,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional("next_priority"): selector(
                     {"select": {"options": remaining}}
                 ),
-                vol.Optional("action", default="add"): selector(
+                # Default to "confirm" so posting only "priority" advances.
+                vol.Optional("action", default="confirm"): selector(
                     {
                         "select": {
                             "options": [
@@ -929,11 +930,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         services = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
-            action = user_input.get("action", "add")
+            action = user_input.get("action", "confirm")
             next_item = user_input.get("next_priority")
 
-            if action == "add":
-                if next_item and next_item not in self._priority_list:
+            # Incremental add
+            if action == "add" and next_item:
+                if next_item not in self._priority_list:
                     self._priority_list.append(next_item)
                 placeholders = _order_placeholders(services, self._priority_list)
                 return self.async_show_form(
@@ -942,9 +944,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         services=services, current=self._priority_list
                     ),
                     description_placeholders=placeholders,
-                    errors={} if next_item else {"next_priority": "pick_next"},
                 )
 
+            # Reset
             if action == "reset":
                 self._priority_list = []
                 placeholders = _order_placeholders(services, self._priority_list)
@@ -956,7 +958,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     description_placeholders=placeholders,
                 )
 
-            # Confirm
+            # Confirm (implicit if only "priority" is posted)
             selected = user_input.get("priority")
             if isinstance(selected, list) and selected:
                 final_priority = [s for s in selected if s in services]
@@ -1136,11 +1138,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
         if user_input:
-            action = user_input.get("action", "add")
+            action = user_input.get("action", "confirm")
             next_item = user_input.get("next_priority")
-
-            if action == "add":
-                if next_item and next_item not in self._phone_order_list:
+            if action == "add" and next_item:
+                if next_item not in self._phone_order_list:
                     self._phone_order_list.append(next_item)
                 placeholders = _order_placeholders(services, self._phone_order_list)
                 return self.async_show_form(
@@ -1149,9 +1150,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         services=services, current=self._phone_order_list
                     ),
                     description_placeholders=placeholders,
-                    errors={} if next_item else {"next_priority": "pick_next"},
                 )
-
             if action == "reset":
                 self._phone_order_list = []
                 placeholders = _order_placeholders(services, self._phone_order_list)
@@ -1584,11 +1583,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
         if user_input:
-            action = user_input.get("action", "add")
+            action = user_input.get("action", "confirm")
             next_item = user_input.get("next_priority")
-
-            if action == "add":
-                if next_item and next_item not in self._phone_order_list:
+            if action == "add" and next_item:
+                if next_item not in self._phone_order_list:
                     self._phone_order_list.append(next_item)
                 placeholders = _order_placeholders(services, self._phone_order_list)
                 return self.async_show_form(
@@ -1597,9 +1595,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         services=services, current=self._phone_order_list
                     ),
                     description_placeholders=placeholders,
-                    errors={} if next_item else {"next_priority": "pick_next"},
                 )
-
             if action == "reset":
                 self._phone_order_list = []
                 placeholders = _order_placeholders(services, self._phone_order_list)
@@ -1992,7 +1988,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("next_priority"): selector(
                     {"select": {"options": remaining}}
                 ),
-                vol.Optional("action", default="add"): selector(
+                # Default to "confirm" here as well.
+                vol.Optional("action", default="confirm"): selector(
                     {
                         "select": {
                             "options": [
@@ -2011,11 +2008,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         services = [t[KEY_SERVICE] for t in self._targets]
         if user_input:
-            action = user_input.get("action", "add")
+            action = user_input.get("action", "confirm")
             next_item = user_input.get("next_priority")
-
-            if action == "add":
-                if next_item and next_item not in self._priority_list:
+            if action == "add" and next_item:
+                if next_item not in self._priority_list:
                     self._priority_list.append(next_item)
                 placeholders = _order_placeholders(services, self._priority_list)
                 return self.async_show_form(
@@ -2024,9 +2020,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         services=services, current=self._priority_list
                     ),
                     description_placeholders=placeholders,
-                    errors={} if next_item else {"next_priority": "pick_next"},
                 )
-
             if action == "reset":
                 self._priority_list = []
                 placeholders = _order_placeholders(services, self._priority_list)
