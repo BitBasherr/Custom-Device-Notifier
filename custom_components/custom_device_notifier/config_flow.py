@@ -241,14 +241,23 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _smart_phone_candidates(self) -> list[str]:
-        """Fully-qualified 'notify.*' phone services."""
+        """
+        Candidate notify services for the numbered 'phone order' builder.
+
+        We now include *all* notify services so you can also put a PC notifier
+        in this list if that's how you prefer to manage ordering. Phone-like
+        services (mobile_app_*) are shown first, followed by the rest.
+        """
         services = _notify_services(self.hass)
-        mobiles = [f"notify.{s}" for s in services if s.startswith("mobile_app_")]
-        # Ensure previously chosen items remain selectable
+        phone_like = [f"notify.{s}" for s in services if s.startswith("mobile_app_")]
+        others = [f"notify.{s}" for s in services if not s.startswith("mobile_app_")]
+
+        # Ensure previously chosen items remain selectable (defensive)
         for s in self._phone_order_list:
-            if s not in mobiles:
-                mobiles.append(s)
-        return sorted(mobiles)
+            if s not in phone_like and s not in others:
+                others.append(s)
+
+        return sorted(phone_like) + sorted(others)
 
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
@@ -461,7 +470,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             )
 
-        # string path
+    # string path
         opts: list[str] = ["unknown or unavailable"]
         if st:
             opts.append(st.state)
@@ -1340,12 +1349,19 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     def _smart_phone_candidates(self) -> list[str]:
+        """
+        Options flow mirror: include *all* notify services (phones first),
+        so a PC notifier can also be placed in this ordered list if desired.
+        """
         services = _notify_services(self.hass)
-        mobiles = [f"notify.{s}" for s in services if s.startswith("mobile_app_")]
+        phone_like = [f"notify.{s}" for s in services if s.startswith("mobile_app_")]
+        others = [f"notify.{s}" for s in services if not s.startswith("mobile_app_")]
+
         for s in self._phone_order_list:
-            if s not in mobiles:
-                mobiles.append(s)
-        return sorted(mobiles)
+            if s not in phone_like and s not in others:
+                others.append(s)
+
+        return sorted(phone_like) + sorted(others)
 
     def _get_smart_setup_schema(
         self, existing: dict[str, Any] | None = None
@@ -2026,8 +2042,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 description_placeholders={
                     "entity_id": self._working_condition["entity_id"],
-                    **self._get_condition_more_placeholders(),
-                },
+                    **self._get_condition_more_placeholders()},
             )
         return self.async_show_form(
             step_id=STEP_SELECT_COND_TO_EDIT,
