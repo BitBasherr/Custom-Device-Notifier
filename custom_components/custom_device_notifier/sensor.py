@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Callable
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,8 +13,7 @@ from .const import (
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
 )
-
-# Use the shared signal helper from __init__.py (single source of truth)
+# If you prefer to avoid importing from __init__, copy the helper here instead.
 from . import _signal_name
 
 
@@ -44,16 +43,15 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
         self._attr_native_value = None
         self._attr_extra_state_attributes: Dict[str, Any] = {}
 
-        self._unsub_signal = None
+        # Properly typed unsubscribe handle
+        self._unsub_signal: Optional[Callable[[], None]] = None
 
     @property
     def device_info(self):
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
             "name": self._entry.title
-            or (
-                self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"
-            ),
+            or (self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"),
             "manufacturer": "Custom Device Notifier",
             "entry_type": "service",
         }
@@ -65,17 +63,19 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
         last = await self.async_get_last_state()
         if last is not None:
             self._attr_native_value = last.state
-            # keep any attributes we previously stored
             self._attr_extra_state_attributes = dict(last.attributes or {})
 
         # Live updates from the router in __init__._route_and_forward()
-        self._unsub_signal = async_dispatcher_connect(
+        unsub = async_dispatcher_connect(
             self.hass, _signal_name(self._entry.entry_id), self._on_route_decision
         )
-        self.async_on_remove(self._unsub_signal)
+        self._unsub_signal = unsub
+        # async_on_remove requires a non-Optional callable
+        self.async_on_remove(unsub)
 
     async def async_will_remove_from_hass(self) -> None:
-        if self._unsub_signal:
+        # Be defensive for runtime safety
+        if self._unsub_signal is not None:
             self._unsub_signal()
             self._unsub_signal = None
 
@@ -97,7 +97,7 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
 
         if result == "forwarded":
             svc_full = str(decision.get("service_full") or "")
-            # show short service name without domain (matches your old UI)
+            # show short service name without domain
             try:
                 _, short = svc_full.split(".", 1)
             except ValueError:
@@ -109,7 +109,6 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
             # dropped / dropped_self (or anything unexpected)
             new_state = result or "—"
 
-        # Surface helpful context; keep nested blocks for debugging
         attrs: Dict[str, Any] = {
             "timestamp": decision.get("timestamp"),
             "mode": decision.get("mode"),
