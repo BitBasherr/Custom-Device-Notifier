@@ -1410,7 +1410,11 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             {"value": "done", "label": "✅ Finish"},
         ]
         return vol.Schema(
-            {vol.Required("next", default="edit"): selector({"select": {"options": opts}})}
+            {
+                vol.Required("next", default="edit"): selector(
+                    {"select": {"options": opts}}
+                )
+            }
         )
 
     def _smart_phone_candidates(self) -> list[str]:
@@ -1771,13 +1775,16 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             if nxt == "smart":
                 # Route to routing mode selector (smart vs conditional)
                 return self.async_show_form(
-                    step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
                 )
             if nxt == "done":
                 # Finish without changes
                 return self.async_create_entry(title="", data=self._data)
 
-        return self.async_show_form(step_id="init", data_schema=self._options_menu_schema())
+        return self.async_show_form(
+            step_id="init", data_schema=self._options_menu_schema()
+        )
 
     # ─── mirrors of config steps (options) ───
     async def async_step_routing_mode(
