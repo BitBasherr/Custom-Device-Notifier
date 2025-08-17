@@ -45,7 +45,7 @@ from .const import (
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # new: phones must be unlocked/awake to be eligible (optional)
+    # new: optional flag, but we now *always* require unlocked for phones
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -113,7 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _handle_notify(call: ServiceCall) -> None:
         await _route_and_forward(hass, entry, call.data)
 
-    # Remove old service (if exists). ServiceRegistry.async_remove is not awaitable.
+    # NOTE: async_remove is not awaitable
     if hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
@@ -320,8 +320,8 @@ def _choose_service_smart(
     """
     Selection rules:
       - Only *unlocked* phones are eligible for selection.
-      - A phone must also be fresh (recent activity) and not recently SHUTDOWN, and meet min battery.
-      - PC is only considered if it is *unlocked* (and fresh; 'awake' per setting).
+      - A phone must also be fresh (recent activity), meet min battery, and not be recently SHUTDOWN.
+      - PC is considered only if *unlocked* (and fresh; 'awake' as configured).
       - If nothing meets those gates, return None so the fallback is used.
     """
     pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
@@ -334,61 +334,46 @@ def _choose_service_smart(
     require_pc_awake = bool(
         cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
     )
-    # We still evaluate with existing flags, but we *only* prefer PC if it's unlocked.
-    _require_pc_unlocked_flag = bool(
-        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
-    )
-    # We always require phones to be unlocked for selection (stricter than flag).
-    _require_phone_unlocked_flag = bool(
-        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
-    )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    # PC eligibility
+    # Force PC to be unlocked to be eligible for preference
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass,
-        pc_session,
-        pc_fresh,
-        require_pc_awake,
-        True,  # force unlocked requirement
+        hass, pc_session, pc_fresh, require_pc_awake, True
     )
-    pc_pref_ok = bool(pc_unlocked)  # only prefer PC if it is unlocked
+    pc_pref_ok = bool(pc_unlocked)
 
-    # Phones: we filter to only those unlocked RIGHT NOW
+    # Phones: only unlocked-now are kept
     unlocked_ok: list[str] = []
+    rejected_locked: list[str] = []
 
     for svc in phone_order:
         # Basic phone gates: battery + freshness + not shutdown
-        basic_ok = _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=False
-        )
-        if not basic_ok:
+        if not _phone_is_eligible(hass, svc, min_batt, phone_fresh, require_unlocked=False):
             continue
 
         domain, short = _split_service(svc)
         slug = short[11:] if short.startswith("mobile_app_") else short
-        is_unlocked_now = _phone_is_unlocked_awake(hass, slug, phone_fresh)
+
+        # Strict unlocked: require explicit unlock if lock sensors exist; otherwise allow interactive hints
+        is_unlocked_now, detail = _phone_is_unlocked_now_strict(hass, slug, phone_fresh)
 
         if is_unlocked_now:
             unlocked_ok.append(svc)
+        else:
+            rejected_locked.append(f"{svc} ({detail})")
 
     chosen: str | None = None
     if policy == SMART_POLICY_PC_FIRST:
-        # If PC unlocked, take it; else any unlocked phone; else None → fallback
         if pc_pref_ok:
             chosen = pc_service
         elif unlocked_ok:
             chosen = unlocked_ok[0]
-
     elif policy == SMART_POLICY_PHONE_FIRST:
-        # If any unlocked phone, take first; else PC if unlocked; else None → fallback
         if unlocked_ok:
             chosen = unlocked_ok[0]
         elif pc_pref_ok:
             chosen = pc_service
-
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
-        # If PC is unlocked: prefer phones first, else PC; If PC not unlocked: phones only; else None → fallback
         if pc_pref_ok:
             chosen = unlocked_ok[0] if unlocked_ok else pc_service
         else:
@@ -409,12 +394,11 @@ def _choose_service_smart(
         "pc_ok": pc_ok,
         "pc_unlocked": pc_unlocked,
         "eligible_unlocked_phones": unlocked_ok,
+        "rejected_locked_phones": rejected_locked,
         "min_battery": min_batt,
         "phone_fresh_s": phone_fresh,
         "pc_fresh_s": pc_fresh,
         "require_pc_awake": require_pc_awake,
-        "require_pc_unlocked_flag": _require_pc_unlocked_flag,
-        "require_phone_unlocked_flag": _require_phone_unlocked_flag,
     }
     return (chosen, info)
 
@@ -466,17 +450,22 @@ def _looks_awake(state: str) -> bool:
     return True
 
 
-def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
-    """Return True if phone is *unlocked* right now (and thus usable).
-    Logic:
-      1) If we have any *fresh* lock entity saying "locked" → False immediately.
-      2) If we have any *fresh* lock entity saying "unlocked" (off/false/unlocked) → True.
-      3) Otherwise, accept a fresh 'interactive/screen_on/awake' hint as True.
-      4) If none of the above, return False.
+def _phone_is_unlocked_now_strict(
+    hass: HomeAssistant, slug: str, fresh_s: int
+) -> tuple[bool, str]:
+    """
+    STRICT definition of "unlocked now":
+
+      • If any *fresh* lock entity says LOCKED → return (False, "locked").
+      • If any *fresh* lock entity says UNLOCKED → return (True, "explicit_unlock").
+      • If no lock entities exist for this device:
+            fall back to fresh "interactive/screen_on/awake" → (True, "interactive_fallback")
+        else (no fresh hints) → (False, "no_fresh_unlock")
+
+    We do *not* allow "interactive" to override an explicit fresh LOCKED state.
     """
     now = dt_util.utcnow()
 
-    # Explicit lock entities — treated as authoritative if fresh
     lockish = [
         f"binary_sensor.{slug}_device_locked",
         f"binary_sensor.{slug}_lock",
@@ -484,27 +473,33 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"sensor.{slug}_lock_state",
     ]
 
-    unlocked_seen = False
+    has_any_lock_sensor = False
+    saw_fresh_lock = False
+    saw_fresh_unlock = False
+
     for ent_id in lockish:
         st = hass.states.get(ent_id)
         if not st:
             continue
+        has_any_lock_sensor = True
         if (now - st.last_updated) > timedelta(seconds=fresh_s):
-            continue
+            continue  # stale lock state; ignore
         val = str(st.state or "").strip().lower()
-        # explicit locked
         if val in ("on", "true", "locked", "screen_locked"):
-            return False
-        # explicit unlocked
-        if val in ("off", "false", "unlocked", "screen_unlocked"):
-            unlocked_seen = True
-        elif "unlock" in val and "locked" not in val:
-            unlocked_seen = True
+            return (False, f"locked:{ent_id}={val}")
+        if val in ("off", "false", "unlocked", "screen_unlocked") or (
+            "unlock" in val and "locked" not in val
+        ):
+            saw_fresh_unlock = True
+            saw_fresh_lock = saw_fresh_lock or False  # keep explicit for readability
 
-    if unlocked_seen:
-        return True
+    if has_any_lock_sensor:
+        if saw_fresh_unlock:
+            return (True, "explicit_unlock")
+        # We had lock sensors, but none fresh/unlocked and none fresh/locked → treat as unknown → False
+        return (False, "no_fresh_unlock")
 
-    # Positive "awake/interactive" hints (fallback if no authoritative lock state)
+    # No lock sensors at all → allow interactive/awake fallback as best-effort
     unlockish = [
         f"binary_sensor.{slug}_interactive",
         f"sensor.{slug}_interactive",
@@ -522,12 +517,12 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         if (now - st.last_updated) > timedelta(seconds=fresh_s):
             continue
         val = str(st.state or "").strip().lower()
-        if val in ("on", "true", "awake", "interactive", "screen_on"):
-            return True
-        if "unlock" in val and "locked" not in val:
-            return True
+        if val in ("on", "true", "awake", "interactive", "screen_on") or (
+            "unlock" in val and "locked" not in val
+        ):
+            return (True, f"interactive_fallback:{ent_id}={val}")
 
-    return False
+    return (False, "no_fresh_unlock")
 
 
 def _phone_is_eligible(
@@ -538,7 +533,7 @@ def _phone_is_eligible(
     *,
     require_unlocked: bool = False,
 ) -> bool:
-    """Battery + freshness + not-shutdown (+ optional unlocked check at caller)."""
+    """Battery + freshness + not-shutdown (+ optional unlocked check; unlocked is enforced separately)."""
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
@@ -596,9 +591,10 @@ def _phone_is_eligible(
         return False
 
     if require_unlocked:
-        # (Not used here; we check unlocked separately for selection strictness.)
+        # Not used here; unlocked is enforced by strict checker upstream.
         slug2 = slug
-        if not _phone_is_unlocked_awake(hass, slug2, fresh_s):
+        is_unlocked_now, _ = _phone_is_unlocked_now_strict(hass, slug2, fresh_s)
+        if not is_unlocked_now:
             return False
 
     return True
