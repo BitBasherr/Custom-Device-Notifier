@@ -13,7 +13,6 @@ from .const import (
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
 )
-
 # If you prefer to avoid importing from __init__, copy the helper here instead.
 from . import _signal_name
 
@@ -52,9 +51,7 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
             "name": self._entry.title
-            or (
-                self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"
-            ),
+            or (self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"),
             "manufacturer": "Custom Device Notifier",
             "entry_type": "service",
         }
