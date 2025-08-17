@@ -294,7 +294,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return lhs <= rhs
         if op == "==":
             return lhs == rhs
-        if op == "!="":
+        if op == "!=":
             return lhs != rhs
 
     lstr = str(s)
