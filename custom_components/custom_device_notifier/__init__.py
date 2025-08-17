@@ -593,10 +593,18 @@ def _choose_service_smart(
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
             # PC is unlocked; prefer a phone ONLY if an eligible phone exists
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
             # PC is locked/unknown; prefer PC only if still ok, otherwise phones
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
