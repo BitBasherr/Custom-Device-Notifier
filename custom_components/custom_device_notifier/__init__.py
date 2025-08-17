@@ -377,7 +377,9 @@ def _choose_service_smart(
         else:
             chosen = eligible_phones[0] if eligible_phones else None
     else:
-        _LOGGER.warning("Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy)
+        _LOGGER.warning(
+            "Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy
+        )
         if pc_unlocked and pc_service and pc_ok:
             chosen = eligible_phones[0] if eligible_phones else pc_service
         else:
