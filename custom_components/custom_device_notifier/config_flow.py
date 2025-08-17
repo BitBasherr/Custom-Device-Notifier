@@ -269,17 +269,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
         existing = existing or {}
-
-        # Build PC-only candidate list (non-mobile) for the dropdown.
-        pc_options = self._smart_pc_candidates()
-
-        # Compute a sensible default from *non-mobile* raw service names.
-        raw_services = _notify_services(self.hass)
-        non_mobile_raw = [s for s in raw_services if not s.startswith("mobile_app_")]
+        services = _notify_services(self.hass)  # raw names without "notify."
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY)
         if not pc_default:
-            guess = _default_pc_notify(non_mobile_raw)
+            guess = _default_pc_notify(services)
             pc_default = f"notify.{guess}" if guess else ""
 
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
@@ -297,7 +291,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): selector(
                     {
                         "select": {
-                            "options": pc_options,
+                            "options": [f"notify.{s}" for s in services],
                             "custom_value": True,
                         }
                     }
@@ -1115,7 +1109,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
-                # Finish the classic wizard here
+                # Finish the wizard here (classic or smart path both confirm fallback)
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
                 title = (
                     self._data.get(CONF_SERVICE_NAME_RAW)
@@ -1238,11 +1232,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 }
             )
-            # return to main wizard
+            # After Smart setup, unify by asking for fallback now.
             return self.async_show_form(
-                step_id=STEP_TARGET_MORE,
-                data_schema=self._get_target_more_schema(),
-                description_placeholders=self._get_target_more_placeholders(),
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._get_choose_fallback_schema(),
+                errors={},
+                description_placeholders={
+                    "available_services": ", ".join(
+                        sorted(self.hass.services.async_services().get("notify", {}))
+                    ),
+                    "current_order": "—",
+                    "remaining": "—",
+                },
             )
 
         return self.async_show_form(
@@ -1288,14 +1289,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     description_placeholders=placeholders,
                 )
 
-            # Confirm → persist into data and jump back to Smart setup
+            # Confirm → persist into data and jump back to Smart setup (or on to fallback)
             selected = user_input.get("priority")
             if isinstance(selected, list) and selected:
                 final_priority = [s for s in selected if s in services]
             elif self._phone_order_list:
                 final_priority = [s for s in self._phone_order_list if s in services]
             else:
-                final_priority = services
+                # Do not force every service into the order; if user chose nothing, keep it empty.
+                final_priority = []
 
             self._data[CONF_SMART_PHONE_ORDER] = final_priority
             return self.async_show_form(
@@ -1385,15 +1387,11 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self, existing: dict[str, Any] | None = None
     ) -> vol.Schema:
         existing = existing or {}
-
-        pc_options = self._smart_pc_candidates()
-
-        raw_services = _notify_services(self.hass)
-        non_mobile_raw = [s for s in raw_services if not s.startswith("mobile_app_")]
+        services = _notify_services(self.hass)
 
         pc_default = existing.get(CONF_SMART_PC_NOTIFY)
         if not pc_default:
-            guess = _default_pc_notify(non_mobile_raw)
+            guess = _default_pc_notify(services)
             pc_default = f"notify.{guess}" if guess else ""
         pc_session_default = existing.get(CONF_SMART_PC_SESSION) or (
             f"sensor.{(pc_default or '').removeprefix('notify.').lower()}_sessionstate"
@@ -1410,7 +1408,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 ): selector(
                     {
                         "select": {
-                            "options": pc_options,
+                            "options": [f"notify.{s}" for s in services],
                             "custom_value": True,
                         }
                     }
@@ -1798,10 +1796,19 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             self._data.update(user_input)
             # ensure we persist phone order list as currently built
             self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, options=self._data
+            # After Smart setup, also jump straight to fallback selection (unified UX).
+            return self.async_show_form(
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._get_choose_fallback_schema(),
+                errors={},
+                description_placeholders={
+                    "available_services": ", ".join(
+                        sorted(self.hass.services.async_services().get("notify", {}))
+                    ),
+                    "current_order": "—",
+                    "remaining": "—",
+                },
             )
-            return self.async_create_entry(title="", data={})
 
         return self.async_show_form(
             step_id=STEP_SMART_SETUP,
@@ -1851,7 +1858,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             elif self._phone_order_list:
                 final_priority = [s for s in self._phone_order_list if s in services]
             else:
-                final_priority = services
+                # Do not force every service into the order. Keep it empty if user didn't select any.
+                final_priority = []
 
             self._data[CONF_SMART_PHONE_ORDER] = final_priority
             # Return to smart setup, preserving changes
