@@ -45,7 +45,7 @@ from .const import (
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # optional flag; we now enforce unlocked regardless (see below)
+    # optional flag; we effectively enforce unlocked for phones in Smart Select
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -335,65 +335,90 @@ def _service_slug(full: str) -> str:
 
 def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
     """
-    Return True only if we have a fresh signal that the phone is unlocked/interactive.
-    Any fresh signal that the phone is *locked* forces a False.
-    If we cannot tell, we treat it as not unlocked (False).
+    Decide unlocked vs locked by timestamp precedence:
+
+    - If we see ANY 'locked' signal (even stale), treat as LOCKED,
+      unless there is an explicit 'unlocked/interactive' signal with a NEWER timestamp.
+    - Positive 'unlocked/interactive' signals must be FRESH (<= fresh_s).
+    - If we can't find any fresh positive and either (a) any locked exists (stale or fresh),
+      or (b) nothing at all exists, we treat as NOT unlocked.
+
+    This prevents a locked phone from being routed to just because an old 'screen_on'
+    lingered or a lock entity hasn’t updated recently.
     """
     now = dt_util.utcnow()
     fresh = timedelta(seconds=fresh_s)
 
-    # 1) Any *locked* signal (fresh) → immediately not unlocked
-    locked_candidates = [
+    # Collect timestamps
+    latest_lock_ts = None
+    saw_lock = False
+
+    lock_entities = [
         f"binary_sensor.{slug}_device_locked",
         f"binary_sensor.{slug}_locked",
         f"sensor.{slug}_keyguard",
         f"sensor.{slug}_lock_state",
+        # some setups flip these:
+        f"binary_sensor.{slug}_lock",  # on == locked (on some templates)
     ]
-    for ent_id in locked_candidates:
+    for ent_id in lock_entities:
         st = hass.states.get(ent_id)
         if not st:
             continue
-        if (now - st.last_updated) > fresh:
-            continue
         val = str(st.state or "").strip().lower()
-        if val in ("on", "true", "locked", "screen_locked"):
-            return False
-        if "locked" in val and "unlock" not in val:
-            return False
+        is_locked = (
+            val in ("on", "true", "locked", "screen_locked")
+            or ("locked" in val and "unlock" not in val)
+        )
+        if is_locked:
+            saw_lock = True
+            ts = getattr(st, "last_updated", None)
+            if ts:
+                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
 
-    # 2) Any *positive* unlock/interactive signal (fresh) → unlocked
-    positive_candidates = [
+    latest_unlock_ts = None
+    saw_fresh_unlock = False
+    positive_entities = [
         f"binary_sensor.{slug}_interactive",
         f"sensor.{slug}_interactive",
         f"binary_sensor.{slug}_is_interactive",
         f"binary_sensor.{slug}_screen_on",
         f"sensor.{slug}_screen_state",
         f"sensor.{slug}_display_state",
-        f"sensor.{slug}_keyguard",  # may report "unlocked"/"none"
-        f"sensor.{slug}_lock_state",  # may report "unlocked"
-        f"binary_sensor.{slug}_lock",  # off/false == unlocked on some setups
+        f"sensor.{slug}_keyguard",     # may report "none"/"unlocked"
+        f"sensor.{slug}_lock_state",   # may report "unlocked"
+        f"binary_sensor.{slug}_lock",  # off == unlocked (some setups)
         f"binary_sensor.{slug}_awake",
         f"sensor.{slug}_awake",
     ]
-    for ent_id in positive_candidates:
+    for ent_id in positive_entities:
         st = hass.states.get(ent_id)
         if not st:
             continue
-        if (now - st.last_updated) > fresh:
+        # only count positive if fresh
+        ts = getattr(st, "last_updated", None)
+        if not ts or (now - ts) > fresh:
             continue
         val = str(st.state or "").strip().lower()
+        is_unlocked = (
+            val in ("on", "true", "unlocked", "awake", "interactive", "screen_on", "none", "keyguard_off")
+            or (ent_id.endswith("_lock") and val in ("off", "false"))
+            or ("unlock" in val and "locked" not in val)
+        )
+        if is_unlocked:
+            saw_fresh_unlock = True
+            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
 
-        if val in ("on", "true", "unlocked", "awake", "interactive", "screen_on"):
+    # Resolution by precedence
+    if saw_lock and not saw_fresh_unlock:
+        return False
+    if saw_lock and saw_fresh_unlock:
+        # Only consider unlocked if it's newer than the last lock
+        if latest_lock_ts and latest_unlock_ts and latest_unlock_ts > latest_lock_ts:
             return True
-        if ent_id.endswith("_lock") and val in ("off", "false"):
-            return True
-        if "unlock" in val and "locked" not in val:
-            return True
-        if val in ("none", "keyguard_off"):
-            return True
-
-    # No fresh unlock signals → treat as not unlocked
-    return False
+        return False
+    # No locks seen at all → require fresh positive to treat as unlocked
+    return bool(saw_fresh_unlock)
 
 
 def _phone_is_eligible(
@@ -556,11 +581,7 @@ def _choose_service_smart(
     eligible_phones: list[str] = []
     for svc in phone_order:
         if _phone_is_eligible(
-            hass,
-            svc,
-            min_batt,
-            phone_fresh,
-            require_unlocked=require_phone_unlocked_effective,
+            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
         ):
             eligible_phones.append(svc)
 
@@ -580,18 +601,10 @@ def _choose_service_smart(
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
             # PC is unlocked; only use a phone if an unlocked eligible one exists
-            chosen = (
-                eligible_phones[0]
-                if eligible_phones
-                else (pc_service if pc_ok else None)
-            )
+            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
         else:
             # PC is locked/unknown; prefer PC if still allowed, else phones
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
