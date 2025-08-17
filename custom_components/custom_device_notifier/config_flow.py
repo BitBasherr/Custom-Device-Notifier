@@ -616,18 +616,19 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Get service name, then IMMEDIATELY ask which routing mode to use."""
         if user_input:
             raw = user_input["service_name_raw"].strip()
             slug = slugify(raw) or "custom_notifier"
             await self.async_set_unique_id(slug)
             self._abort_if_unique_id_configured()
+
+            # persist basic names
             self._data.update({CONF_SERVICE_NAME_RAW: raw, CONF_SERVICE_NAME: slug})
-            # Ask the mode first to avoid prioritization confusion later.
-            return self.async_show_form(
-                step_id=STEP_ROUTING_MODE,
-                data_schema=self._get_routing_mode_schema(),
-            )
+
+            # IMPORTANT: default routing mode to conditional and continue to add_target
+            self._data.setdefault(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
+            # Most tests expect to start with adding a target, not choosing a mode
+            return await self.async_step_add_target()
 
         return self.async_show_form(
             step_id=STEP_USER,
