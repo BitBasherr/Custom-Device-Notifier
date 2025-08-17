@@ -346,7 +346,9 @@ def _choose_service_smart(
 
     for svc in phone_order:
         # Basic phone gates: battery + freshness + not shutdown
-        if not _phone_is_eligible(hass, svc, min_batt, phone_fresh, require_unlocked=False):
+        if not _phone_is_eligible(
+            hass, svc, min_batt, phone_fresh, require_unlocked=False
+        ):
             continue
 
         domain, short = _split_service(svc)
