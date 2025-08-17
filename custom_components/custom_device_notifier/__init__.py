@@ -556,7 +556,11 @@ def _choose_service_smart(
     eligible_phones: list[str] = []
     for svc in phone_order:
         if _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
+            hass,
+            svc,
+            min_batt,
+            phone_fresh,
+            require_unlocked=require_phone_unlocked_effective,
         ):
             eligible_phones.append(svc)
 
@@ -576,10 +580,18 @@ def _choose_service_smart(
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
             # PC is unlocked; only use a phone if an unlocked eligible one exists
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
             # PC is locked/unknown; prefer PC if still allowed, else phones
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
