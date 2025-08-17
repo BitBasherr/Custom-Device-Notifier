@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Callable, Iterable, List, Set, Tuple
+from typing import Any, Callable, Set
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,7 +13,6 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
-from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -26,10 +25,7 @@ from .const import (
     ROUTING_CONDITIONAL,
     # conditional path
     CONF_TARGETS,
-    CONF_PRIORITY,
     KEY_CONDITIONS,
-    KEY_SERVICE,
-    # fallback
     CONF_FALLBACK,
 )
 
@@ -38,7 +34,9 @@ from . import __init__ as core  # noqa: PLC0415
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-SCAN_INTERVAL = timedelta(seconds=30)  # light safety refresh; events do most of the work
+SCAN_INTERVAL = timedelta(
+    seconds=30
+)  # light safety refresh; events do most of the work
 
 
 def _signal_name(entry_id: str) -> str:
@@ -170,11 +168,15 @@ class PreferredNotifierSensor(SensorEntity):
         watch: Set[str] = set()
 
         # PC session
-        pc_session = cfg.get("smart_pc_session") or cfg.get("smart_pc_sensor") or cfg.get(
-            "smart_pc_session_entity"
+        pc_session = (
+            cfg.get("smart_pc_session")
+            or cfg.get("smart_pc_sensor")
+            or cfg.get("smart_pc_session_entity")
         )
-        pc_session = cfg.get("smart_pc_session") or cfg.get("smart_pc_session_entity") or cfg.get(
-            "smart_pc_sensor"
+        pc_session = (
+            cfg.get("smart_pc_session")
+            or cfg.get("smart_pc_session_entity")
+            or cfg.get("smart_pc_sensor")
         )
         pc_session = cfg.get("smart_pc_session")  # canonical per const.py
         if isinstance(pc_session, str) and pc_session:
