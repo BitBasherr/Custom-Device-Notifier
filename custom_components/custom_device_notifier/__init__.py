@@ -378,7 +378,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                latest_lock_ts = (
+                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                )
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -390,8 +392,8 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"binary_sensor.{slug}_screen_on",
         f"sensor.{slug}_screen_state",
         f"sensor.{slug}_display_state",
-        f"sensor.{slug}_keyguard",     # "none", "keyguard_off"
-        f"sensor.{slug}_lock_state",   # "unlocked"
+        f"sensor.{slug}_keyguard",  # "none", "keyguard_off"
+        f"sensor.{slug}_lock_state",  # "unlocked"
         f"binary_sensor.{slug}_lock",  # off == unlocked
         f"binary_sensor.{slug}_awake",
         f"sensor.{slug}_awake",
@@ -405,13 +407,25 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             continue
         val = str(st.state or "").strip().lower()
         is_unlocked = (
-            val in ("on", "true", "unlocked", "awake", "interactive", "screen_on", "none", "keyguard_off")
+            val
+            in (
+                "on",
+                "true",
+                "unlocked",
+                "awake",
+                "interactive",
+                "screen_on",
+                "none",
+                "keyguard_off",
+            )
             or (ent_id.endswith("_lock") and val in ("off", "false"))
             or ("unlock" in val and "locked" not in val)
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     if saw_lock and not saw_fresh_unlock:
         return False
@@ -506,7 +520,9 @@ def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
+    if any(
+        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
+    ):
         return False
     return True
 
@@ -532,7 +548,9 @@ def _pc_is_eligible(
     unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
-    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    eligible = (
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    )
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
         session_entity,
@@ -555,8 +573,12 @@ def _choose_service_smart(
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
-    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
+    require_pc_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
+    )
     require_phone_unlocked_effective = bool(
         cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
     )
@@ -592,9 +614,17 @@ def _choose_service_smart(
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -606,7 +636,11 @@ def _choose_service_smart(
     # final guard against stale reads: if a phone was selected, verify again
     if chosen and chosen.startswith("notify.mobile_app_"):
         if not _phone_is_eligible(
-            hass, chosen, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
+            hass,
+            chosen,
+            min_batt,
+            phone_fresh,
+            require_unlocked=require_phone_unlocked_effective,
         ):
             _LOGGER.debug(
                 "Final guard rejected %s (locked/shutdown/not fresh). Falling back.",

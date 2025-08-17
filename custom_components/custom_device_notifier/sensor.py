@@ -13,6 +13,7 @@ from .const import (
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
 )
+
 # Use the shared signal helper from __init__.py (single source of truth)
 from . import _signal_name
 
@@ -49,7 +50,10 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
     def device_info(self):
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._entry.title or (self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"),
+            "name": self._entry.title
+            or (
+                self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"
+            ),
             "manufacturer": "Custom Device Notifier",
             "entry_type": "service",
         }
