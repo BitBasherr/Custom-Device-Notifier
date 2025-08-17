@@ -1,199 +1,123 @@
 from __future__ import annotations
 
-import asyncio
-import logging
-from collections.abc import Callable
-from datetime import timedelta
-from typing import Any, Mapping, Optional
+from typing import Any, Dict
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.util import dt as dt_util
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
-    CONF_FALLBACK,
-    CONF_PRIORITY,
+    DOMAIN,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
-    CONF_TARGETS,
-    DOMAIN,
-    KEY_CONDITIONS,
-    KEY_MATCH,
-    KEY_SERVICE,
 )
-from .evaluate import evaluate_condition
-
-_LOGGER = logging.getLogger(DOMAIN)
-
-
-def _get_entry_data(entry: ConfigEntry) -> Mapping[str, Any]:
-    """Prefer options over data; options flow writes there."""
-    return entry.options or entry.data
-
-
-def _signal_name(entry_id: str) -> str:
-    """Dispatcher signal used by __init__.py to publish routing decisions."""
-    return f"{DOMAIN}_route_update_{entry_id}"
-
-
-class CurrentTargetSensor(SensorEntity):
-    """Shows the currently chosen target service (actual routed decision when available)."""
-
-    _attr_icon = "mdi:send-circle-outline"
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        self.hass = hass
-        self._entry = entry
-
-        data = _get_entry_data(entry)
-        self._targets = list(data.get(CONF_TARGETS, []))
-        self._priority = list(data.get(CONF_PRIORITY, []))
-        self._fallback = str(data.get(CONF_FALLBACK, ""))
-
-        raw_name = str(data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier"))
-        slug = str(data.get(CONF_SERVICE_NAME, "custom_notifier"))
-
-        # Keep the same display name and unique_id (so entity_id stays the same)
-        self._attr_name = f"{raw_name} Current Target"
-        self._attr_unique_id = f"{slug}_current_target"
-
-        self._attr_native_value: Optional[str] = None
-        self._attr_extra_state_attributes: dict[str, Any] = {}
-
-        # Subscriptions (filled in async_added_to_hass)
-        self._unsub_state_change: Callable[[], None] | None = None
-        self._unsub_signal: Callable[[], None] | None = None
-
-        # To avoid immediately overwriting a fresh router decision with a background eval
-        self._last_decision_at = None  # datetime | None
-
-    async def async_added_to_hass(self) -> None:
-        # Listen for entity changes used by conditions (background “would choose” updates)
-        entities = {
-            cond["entity_id"]
-            for tgt in self._targets
-            for cond in tgt.get(KEY_CONDITIONS, [])
-            if isinstance(cond, dict)
-            and cond.get("entity_id")
-            and self.hass.states.get(cond["entity_id"]) is not None
-        }
-        if entities:
-            self._unsub_state_change = async_track_state_change_event(
-                self.hass, list(entities), self._update_from_entities
-            )
-
-        # Listen for actual routing decisions from __init__.py
-        self._unsub_signal = async_dispatcher_connect(
-            self.hass, _signal_name(self._entry.entry_id), self._on_route_decision
-        )
-
-        # Initial background evaluation
-        await self._async_evaluate_and_update()
-
-    async def async_will_remove_from_hass(self) -> None:
-        if self._unsub_state_change:
-            self._unsub_state_change()
-            self._unsub_state_change = None
-        if self._unsub_signal:
-            self._unsub_signal()
-            self._unsub_signal = None
-
-    # ── updates from entity state changes (background prediction) ──
-
-    @callback
-    def _update_from_entities(self, _) -> None:
-        self.hass.async_create_task(self._async_evaluate_and_update())
-
-    async def _async_evaluate_and_update(self) -> None:
-        """Predict ‘current’ target from conditions/priority for idle display."""
-        # If we just received an actual decision very recently, don’t clobber it.
-        if self._last_decision_at:
-            if (dt_util.utcnow() - self._last_decision_at) <= timedelta(seconds=2):
-                return
-
-        new_value = self._fallback or None  # default to fallback if nothing matches
-
-        # Walk priority order and pick the first target whose conditions match
-        for svc_id in self._priority:
-            tgt = next((t for t in self._targets if t.get(KEY_SERVICE) == svc_id), None)
-            if not tgt:
-                continue
-
-            mode = str(tgt.get(KEY_MATCH, "all"))
-            conds = list(tgt.get(KEY_CONDITIONS, []))
-            if not conds:
-                # If no conditions defined, this target is always a match
-                new_value = svc_id
-                break
-
-            results = await asyncio.gather(
-                *(evaluate_condition(self.hass, c) for c in conds)
-            )
-            matched = all(results) if mode == "all" else any(results)
-            if matched:
-                new_value = svc_id
-                break
-
-        # Display the short service name (no domain)
-        if isinstance(new_value, str) and new_value.startswith("notify."):
-            new_value = new_value[len("notify.") :]
-
-        self._attr_native_value = new_value
-        self.async_write_ha_state()
-
-    # ── updates from the router (actual send decisions) ──
-
-    @callback
-    def _on_route_decision(self, decision: dict) -> None:
-        """
-        Called by dispatcher whenever the router forwards a notification.
-        decision example:
-          {
-            "timestamp": "...",
-            "result": "forwarded",
-            "service_full": "notify.mobile_app_pixel_7",
-            "via": "matched" | "fallback" | "self-recursion-fallback",
-            "mode": "smart" | "conditional",
-            "smart": {...} | "conditional": {...}
-          }
-        """
-        svc_full = decision.get("service_full")
-        if not svc_full:
-            return
-
-        # Record when this arrived so background eval won’t instantly overwrite it
-        self._last_decision_at = dt_util.utcnow()
-
-        # Present the human-friendly service short name (without domain)
-        try:
-            _, short = svc_full.split(".", 1)
-        except ValueError:
-            short = svc_full
-        if short.startswith("notify."):
-            short = short[len("notify.") :]
-
-        self._attr_native_value = short
-
-        # Optional: surface a bit of context for debugging
-        attrs = dict(self._attr_extra_state_attributes or {})
-        attrs.update(
-            {
-                "last_decision_ts": decision.get("timestamp"),
-                "last_decision_via": decision.get("via"),
-                "last_decision_mode": decision.get("mode"),
-                "last_decision_service": svc_full,
-            }
-        )
-        self._attr_extra_state_attributes = attrs
-
-        self.async_write_ha_state()
+# Use the shared signal helper from __init__.py (single source of truth)
+from . import _signal_name
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ) -> None:
-    """Set up the sensor entity."""
-    async_add_entities([CurrentTargetSensor(hass, entry)])
+    async_add_entities([CurrentTargetSensor(hass, entry)], True)
+
+
+class CurrentTargetSensor(RestoreEntity, SensorEntity):
+    """Shows the *actual* last routed target, updated live via dispatcher."""
+
+    _attr_icon = "mdi:send-circle-outline"
+    _attr_should_poll = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+
+        raw_name = str(entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Notifier")
+        slug = str(entry.data.get(CONF_SERVICE_NAME) or "custom_notifier")
+
+        # Keep name/unique_id identical to your previous sensor so the entity_id is stable
+        self._attr_name = f"{raw_name} Current Target"
+        self._attr_unique_id = f"{slug}_current_target"
+
+        self._attr_native_value = None
+        self._attr_extra_state_attributes: Dict[str, Any] = {}
+
+        self._unsub_signal = None
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": self._entry.title or (self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"),
+            "manufacturer": "Custom Device Notifier",
+            "entry_type": "service",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        # Restore last decision for nice dashboards after restart (purely cosmetic)
+        last = await self.async_get_last_state()
+        if last is not None:
+            self._attr_native_value = last.state
+            # keep any attributes we previously stored
+            self._attr_extra_state_attributes = dict(last.attributes or {})
+
+        # Live updates from the router in __init__._route_and_forward()
+        self._unsub_signal = async_dispatcher_connect(
+            self.hass, _signal_name(self._entry.entry_id), self._on_route_decision
+        )
+        self.async_on_remove(self._unsub_signal)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_signal:
+            self._unsub_signal()
+            self._unsub_signal = None
+
+    @callback
+    def _on_route_decision(self, decision: Dict[str, Any]) -> None:
+        """
+        decision looks like:
+        {
+          "timestamp": "...",
+          "mode": "conditional|smart",
+          "payload_keys": [...],
+          "result": "forwarded|dropped|dropped_self",
+          "service_full": "notify.mobile_app_xyz",  # when forwarded
+          "via": "matched|fallback|self-recursion-fallback",
+          "smart": {...} | "conditional": {...}
+        }
+        """
+        result = str(decision.get("result") or "").strip()
+
+        if result == "forwarded":
+            svc_full = str(decision.get("service_full") or "")
+            # show short service name without domain (matches your old UI)
+            try:
+                _, short = svc_full.split(".", 1)
+            except ValueError:
+                short = svc_full
+            if short.startswith("notify."):
+                short = short[len("notify.") :]
+            new_state = short or "—"
+        else:
+            # dropped / dropped_self (or anything unexpected)
+            new_state = result or "—"
+
+        # Surface helpful context; keep nested blocks for debugging
+        attrs: Dict[str, Any] = {
+            "timestamp": decision.get("timestamp"),
+            "mode": decision.get("mode"),
+            "via": decision.get("via"),
+            "payload_keys": decision.get("payload_keys", []),
+            "service_full": decision.get("service_full"),
+        }
+        if "smart" in decision:
+            attrs["smart"] = decision["smart"]
+        if "conditional" in decision:
+            attrs["conditional"] = decision["conditional"]
+
+        self._attr_native_value = new_state
+        self._attr_extra_state_attributes = attrs
+        self.async_write_ha_state()
