@@ -346,7 +346,11 @@ def _choose_service_smart(
 
     # PC eligibility
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake, True  # force unlocked requirement
+        hass,
+        pc_session,
+        pc_fresh,
+        require_pc_awake,
+        True,  # force unlocked requirement
     )
     pc_pref_ok = bool(pc_unlocked)  # only prefer PC if it is unlocked
 
@@ -390,7 +394,9 @@ def _choose_service_smart(
         else:
             chosen = unlocked_ok[0] if unlocked_ok else None
     else:
-        _LOGGER.warning("Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy)
+        _LOGGER.warning(
+            "Unknown smart policy %r; defaulting to PHONE_IF_PC_UNLOCKED", policy
+        )
         if pc_pref_ok:
             chosen = unlocked_ok[0] if unlocked_ok else pc_service
         else:
