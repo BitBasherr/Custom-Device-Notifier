@@ -45,7 +45,7 @@ from .const import (
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # new: phones must be unlocked/awake to be eligible (optional)
+    # optional flag; we now enforce unlocked regardless (see below)
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -544,38 +544,21 @@ def _choose_service_smart(
     require_pc_unlocked = bool(
         cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
     )
-    require_phone_unlocked = bool(
-        cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
-    )
+    # Enforce: phones must be unlocked for Smart Select (flag ignored)
+    require_phone_unlocked_effective = True
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
         hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
     )
 
-    unlocked_ok: list[str] = []
-    locked_but_ok: list[str] = []
-
+    # Build eligible phone list strictly requiring "unlocked"
+    eligible_phones: list[str] = []
     for svc in phone_order:
-        # Basic eligibility (fresh, battery, not shutdown)
-        basic_ok = _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=False
-        )
-        if not basic_ok:
-            continue
-
-        slug = _service_slug(svc)
-        is_unlocked_now = _phone_is_unlocked_awake(hass, slug, phone_fresh)
-
-        if is_unlocked_now:
-            unlocked_ok.append(svc)
-        else:
-            locked_but_ok.append(svc)
-
-    # Phones the router is actually allowed to pick from
-    eligible_phones: list[str] = (
-        unlocked_ok if require_phone_unlocked else (unlocked_ok + locked_but_ok)
-    )
+        if _phone_is_eligible(
+            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
+        ):
+            eligible_phones.append(svc)
 
     chosen: str | None = None
     if policy == SMART_POLICY_PC_FIRST:
@@ -592,19 +575,11 @@ def _choose_service_smart(
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            # PC is unlocked; prefer a phone ONLY if an eligible phone exists
-            chosen = (
-                eligible_phones[0]
-                if eligible_phones
-                else (pc_service if pc_ok else None)
-            )
+            # PC is unlocked; only use a phone if an unlocked eligible one exists
+            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
         else:
-            # PC is locked/unknown; prefer PC only if still ok, otherwise phones
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            # PC is locked/unknown; prefer PC if still allowed, else phones
+            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -613,6 +588,17 @@ def _choose_service_smart(
         elif eligible_phones:
             chosen = eligible_phones[0]
 
+    # Final guard against stale reads: if a phone was selected, verify again
+    if chosen and chosen.startswith("notify.mobile_app_"):
+        if not _phone_is_eligible(
+            hass, chosen, min_batt, phone_fresh, require_unlocked=True
+        ):
+            _LOGGER.debug(
+                "Final guard rejected %s (locked/shutdown/not fresh). Falling back.",
+                chosen,
+            )
+            chosen = None
+
     info = {
         "policy": policy,
         "pc_service": pc_service,
@@ -620,14 +606,12 @@ def _choose_service_smart(
         "pc_ok": pc_ok,
         "pc_unlocked": pc_unlocked,
         "eligible_phones": eligible_phones,
-        "eligible_unlocked": unlocked_ok,
-        "eligible_locked_considered": [] if require_phone_unlocked else locked_but_ok,
         "min_battery": min_batt,
         "phone_fresh_s": phone_fresh,
         "pc_fresh_s": pc_fresh,
         "require_pc_awake": require_pc_awake,
         "require_pc_unlocked": require_pc_unlocked,
-        "require_phone_unlocked": require_phone_unlocked,
+        "require_phone_unlocked_effective": require_phone_unlocked_effective,
     }
     return (chosen, info)
 
