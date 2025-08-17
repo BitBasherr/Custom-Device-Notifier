@@ -34,7 +34,6 @@ from .const import (
     CONF_SMART_PHONE_FRESH_S,
     CONF_SMART_PC_FRESH_S,
     CONF_SMART_REQUIRE_AWAKE,
-    CONF_SMART_REQUIRE_UNLOCKED,
     CONF_SMART_POLICY,
     SMART_POLICY_PC_FIRST,
     SMART_POLICY_PHONE_IF_PC_UNLOCKED,
@@ -43,9 +42,8 @@ from .const import (
     DEFAULT_SMART_PHONE_FRESH_S,
     DEFAULT_SMART_PC_FRESH_S,
     DEFAULT_SMART_REQUIRE_AWAKE,
-    DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # new: optional flag, but we now *always* require unlocked for phones
+    # optional: phones must be unlocked/awake to be eligible (migration default)
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -474,8 +472,6 @@ def _phone_is_unlocked_now_strict(
     ]
 
     has_any_lock_sensor = False
-    saw_fresh_lock = False
-    saw_fresh_unlock = False
 
     for ent_id in lockish:
         st = hass.states.get(ent_id)
@@ -490,13 +486,10 @@ def _phone_is_unlocked_now_strict(
         if val in ("off", "false", "unlocked", "screen_unlocked") or (
             "unlock" in val and "locked" not in val
         ):
-            saw_fresh_unlock = True
-            saw_fresh_lock = saw_fresh_lock or False  # keep explicit for readability
+            return (True, "explicit_unlock")
 
     if has_any_lock_sensor:
-        if saw_fresh_unlock:
-            return (True, "explicit_unlock")
-        # We had lock sensors, but none fresh/unlocked and none fresh/locked → treat as unknown → False
+        # Lock sensors exist, but none fresh/unlocked and none fresh/locked → treat as unknown → False
         return (False, "no_fresh_unlock")
 
     # No lock sensors at all → allow interactive/awake fallback as best-effort
@@ -591,9 +584,7 @@ def _phone_is_eligible(
         return False
 
     if require_unlocked:
-        # Not used here; unlocked is enforced by strict checker upstream.
-        slug2 = slug
-        is_unlocked_now, _ = _phone_is_unlocked_now_strict(hass, slug2, fresh_s)
+        is_unlocked_now, _ = _phone_is_unlocked_now_strict(hass, slug, fresh_s)
         if not is_unlocked_now:
             return False
 
