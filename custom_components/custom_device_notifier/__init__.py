@@ -366,15 +366,16 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         if not st:
             continue
         val = str(st.state or "").strip().lower()
-        is_locked = (
-            val in ("on", "true", "locked", "screen_locked")
-            or ("locked" in val and "unlock" not in val)
+        is_locked = val in ("on", "true", "locked", "screen_locked") or (
+            "locked" in val and "unlock" not in val
         )
         if is_locked:
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                latest_lock_ts = (
+                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                )
 
     latest_unlock_ts = None
     saw_fresh_unlock = False
@@ -385,8 +386,8 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"binary_sensor.{slug}_screen_on",
         f"sensor.{slug}_screen_state",
         f"sensor.{slug}_display_state",
-        f"sensor.{slug}_keyguard",     # may report "none"/"unlocked"
-        f"sensor.{slug}_lock_state",   # may report "unlocked"
+        f"sensor.{slug}_keyguard",  # may report "none"/"unlocked"
+        f"sensor.{slug}_lock_state",  # may report "unlocked"
         f"binary_sensor.{slug}_lock",  # off == unlocked (some setups)
         f"binary_sensor.{slug}_awake",
         f"sensor.{slug}_awake",
@@ -401,13 +402,25 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             continue
         val = str(st.state or "").strip().lower()
         is_unlocked = (
-            val in ("on", "true", "unlocked", "awake", "interactive", "screen_on", "none", "keyguard_off")
+            val
+            in (
+                "on",
+                "true",
+                "unlocked",
+                "awake",
+                "interactive",
+                "screen_on",
+                "none",
+                "keyguard_off",
+            )
             or (ent_id.endswith("_lock") and val in ("off", "false"))
             or ("unlock" in val and "locked" not in val)
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     # Resolution by precedence
     if saw_lock and not saw_fresh_unlock:
@@ -581,7 +594,11 @@ def _choose_service_smart(
     eligible_phones: list[str] = []
     for svc in phone_order:
         if _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
+            hass,
+            svc,
+            min_batt,
+            phone_fresh,
+            require_unlocked=require_phone_unlocked_effective,
         ):
             eligible_phones.append(svc)
 
@@ -601,10 +618,18 @@ def _choose_service_smart(
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
             # PC is unlocked; only use a phone if an unlocked eligible one exists
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
             # PC is locked/unknown; prefer PC if still allowed, else phones
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
