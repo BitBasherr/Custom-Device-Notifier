@@ -1,370 +1,199 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import dataclass
+from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, Callable, Set
+from typing import Any, Mapping, Optional
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.event import (
-    async_track_state_change_event,
-    async_track_time_interval,
-)
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 from .const import (
-    DOMAIN,
-    # names
+    CONF_FALLBACK,
+    CONF_PRIORITY,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
-    # routing
-    CONF_ROUTING_MODE,
-    ROUTING_SMART,
-    ROUTING_CONDITIONAL,
-    # conditional path
     CONF_TARGETS,
+    DOMAIN,
     KEY_CONDITIONS,
-    CONF_FALLBACK,
+    KEY_MATCH,
+    KEY_SERVICE,
 )
-
-# Reuse helpers from __init__.py so logic stays single-sourced
-from . import __init__ as core  # noqa: PLC0415
+from .evaluate import evaluate_condition
 
 _LOGGER = logging.getLogger(DOMAIN)
 
-SCAN_INTERVAL = timedelta(
-    seconds=30
-)  # light safety refresh; events do most of the work
+
+def _get_entry_data(entry: ConfigEntry) -> Mapping[str, Any]:
+    """Prefer options over data; options flow writes there."""
+    return entry.options or entry.data
 
 
 def _signal_name(entry_id: str) -> str:
-    return core._signal_name(entry_id)  # noqa: SLF001
+    """Dispatcher signal used by __init__.py to publish routing decisions."""
+    return f"{DOMAIN}_route_update_{entry_id}"
 
 
-@dataclass
-class _LastDecision:
-    ts: str | None = None
-    via: str | None = None
-    mode: str | None = None
-    service_full: str | None = None
-    dump: dict[str, Any] | None = None
+class CurrentTargetSensor(SensorEntity):
+    """Shows the currently chosen target service (actual routed decision when available)."""
 
-
-class PreferredNotifierSensor(SensorEntity):
-    """Live preview of the notifier that would be chosen right now (Smart or Conditional)."""
-
-    _attr_icon = "mdi:account-star"
-    _attr_has_entity_name = True
+    _attr_icon = "mdi:send-circle-outline"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
-        self.entry = entry
-        self._cfg = self._config_view()
+        self._entry = entry
 
-        base = self._cfg.get(CONF_SERVICE_NAME_RAW) or self._cfg.get(CONF_SERVICE_NAME)
-        self._attr_name = f"{base}'s Preferred Notifier (Live)"
-        self._attr_unique_id = f"{entry.entry_id}_preferred_notifier_current_target"
+        data = _get_entry_data(entry)
+        self._targets = list(data.get(CONF_TARGETS, []))
+        self._priority = list(data.get(CONF_PRIORITY, []))
+        self._fallback = str(data.get(CONF_FALLBACK, ""))
 
-        # State: short service name (e.g., mobile_app_s23_ultra) or "none"
-        self._state_short: str | None = None
-        # Chosen (full) service like notify.mobile_app_s23_ultra
-        self._chosen_full: str | None = None
+        raw_name = str(data.get(CONF_SERVICE_NAME_RAW, "Custom Notifier"))
+        slug = str(data.get(CONF_SERVICE_NAME, "custom_notifier"))
 
-        # Last actual router decision (from dispatcher)
-        self._last: _LastDecision | None = None
+        # Keep the same display name and unique_id (so entity_id stays the same)
+        self._attr_name = f"{raw_name} Current Target"
+        self._attr_unique_id = f"{slug}_current_target"
 
-        # Entity watchers
-        self._watched: Set[str] = set()
-        self._unsub_watch: list[Callable[[], None]] = []
-        self._unsub_tick: Callable[[], None] | None = None
+        self._attr_native_value: Optional[str] = None
+        self._attr_extra_state_attributes: dict[str, Any] = {}
 
-    # ───────── Home Assistant entity API ─────────
+        # Subscriptions (filled in async_added_to_hass)
+        self._unsub_state_change: Callable[[], None] | None = None
+        self._unsub_signal: Callable[[], None] | None = None
 
-    @property
-    def native_value(self) -> str | None:
-        return self._state_short
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        last = self._last
-        return {
-            # last real routing decision (from a sent notification)
-            "last_decision_ts": last.ts if last else None,
-            "last_decision_via": last.via if last else None,
-            "last_decision_mode": last.mode if last else None,
-            "last_decision_service": last.service_full if last else None,
-            "last_decision_dump": last.dump if last else None,
-            # live preview details
-            "live_mode": self._cfg.get(CONF_ROUTING_MODE),
-            "live_chosen_full": self._chosen_full,
-        }
+        # To avoid immediately overwriting a fresh router decision with a background eval
+        self._last_decision_at = None  # datetime | None
 
     async def async_added_to_hass(self) -> None:
-        # Listen for actual decisions (attributes - not state)
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass, _signal_name(self.entry.entry_id), self._on_router_decision
+        # Listen for entity changes used by conditions (background “would choose” updates)
+        entities = {
+            cond["entity_id"]
+            for tgt in self._targets
+            for cond in tgt.get(KEY_CONDITIONS, [])
+            if isinstance(cond, dict)
+            and cond.get("entity_id")
+            and self.hass.states.get(cond["entity_id"]) is not None
+        }
+        if entities:
+            self._unsub_state_change = async_track_state_change_event(
+                self.hass, list(entities), self._update_from_entities
             )
-        )
-        # Periodic safety refresh
-        self._unsub_tick = async_track_time_interval(
-            self.hass, self._handle_tick, SCAN_INTERVAL
-        )
-        self.async_on_remove(self._remove_tick)
 
-        # Install watchers and compute first value
-        self._reinstall_watchers()
-        await self._recompute_live()
+        # Listen for actual routing decisions from __init__.py
+        self._unsub_signal = async_dispatcher_connect(
+            self.hass, _signal_name(self._entry.entry_id), self._on_route_decision
+        )
+
+        # Initial background evaluation
+        await self._async_evaluate_and_update()
 
     async def async_will_remove_from_hass(self) -> None:
-        for u in self._unsub_watch:
-            try:
-                u()
-            except Exception:  # noqa: BLE001
-                pass
-        self._unsub_watch.clear()
-        self._remove_tick()
+        if self._unsub_state_change:
+            self._unsub_state_change()
+            self._unsub_state_change = None
+        if self._unsub_signal:
+            self._unsub_signal()
+            self._unsub_signal = None
 
-    # ───────── Dispatcher / timers ─────────
-
-    @callback
-    def _remove_tick(self) -> None:
-        if self._unsub_tick:
-            try:
-                self._unsub_tick()
-            except Exception:  # noqa: BLE001
-                pass
-        self._unsub_tick = None
+    # ── updates from entity state changes (background prediction) ──
 
     @callback
-    def _on_router_decision(self, decision: dict[str, Any]) -> None:
-        """Store last real decision (attributes only)."""
-        self._last = _LastDecision(
-            ts=decision.get("timestamp"),
-            via=decision.get("via"),
-            mode=decision.get("mode"),
-            service_full=decision.get("service_full"),
-            dump=decision,
-        )
+    def _update_from_entities(self, _) -> None:
+        self.hass.async_create_task(self._async_evaluate_and_update())
+
+    async def _async_evaluate_and_update(self) -> None:
+        """Predict ‘current’ target from conditions/priority for idle display."""
+        # If we just received an actual decision very recently, don’t clobber it.
+        if self._last_decision_at:
+            if (dt_util.utcnow() - self._last_decision_at) <= timedelta(seconds=2):
+                return
+
+        new_value = self._fallback or None  # default to fallback if nothing matches
+
+        # Walk priority order and pick the first target whose conditions match
+        for svc_id in self._priority:
+            tgt = next((t for t in self._targets if t.get(KEY_SERVICE) == svc_id), None)
+            if not tgt:
+                continue
+
+            mode = str(tgt.get(KEY_MATCH, "all"))
+            conds = list(tgt.get(KEY_CONDITIONS, []))
+            if not conds:
+                # If no conditions defined, this target is always a match
+                new_value = svc_id
+                break
+
+            results = await asyncio.gather(
+                *(evaluate_condition(self.hass, c) for c in conds)
+            )
+            matched = all(results) if mode == "all" else any(results)
+            if matched:
+                new_value = svc_id
+                break
+
+        # Display the short service name (no domain)
+        if isinstance(new_value, str) and new_value.startswith("notify."):
+            new_value = new_value[len("notify.") :]
+
+        self._attr_native_value = new_value
         self.async_write_ha_state()
 
-    async def _handle_tick(self, _now) -> None:
-        # If options changed (routing mode/phone list), watchers may need to be rebuilt
-        self._cfg = self._config_view()
-        self._reinstall_watchers()
-        await self._recompute_live()
+    # ── updates from the router (actual send decisions) ──
 
-    # ───────── Watchers ─────────
-
-    def _config_view(self) -> dict[str, Any]:
-        cfg = dict(self.entry.data)
-        cfg.update(self.entry.options or {})
-        return cfg
-
-    def _collect_watch_ids_for_smart(self, cfg: dict[str, Any]) -> Set[str]:
-        """PC/phone entities the smart selector cares about."""
-        watch: Set[str] = set()
-
-        # PC session
-        pc_session = (
-            cfg.get("smart_pc_session")
-            or cfg.get("smart_pc_sensor")
-            or cfg.get("smart_pc_session_entity")
-        )
-        pc_session = (
-            cfg.get("smart_pc_session")
-            or cfg.get("smart_pc_session_entity")
-            or cfg.get("smart_pc_sensor")
-        )
-        pc_session = cfg.get("smart_pc_session")  # canonical per const.py
-        if isinstance(pc_session, str) and pc_session:
-            watch.add(pc_session)
-
-        # Phones (by ordered list)
-        for full in cfg.get("smart_phone_order", []):
-            domain, short = core._split_service(full)  # noqa: SLF001
-            if domain != "notify":
-                continue
-            slug = short[11:] if short.startswith("mobile_app_") else short
-
-            # Locks
-            watch.update(
-                {
-                    f"binary_sensor.{slug}_device_locked",
-                    f"binary_sensor.{slug}_lock",
-                    f"sensor.{slug}_keyguard",
-                    f"sensor.{slug}_lock_state",
-                }
-            )
-            # Interactive/awake hints
-            watch.update(
-                {
-                    f"binary_sensor.{slug}_interactive",
-                    f"sensor.{slug}_interactive",
-                    f"binary_sensor.{slug}_is_interactive",
-                    f"binary_sensor.{slug}_screen_on",
-                    f"sensor.{slug}_screen_state",
-                    f"sensor.{slug}_display_state",
-                    f"binary_sensor.{slug}_awake",
-                    f"sensor.{slug}_awake",
-                }
-            )
-            # Freshness + shutdown + presence
-            watch.update(
-                {
-                    f"sensor.{slug}_last_update_trigger",
-                    f"sensor.{slug}_last_update",
-                    f"device_tracker.{slug}",
-                }
-            )
-            # Battery
-            watch.update(
-                {
-                    f"sensor.{slug}_battery_level",
-                    f"sensor.{slug}_battery",
-                }
-            )
-
-        existing = {s.entity_id for s in self.hass.states.async_all()}
-        return {w for w in watch if w in existing}
-
-    def _collect_watch_ids_for_conditional(self, cfg: dict[str, Any]) -> Set[str]:
-        watch: Set[str] = set()
-        for tgt in cfg.get(CONF_TARGETS, []):
-            for c in tgt.get(KEY_CONDITIONS, []):
-                eid = c.get("entity_id")
-                if isinstance(eid, str) and self.hass.states.get(eid) is not None:
-                    watch.add(eid)
-        return watch
-
-    def _reinstall_watchers(self) -> None:
-        """(Re)install state-change watchers based on the current routing mode."""
-        for u in self._unsub_watch:
-            try:
-                u()
-            except Exception:  # noqa: BLE001
-                pass
-        self._unsub_watch.clear()
-
-        mode = self._cfg.get(CONF_ROUTING_MODE)
-        if mode == ROUTING_SMART:
-            to_watch = self._collect_watch_ids_for_smart(self._cfg)
-        elif mode == ROUTING_CONDITIONAL:
-            to_watch = self._collect_watch_ids_for_conditional(self._cfg)
-        else:
-            to_watch = set()
-
-        if not to_watch:
-            self._watched = set()
+    @callback
+    def _on_route_decision(self, decision: dict) -> None:
+        """
+        Called by dispatcher whenever the router forwards a notification.
+        decision example:
+          {
+            "timestamp": "...",
+            "result": "forwarded",
+            "service_full": "notify.mobile_app_pixel_7",
+            "via": "matched" | "fallback" | "self-recursion-fallback",
+            "mode": "smart" | "conditional",
+            "smart": {...} | "conditional": {...}
+          }
+        """
+        svc_full = decision.get("service_full")
+        if not svc_full:
             return
 
-        @callback
-        async def _cb(evt):
-            await self._recompute_live()
+        # Record when this arrived so background eval won’t instantly overwrite it
+        self._last_decision_at = dt_util.utcnow()
 
-        self._unsub_watch.append(
-            async_track_state_change_event(self.hass, list(to_watch), _cb)
+        # Present the human-friendly service short name (without domain)
+        try:
+            _, short = svc_full.split(".", 1)
+        except ValueError:
+            short = svc_full
+        if short.startswith("notify."):
+            short = short[len("notify.") :]
+
+        self._attr_native_value = short
+
+        # Optional: surface a bit of context for debugging
+        attrs = dict(self._attr_extra_state_attributes or {})
+        attrs.update(
+            {
+                "last_decision_ts": decision.get("timestamp"),
+                "last_decision_via": decision.get("via"),
+                "last_decision_mode": decision.get("mode"),
+                "last_decision_service": svc_full,
+            }
         )
-        self._watched = to_watch
-        _LOGGER.debug(
-            "%s: watching %d entities (%s mode)",
-            self.name,
-            len(self._watched),
-            mode,
-        )
+        self._attr_extra_state_attributes = attrs
 
-    # ───────── Live recompute ─────────
-
-    async def _recompute_live(self) -> None:
-        """Re-evaluate the current choice using the active routing mode."""
-        cfg = self._cfg
-        fallback = cfg.get(CONF_FALLBACK)
-        mode = cfg.get(CONF_ROUTING_MODE)
-
-        chosen_full: str | None = None
-        via = "mode"
-
-        if mode == ROUTING_SMART:
-            chosen, info = core._choose_service_smart(self.hass, cfg)  # noqa: SLF001
-            if chosen:
-                chosen_full = chosen if "." in chosen else f"notify.{chosen}"
-                via = "smart"
-            elif isinstance(fallback, str) and fallback:
-                chosen_full = fallback if "." in fallback else f"notify.{fallback}"
-                via = "fallback"
-            else:
-                via = "none"
-
-            # attach smart info
-            attrs = dict(self.extra_state_attributes or {})
-            attrs.update(
-                {
-                    "live_mode": ROUTING_SMART,
-                    "live_smart_info": info,
-                    "live_via": via,
-                }
-            )
-            self._attr_extra_state_attributes = attrs
-
-        elif mode == ROUTING_CONDITIONAL:
-            svc, info = core._choose_service_conditional_with_info(  # noqa: SLF001
-                self.hass, cfg
-            )
-            if svc:
-                chosen_full = svc if "." in svc else f"notify.{svc}"
-                via = "conditional"
-            elif isinstance(fallback, str) and fallback:
-                chosen_full = fallback if "." in fallback else f"notify.{fallback}"
-                via = "fallback"
-            else:
-                via = "none"
-
-            attrs = dict(self.extra_state_attributes or {})
-            attrs.update(
-                {
-                    "live_mode": ROUTING_CONDITIONAL,
-                    "live_conditional_info": info,
-                    "live_via": via,
-                }
-            )
-            self._attr_extra_state_attributes = attrs
-
-        else:
-            # Unknown mode → only fallback (if any)
-            if isinstance(fallback, str) and fallback:
-                chosen_full = fallback if "." in fallback else f"notify.{fallback}"
-                via = "fallback"
-            else:
-                via = "none"
-            attrs = dict(self.extra_state_attributes or {})
-            attrs.update({"live_mode": mode, "live_via": via})
-            self._attr_extra_state_attributes = attrs
-
-        # Derive short state
-        if chosen_full:
-            try:
-                _, short = chosen_full.split(".", 1)
-            except ValueError:
-                short = chosen_full
-        else:
-            short = "none"
-
-        self._chosen_full = chosen_full
-        self._state_short = short
-
-        _LOGGER.debug(
-            "%s live preview → %s (%s, mode=%s)",
-            self.entity_id,
-            self._state_short,
-            via,
-            mode,
-        )
         self.async_write_ha_state()
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ) -> None:
-    async_add_entities([PreferredNotifierSensor(hass, entry)], update_before_add=True)
+    """Set up the sensor entity."""
+    async_add_entities([CurrentTargetSensor(hass, entry)])
