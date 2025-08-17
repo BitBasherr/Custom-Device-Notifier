@@ -1398,6 +1398,21 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
+    def _options_menu_schema(self) -> vol.Schema:
+        """Initial options menu schema that accepts {'next': ...}."""
+        opts = [
+            {"value": "add", "label": "➕ Add target"},
+            {"value": "edit", "label": "✏️ Edit target"},
+            {"value": "remove", "label": "➖ Remove target"},
+            {"value": "order", "label": "🔢 Set priority"},
+            {"value": "fallback", "label": "📥 Set fallback"},
+            {"value": "smart", "label": "🧠 Routing / Smart Select"},
+            {"value": "done", "label": "✅ Finish"},
+        ]
+        return vol.Schema(
+            {vol.Required("next", default="edit"): selector({"select": {"options": opts}})}
+        )
+
     def _smart_phone_candidates(self) -> list[str]:
         """Mirror: include *all* notify services (phones first)."""
         services = _notify_services(self.hass)
@@ -1737,11 +1752,32 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Ask routing mode up front in Options, then branch to relevant editor."""
-        return self.async_show_form(
-            step_id=STEP_ROUTING_MODE,
-            data_schema=self._get_routing_mode_schema(),
-        )
+        """
+        Start options with a simple menu that accepts {'next': ...}.
+        This satisfies tests that immediately send {"next": "edit"} / {"next": "remove"}.
+        """
+        if user_input is not None:
+            nxt = user_input["next"]
+            if nxt == "add":
+                return await self.async_step_add_target()
+            if nxt == "edit":
+                return await self.async_step_select_target_to_edit()
+            if nxt == "remove":
+                return await self.async_step_select_target_to_remove()
+            if nxt == "order":
+                return await self.async_step_order_targets()
+            if nxt == "fallback":
+                return await self.async_step_choose_fallback()
+            if nxt == "smart":
+                # Route to routing mode selector (smart vs conditional)
+                return self.async_show_form(
+                    step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+                )
+            if nxt == "done":
+                # Finish without changes
+                return self.async_create_entry(title="", data=self._data)
+
+        return self.async_show_form(step_id="init", data_schema=self._options_menu_schema())
 
     # ─── mirrors of config steps (options) ───
     async def async_step_routing_mode(
