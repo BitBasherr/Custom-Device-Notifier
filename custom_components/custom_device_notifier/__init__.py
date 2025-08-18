@@ -48,7 +48,7 @@ from .const import (
     DEFAULT_SMART_PC_FRESH_S,
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_POLICY,
-    # new flag from the flow (phones must be interactive/unlocked when True)
+    # kept for options compat, but we hard-require phone unlocked anyway
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -102,7 +102,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data.setdefault(CONF_PRIORITY, list(data.get(CONF_PRIORITY, [])))
     data.setdefault(CONF_FALLBACK, str(data.get(CONF_FALLBACK, "") or ""))
 
-    # new flag default (exposed in flow; we still hard-require unlocked phones below)
+    # still set for options compat; not used for the decision anymore
     data.setdefault(
         CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED
     )
@@ -142,13 +142,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await pm.async_start()
     rt.preview = pm
 
-    # proper unload cleanup (async function expected)
+    # proper unload cleanup
     async def _stop_preview() -> None:
         await pm.async_stop()
 
     entry.async_on_unload(_stop_preview)
-
-    # options listener (rebuild watchers on change)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
@@ -158,6 +156,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    # Rebuild preview watchers/timer on options change
     rt: EntryRuntime | None = hass.data[DATA].get(entry.entry_id)
     if rt and rt.preview:
         await rt.preview.async_rebuild()
@@ -210,7 +209,6 @@ async def _route_and_forward(
         target_service = svc or ""
 
     via = "matched"
-    # absolute guarantee: fallback is never dropped; but it's excluded from ranking already
     if not target_service:
         fb = cfg.get(CONF_FALLBACK)
         if isinstance(fb, str) and fb:
@@ -388,7 +386,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"binary_sensor.{slug}_locked",
         f"sensor.{slug}_keyguard",
         f"sensor.{slug}_lock_state",
-        f"binary_sensor.{slug}_lock",  # some templates; on == locked
+        f"binary_sensor.{slug}_lock",
     ]
     for ent_id in lock_entities:
         st = hass.states.get(ent_id)
@@ -402,9 +400,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = (
-                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
-                )
+                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -416,8 +412,8 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"binary_sensor.{slug}_screen_on",
         f"sensor.{slug}_screen_state",
         f"sensor.{slug}_display_state",
-        f"sensor.{slug}_keyguard",  # "none", "keyguard_off"
-        f"sensor.{slug}_lock_state",  # "unlocked"
+        f"sensor.{slug}_keyguard",
+        f"sensor.{slug}_lock_state",
         f"binary_sensor.{slug}_lock",  # off == unlocked
         f"binary_sensor.{slug}_awake",
         f"sensor.{slug}_awake",
@@ -447,9 +443,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = (
-                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
-            )
+            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
 
     if saw_lock and not saw_fresh_unlock:
         return False
@@ -460,72 +454,102 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     return bool(saw_fresh_unlock)
 
 
-def _phone_is_eligible(
+def _explain_phone_eligibility(
     hass: HomeAssistant,
     notify_service: str,
     min_batt: int,
     fresh_s: int,
-) -> bool:
-    """Battery + freshness + MUST be unlocked/interactive (fallback may bypass)."""
+) -> dict[str, Any]:
+    """Return a dict explaining each check for debug."""
     domain, svc = _split_service(notify_service)
-    if domain != "notify":
-        return False
-
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
+    out: Dict[str, Any] = {"service": notify_service, "slug": slug}
 
-    # battery gate (optional; if no sensor found, don't block)
+    # battery
     batt_ok = True
-    for ent_id in (
-        f"sensor.{slug}_battery_level",
-        f"sensor.{slug}_battery",
-        f"sensor.{slug}_battery_percent",
-    ):
+    batt_val: float | None = None
+    for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery", f"sensor.{slug}_battery_percent"):
         st = hass.states.get(ent_id)
         if st is None:
             continue
         try:
-            batt_ok = float(str(st.state)) >= float(min_batt)
+            batt_val = float(str(st.state))
+            batt_ok = batt_val >= float(min_batt)
         except Exception:
             pass
         break
+    out["battery_ok"] = batt_ok
+    out["battery_val"] = batt_val
 
-    # freshness + shutdown gate
+    # freshness
     now = dt_util.utcnow()
     fresh_ok_any = False
     shutdown_recent = False
     for ent_id in (
         f"sensor.{slug}_last_update_trigger",
         f"sensor.{slug}_last_update",
-        f"sensor.{slug}_last_notification",
         f"device_tracker.{slug}",
+        f"sensor.{slug}_last_notification",
     ):
         st = hass.states.get(ent_id)
         if st and (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if (
-                ent_id.endswith("_last_update_trigger")
-                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
-            ):
+            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
                 shutdown_recent = True
             break
+    for eid in (
+        f"binary_sensor.{slug}_active_recent",
+        f"binary_sensor.{slug}_recent_activity",
+        f"binary_sensor.{slug}_fresh",
+    ):
+        h = hass.states.get(eid)
+        if h is not None and str(h.state).lower() in ("on", "true"):
+            fresh_ok_any = True
+            break
+    out["fresh_ok"] = fresh_ok_any
+    out["shutdown_recent"] = shutdown_recent
 
-    if shutdown_recent or not (batt_ok and fresh_ok_any):
+    # unlocked/interactive (hard-required)
+    unlocked = False
+    # fast-path via hints
+    for eid in (
+        f"binary_sensor.{slug}_on_awake",
+        f"binary_sensor.{slug}_awake",
+        f"binary_sensor.{slug}_interactive",
+        f"binary_sensor.{slug}_screen_on",
+    ):
+        h = hass.states.get(eid)
+        if h is not None and str(h.state).lower() in ("on", "true"):
+            unlocked = True
+            break
+    if not unlocked:
+        unlocked = _phone_is_unlocked_awake(hass, slug, fresh_s)
+    out["unlocked"] = unlocked
+
+    out["eligible"] = bool(batt_ok and fresh_ok_any and (not shutdown_recent) and unlocked)
+    return out
+
+
+def _phone_is_eligible(
+    hass: HomeAssistant,
+    notify_service: str,
+    min_batt: int,
+    fresh_s: int,
+) -> bool:
+    """Battery + freshness + not-shutdown + unlocked/interactive (always required)."""
+    domain, svc = _split_service(notify_service)
+    if domain != "notify":
         return False
 
-    # MUST be unlocked/interactive (no option toggle; per requirement)
-    if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-        return False
-
-    return True
+    expl = _explain_phone_eligibility(hass, notify_service, min_batt, fresh_s)
+    return bool(expl["eligible"])
 
 
 def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(
-        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
-    ):
+    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
         return False
     return True
 
@@ -537,8 +561,8 @@ def _pc_is_eligible(
     require_awake: bool,
 ) -> tuple[bool, bool]:
     """
-    PC eligibility: must be fresh and UNLOCKED; 'awake' can be required via require_awake.
-    Returns (eligible, unlocked).
+    PC is eligible only if session sensor is fresh AND (awake if required) AND unlocked.
+    We do NOT consult any custom *_usable_for_notify here.
     """
     if not session_entity:
         return (False, False)
@@ -549,20 +573,14 @@ def _pc_is_eligible(
 
     now = dt_util.utcnow()
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
-
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
     awake = _looks_awake(state)
 
-    eligible = fresh_ok and unlocked and (awake or not require_awake)
+    eligible = fresh_ok and (awake or not require_awake) and unlocked
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
-        session_entity,
-        st.state,
-        fresh_ok,
-        awake,
-        unlocked,
-        eligible,
+        session_entity, st.state, fresh_ok, awake, unlocked, eligible,
     )
     return (eligible, unlocked)
 
@@ -577,76 +595,61 @@ def _choose_service_smart(
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(
-        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
+    # we *always* require phone unlocked; PC unlocked is enforced by session text
+    _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
+
+    pc_ok, pc_unlocked = _pc_is_eligible(
+        hass, pc_session, pc_fresh, require_pc_awake
     )
-    # phones: ALWAYS require unlocked (per requirement)
-    # pc: ALWAYS require unlocked; require_pc_awake follows option above
-    policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
-
-    # Build eligible phones in declared priority, but EXCLUDE fallback
-    fb = cfg.get(CONF_FALLBACK)
+    eligibility_map: Dict[str, dict] = {}
     eligible_phones: list[str] = []
     for svc in phone_order:
-        if fb and isinstance(fb, str) and svc == fb:
-            continue  # fallback participates only as last resort
-        if _phone_is_eligible(hass, svc, min_batt, phone_fresh):
+        expl = _explain_phone_eligibility(hass, svc, min_batt, phone_fresh)
+        eligibility_map[svc] = expl
+        if expl["eligible"]:
             eligible_phones.append(svc)
 
     chosen: str | None = None
-    if policy == SMART_POLICY_PC_FIRST:
+    if cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY) == SMART_POLICY_PC_FIRST:
         if pc_ok:
             chosen = pc_service
         elif eligible_phones:
             chosen = eligible_phones[0]
-
-    elif policy == SMART_POLICY_PHONE_FIRST:
+    elif cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY) == SMART_POLICY_PHONE_FIRST:
         if eligible_phones:
             chosen = eligible_phones[0]
         elif pc_ok:
             chosen = pc_service
-
-    elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
+    elif cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY) == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            chosen = (
-                eligible_phones[0]
-                if eligible_phones
-                else (pc_service if pc_ok else None)
-            )
+            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
         else:
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
-
+            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
     else:
-        _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
+        _LOGGER.warning("Unknown smart policy; defaulting to PC_FIRST")
         if pc_ok:
             chosen = pc_service
         elif eligible_phones:
             chosen = eligible_phones[0]
 
-    # No candidate? Use fallback if provided (never dropped).
-    if not chosen and isinstance(fb, str) and fb:
-        chosen = fb
+    # NOTE: no redundant "final guard" here — eligibility already checked above.
 
     info = {
-        "policy": policy,
+        "policy": cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY),
+        "phone_order": phone_order,
         "pc_service": pc_service,
         "pc_session": pc_session,
         "pc_ok": pc_ok,
         "pc_unlocked": pc_unlocked,
         "eligible_phones": eligible_phones,
+        "eligibility_by_phone": eligibility_map,  # detailed reasons per phone
         "min_battery": min_batt,
         "phone_fresh_s": phone_fresh,
         "pc_fresh_s": pc_fresh,
         "require_pc_awake": require_pc_awake,
-        "require_phone_unlocked_effective": True,
-        "require_pc_unlocked_effective": True,
-        "fallback": fb,
+        "phones_require_unlocked": True,
     }
     return (chosen, info)
 
@@ -726,7 +729,7 @@ class PreviewManager:
                         watch.add(ent)
 
         elif mode == ROUTING_SMART:
-            # PC session
+            # PC session only (we do not listen to any custom *_usable_* sensors here)
             pc_session = cfg.get(CONF_SMART_PC_SESSION)
             if isinstance(pc_session, str) and pc_session:
                 watch.add(pc_session)
@@ -751,7 +754,7 @@ class PreviewManager:
                 ):
                     if self.hass.states.get(pattern) is not None:
                         watch.add(pattern)
-                # locks / interactive / awake (built-ins)
+                # locks / interactive / awake
                 for pattern in (
                     f"binary_sensor.{slug}_device_locked",
                     f"binary_sensor.{slug}_locked",
@@ -766,6 +769,11 @@ class PreviewManager:
                     f"sensor.{slug}_display_state",
                     f"binary_sensor.{slug}_awake",
                     f"sensor.{slug}_awake",
+                    # your convenience hints (do not block, but cause refresh)
+                    f"binary_sensor.{slug}_active_recent",
+                    f"binary_sensor.{slug}_recent_activity",
+                    f"binary_sensor.{slug}_fresh",
+                    f"binary_sensor.{slug}_on_awake",
                 ):
                     if self.hass.states.get(pattern) is not None:
                         watch.add(pattern)
@@ -802,7 +810,7 @@ class PreviewManager:
             decision["conditional"] = info
 
         if not chosen:
-            # show fallback if present (never dropped)
+            # show fallback if present (this matches UI expectations for "what would happen now")
             fb = cfg.get(CONF_FALLBACK)
             if isinstance(fb, str) and fb:
                 chosen = fb
@@ -810,9 +818,7 @@ class PreviewManager:
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update(
-                {"result": "forwarded", "service_full": f"{domain}.{service}"}
-            )
+            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
         else:
             decision.update({"result": "dropped", "service_full": None})
 
