@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any, Dict, List, Tuple, Set
+from typing import Any, Dict, List, Tuple, Optional, Set, Callable
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
-    async_track_time_interval,
     async_track_state_change_event,
+    async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
 
@@ -49,7 +49,7 @@ from .const import (
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # phones must be interactive/unlocked when True
+    # new flag from the flow (phones must be interactive/unlocked when True)
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -58,15 +58,10 @@ _LOGGER = logging.getLogger(__name__)
 
 DATA = f"{DOMAIN}.data"
 SERVICE_HANDLES = f"{DOMAIN}.service_handles"
-TICK_UNSUBS = f"{DOMAIN}.tick_unsubs"
-LIVE_UNSUBS = f"{DOMAIN}.live_unsubs"
-
-# How often to recompute the “current target” preview
-PREVIEW_INTERVAL = timedelta(seconds=30)
 
 
 def _signal_name(entry_id: str) -> str:
-    """Dispatcher signal used to publish routing decisions."""
+    """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
 
 
@@ -74,6 +69,7 @@ def _signal_name(entry_id: str) -> str:
 class EntryRuntime:
     entry: ConfigEntry
     service_name: str  # notify service name (slug)
+    preview: Optional["PreviewManager"] = None  # live preview publisher
 
 
 # ─────────────────────────── lifecycle ───────────────────────────
@@ -83,8 +79,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
     hass.data.setdefault(SERVICE_HANDLES, {})
-    hass.data.setdefault(TICK_UNSUBS, {})
-    hass.data.setdefault(LIVE_UNSUBS, {})
     return True
 
 
@@ -120,7 +114,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Register notify.<slug>, forward sensor, start live preview ticker + watchers."""
+    """Register notify.<slug>, forward sensor platform, and start live preview."""
     slug = entry.data.get(CONF_SERVICE_NAME)
     if not slug:
         _LOGGER.error(
@@ -128,9 +122,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         return False
 
-    hass.data[DATA][entry.entry_id] = EntryRuntime(entry=entry, service_name=slug)
+    rt = EntryRuntime(entry=entry, service_name=slug)
+    hass.data[DATA][entry.entry_id] = rt
 
-    async def _handle_notify(call) -> None:
+    async def _handle_notify(call: ServiceCall) -> None:
         await _route_and_forward(hass, entry, call.data)
 
     # if reloaded, remove stale service first
@@ -143,19 +138,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # live “current target” sensor platform (subscribes to our dispatcher)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
-    # Periodic preview (event-loop based)
-    async def _tick(_now) -> None:
-        await _publish_preview_decision(hass, entry, via="preview")
-
-    unsub_tick = async_track_time_interval(hass, _tick, PREVIEW_INTERVAL)
-    hass.data[TICK_UNSUBS][entry.entry_id] = unsub_tick
-    entry.async_on_unload(unsub_tick)
-
-    # State-change watchers for instant live updates
-    _replace_live_watchers(hass, entry)
-
-    # Publish an immediate preview so dashboards update right away
-    hass.async_create_task(_publish_preview_decision(hass, entry, via="preview"))
+    # start the live preview publisher (proactive)
+    pm = PreviewManager(hass, entry)
+    await pm.async_start()
+    rt.preview = pm
+    entry.async_on_unload(pm.async_stop)
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     _LOGGER.info(
@@ -165,36 +152,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    # Rebuild preview watchers/timer on options change
+    rt: EntryRuntime | None = hass.data[DATA].get(entry.entry_id)
+    if rt and rt.preview:
+        await rt.preview.async_rebuild()
     _LOGGER.debug("Options updated for %s", entry.entry_id)
-    # Reinstall watchers because relevant entities may have changed
-    _replace_live_watchers(hass, entry)
-    await _publish_preview_decision(hass, entry, via="options_change")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Tear down notify service, sensor platform, ticker, and watchers."""
+    """Tear down notify service, preview manager, and sensor platform."""
+    rt: EntryRuntime | None = hass.data[DATA].pop(entry.entry_id, None)
+    if rt and rt.preview:
+        await rt.preview.async_stop()
+
     slug = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
     if slug and hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
-    # Stop periodic ticker
-    unsub = hass.data[TICK_UNSUBS].pop(entry.entry_id, None)
-    if unsub:
-        try:
-            unsub()
-        except Exception:
-            pass
-
-    # Stop watchers
-    wunsub = hass.data[LIVE_UNSUBS].pop(entry.entry_id, None)
-    if wunsub:
-        try:
-            wunsub()
-        except Exception:
-            pass
-
     ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    hass.data[DATA].pop(entry.entry_id, None)
     return ok
 
 
@@ -277,62 +252,12 @@ async def _route_and_forward(
     await hass.services.async_call(domain, service, clean, blocking=True)
 
 
-# ───────────────────────── live preview (no send) ─────────────────────────
-
-
-async def _publish_preview_decision(
-    hass: HomeAssistant, entry: ConfigEntry, *, via: str = "preview"
-) -> None:
-    """
-    Recompute what *would* be chosen right now and push it to the sensor.
-    This never sends a notification; it only updates the dispatcher so the
-    Current Target sensor reflects the live choice.
-    """
-    cfg = _config_view(entry)
-    mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
-
-    decision: Dict[str, Any] = {
-        "timestamp": dt_util.utcnow().isoformat(),
-        "mode": mode,
-        "payload_keys": [],  # no payload in preview
-    }
-
-    svc: str | None = None
-    if mode == ROUTING_SMART:
-        svc, info = _choose_service_smart(hass, cfg)
-        decision["smart"] = info
-    else:
-        svc, info = _choose_service_conditional_with_info(hass, cfg)
-        decision["conditional"] = info
-
-    if not svc:
-        fb = cfg.get(CONF_FALLBACK)
-        if isinstance(fb, str) and fb:
-            svc = fb
-            decision["via"] = f"{via}-fallback"
-        else:
-            decision["result"] = "dropped"
-            decision["via"] = via
-            async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
-            return
-
-    domain, service = _split_service(svc)
-    decision.update(
-        {
-            "result": "forwarded",  # keep sensor display consistent
-            "service_full": f"{domain}.{service}",
-            "via": via,  # mark it as a preview
-        }
-    )
-    async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
-
-
 # ───────────────────────── conditional routing ─────────────────────────
 
 
 def _choose_service_conditional_with_info(
     hass: HomeAssistant, cfg: dict[str, Any]
-) -> Tuple[str | None, Dict[str, Any]]:
+) -> tuple[str | None, dict[str, Any]]:
     targets: List[dict[str, Any]] = list(cfg.get(CONF_TARGETS, []))
     info: Dict[str, Any] = {"matched": [], "priority_used": False}
     if not targets:
@@ -446,10 +371,8 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     - Positive 'unlocked/interactive' must be fresh (<= fresh_s).
     - If no fresh positive and either a locked exists (stale or fresh) or nothing exists, treat as NOT unlocked.
     """
-    from datetime import timedelta as _td
-
     now = dt_util.utcnow()
-    fresh = _td(seconds=fresh_s)
+    fresh = timedelta(seconds=fresh_s)
 
     # collect likely "locked" signals
     latest_lock_ts = None
@@ -540,8 +463,6 @@ def _phone_is_eligible(
     require_unlocked: bool = False,
 ) -> bool:
     """Battery + freshness + not-shutdown + optional unlocked/interactive check."""
-    from datetime import timedelta as _td
-
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
@@ -587,7 +508,7 @@ def _phone_is_eligible(
         st = hass.states.get(ent_id)
         if not st:
             continue
-        if (now - st.last_updated) <= _td(seconds=fresh_s):
+        if (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
             if (
                 ent_id.endswith("_last_update_trigger")
@@ -762,90 +683,6 @@ def _choose_service_smart(
     return (chosen, info)
 
 
-# ───────────────────────── watchers (live) ─────────────────────────
-
-
-def _entities_to_watch(cfg: dict[str, Any]) -> Set[str]:
-    """Collect entities that influence routing, for live preview updates."""
-    entities: Set[str] = set()
-    mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
-
-    if mode == ROUTING_CONDITIONAL:
-        for tgt in cfg.get(CONF_TARGETS, []) or []:
-            for c in tgt.get(KEY_CONDITIONS, []) or []:
-                eid = str(c.get("entity_id") or "").strip()
-                if eid:
-                    entities.add(eid)
-
-    # Smart mode signals
-    if mode == ROUTING_SMART:
-        pc_session = cfg.get(CONF_SMART_PC_SESSION)
-        if isinstance(pc_session, str) and pc_session:
-            entities.add(pc_session)
-
-        for svc in cfg.get(CONF_SMART_PHONE_ORDER, []) or []:
-            slug = _service_slug(svc)
-            # battery / freshness
-            entities.update(
-                {
-                    f"sensor.{slug}_battery_level",
-                    f"sensor.{slug}_battery",
-                    f"sensor.{slug}_last_update_trigger",
-                    f"sensor.{slug}_last_update",
-                    f"device_tracker.{slug}",
-                }
-            )
-            # interactive / lock signals
-            entities.update(
-                {
-                    f"binary_sensor.{slug}_interactive",
-                    f"sensor.{slug}_interactive",
-                    f"binary_sensor.{slug}_is_interactive",
-                    f"binary_sensor.{slug}_screen_on",
-                    f"sensor.{slug}_screen_state",
-                    f"sensor.{slug}_display_state",
-                    f"sensor.{slug}_keyguard",
-                    f"sensor.{slug}_lock_state",
-                    f"binary_sensor.{slug}_lock",
-                    f"binary_sensor.{slug}_awake",
-                    f"sensor.{slug}_awake",
-                    f"binary_sensor.{slug}_device_locked",
-                    f"binary_sensor.{slug}_locked",
-                }
-            )
-
-    # Drop blanks; HA doesn't like invalid entity IDs
-    return {e for e in entities if e and "." in e}
-
-
-def _replace_live_watchers(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """(Re)install state change watchers for live preview updates."""
-    # Uninstall old
-    old = hass.data[LIVE_UNSUBS].pop(entry.entry_id, None)
-    if old:
-        try:
-            old()
-        except Exception:
-            pass
-
-    entities = _entities_to_watch(_config_view(entry))
-    if not entities:
-        _LOGGER.debug("No live entities to watch for %s", entry.entry_id)
-        return
-
-    @callback
-    def _on_change(_event) -> None:
-        # Safe: we're already on the event loop (callback)
-        hass.async_create_task(_publish_preview_decision(hass, entry, via="state"))
-
-    unsub = async_track_state_change_event(hass, list(entities), _on_change)
-    hass.data[LIVE_UNSUBS][entry.entry_id] = unsub
-    entry.async_on_unload(unsub)
-    _LOGGER.debug(
-        "Installed live watchers for %s (%d entities)", entry.entry_id, len(entities)
-    )
-
-
 # ───────────────────────── utilities ─────────────────────────
 
 
@@ -860,3 +697,143 @@ def _config_view(entry: ConfigEntry) -> dict[str, Any]:
     cfg = dict(entry.data)
     cfg.update(entry.options or {})
     return cfg
+
+
+# ───────────────────────── live preview manager (async) ─────────────────────────
+
+
+_PREVIEW_INTERVAL = timedelta(seconds=30)  # periodic reevaluation for freshness windows
+
+
+class PreviewManager:
+    """Continuously evaluate and publish a 'preview' routing decision via dispatcher."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        self._unsub_entities: Optional[Callable[[], None]] = None
+        self._unsub_timer: Optional[Callable[[], None]] = None
+
+    async def async_start(self) -> None:
+        await self._setup_listeners()
+        # kick an immediate preview
+        await self._publish_preview()
+
+    async def async_rebuild(self) -> None:
+        await self.async_stop()
+        await self.async_start()
+
+    async def async_stop(self) -> None:
+        if self._unsub_entities:
+            self._unsub_entities()
+            self._unsub_entities = None
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
+
+    async def _setup_listeners(self) -> None:
+        cfg = _config_view(self.entry)
+        entities = self._collect_entities(cfg)
+
+        # state-change driven updates
+        if entities:
+            self._unsub_entities = async_track_state_change_event(
+                self.hass, list(entities), self._on_states_changed
+            )
+
+        # periodic freshness guard
+        self._unsub_timer = async_track_time_interval(
+            self.hass, self._on_timer, _PREVIEW_INTERVAL
+        )
+
+    def _collect_entities(self, cfg: dict[str, Any]) -> Set[str]:
+        watch: Set[str] = set()
+        mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
+
+        if mode == ROUTING_CONDITIONAL:
+            for tgt in cfg.get(CONF_TARGETS, []) or []:
+                for c in tgt.get(KEY_CONDITIONS, []) or []:
+                    ent = str(c.get("entity_id") or "")
+                    if ent:
+                        watch.add(ent)
+
+        elif mode == ROUTING_SMART:
+            # PC session
+            pc_session = cfg.get(CONF_SMART_PC_SESSION)
+            if isinstance(pc_session, str) and pc_session:
+                watch.add(pc_session)
+
+            # All phone candidates from the priority list
+            for full in list(cfg.get(CONF_SMART_PHONE_ORDER, []) or []):
+                slug = _service_slug(full)
+                # kill switch
+                watch.add(f"binary_sensor.{slug}_usable_for_notify")
+                # battery
+                watch.add(f"sensor.{slug}_battery_level")
+                watch.add(f"sensor.{slug}_battery")
+                # freshness & shutdown
+                watch.add(f"sensor.{slug}_last_update_trigger")
+                watch.add(f"sensor.{slug}_last_update")
+                watch.add(f"device_tracker.{slug}")
+                # locks / interactive / awake
+                watch.add(f"binary_sensor.{slug}_device_locked")
+                watch.add(f"binary_sensor.{slug}_locked")
+                watch.add(f"sensor.{slug}_keyguard")
+                watch.add(f"sensor.{slug}_lock_state")
+                watch.add(f"binary_sensor.{slug}_lock")
+                watch.add(f"binary_sensor.{slug}_interactive")
+                watch.add(f"sensor.{slug}_interactive")
+                watch.add(f"binary_sensor.{slug}_is_interactive")
+                watch.add(f"binary_sensor.{slug}_screen_on")
+                watch.add(f"sensor.{slug}_screen_state")
+                watch.add(f"sensor.{slug}_display_state")
+                watch.add(f"binary_sensor.{slug}_awake")
+                watch.add(f"sensor.{slug}_awake")
+
+        # only keep ones that exist (avoid noisy listeners)
+        existing = {e for e in watch if self.hass.states.get(e) is not None}
+        return existing
+
+    @callback
+    def _on_states_changed(self, _event) -> None:
+        # schedule async evaluation on loop
+        self.hass.async_create_task(self._publish_preview())
+
+    @callback
+    def _on_timer(self, _now) -> None:
+        self.hass.async_create_task(self._publish_preview())
+
+    async def _publish_preview(self) -> None:
+        """Evaluate using the SAME logic as routing, and publish via dispatcher with via='preview'."""
+        cfg = _config_view(self.entry)
+        mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
+
+        chosen: Optional[str] = None
+        decision: Dict[str, Any] = {
+            "timestamp": dt_util.utcnow().isoformat(),
+            "mode": mode,
+            "payload_keys": [],  # preview has no payload
+            "via": "preview",
+        }
+
+        if mode == ROUTING_SMART:
+            chosen, info = _choose_service_smart(self.hass, cfg)
+            decision["smart"] = info
+        else:
+            chosen, info = _choose_service_conditional_with_info(self.hass, cfg)
+            decision["conditional"] = info
+
+        if not chosen:
+            # show fallback if present (this matches UI expectations for "what would happen now")
+            fb = cfg.get(CONF_FALLBACK)
+            if isinstance(fb, str) and fb:
+                chosen = fb
+                decision["via"] = "preview-fallback"
+
+        if chosen:
+            domain, service = _split_service(chosen)
+            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
+        else:
+            decision.update({"result": "dropped", "service_full": None})
+
+        async_dispatcher_send(self.hass, _signal_name(self.entry.entry_id), decision)
