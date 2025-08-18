@@ -461,7 +461,6 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         return False
     return bool(saw_fresh_unlock)
 
-
 def _phone_is_eligible(
     hass: HomeAssistant,
     notify_service: str,
@@ -470,77 +469,74 @@ def _phone_is_eligible(
     *,
     require_unlocked: bool = False,
 ) -> bool:
-    """Battery + freshness + not-shutdown + optional unlocked/interactive check."""
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
 
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
 
-    # optional kill switch
+    # kill switch (optional)
     usable = hass.states.get(f"binary_sensor.{slug}_usable_for_notify")
-    if usable is not None:
-        uval = str(usable.state or "").lower()
-        if uval in ("off", "false", "unavailable", "unknown"):
-            _LOGGER.debug(
-                "Phone %s | blocked by usable_for_notify=%s",
-                notify_service,
-                usable.state,
-            )
-            return False
+    if usable is not None and str(usable.state).lower() in ("off", "false", "unavailable", "unknown"):
+        _LOGGER.debug("Phone %s | blocked by usable_for_notify=%s", notify_service, usable.state)
+        return False
 
     # battery gate
-    cand_batt = [f"sensor.{slug}_battery_level", f"sensor.{slug}_battery"]
     batt_ok = True
-    for ent_id in cand_batt:
+    for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery"):
         st = hass.states.get(ent_id)
-        if not st:
+        if st is None:
             continue
         try:
-            batt_val = float(str(st.state))
+            batt_ok = float(str(st.state)) >= float(min_batt)
         except Exception:
-            continue
-        batt_ok = batt_val >= float(min_batt)
+            pass
         break
 
-    # freshness + shutdown gate
     now = dt_util.utcnow()
     fresh_ok_any = False
     shutdown_recent = False
-    cand_fresh = [
+
+    # original freshness sources
+    for ent_id in (
         f"sensor.{slug}_last_update_trigger",
         f"sensor.{slug}_last_update",
         f"device_tracker.{slug}",
-    ]
-    for ent_id in cand_fresh:
+    ):
         st = hass.states.get(ent_id)
-        if not st:
-            continue
-        if (now - st.last_updated) <= timedelta(seconds=fresh_s):
+        if st and (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if (
-                ent_id.endswith("_last_update_trigger")
-                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
-            ):
+            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
                 shutdown_recent = True
             break
+
+    # >>> NEW: accept your own "recent/awake" sensors as freshness hints
+    for hint_id in (
+        f"binary_sensor.{slug}_active_recent",
+        f"binary_sensor.{slug}_on_awake",
+    ):
+        h = hass.states.get(hint_id)
+        if h is not None and str(h.state).lower() in ("on", "true"):
+            fresh_ok_any = True
 
     if shutdown_recent or not (batt_ok and fresh_ok_any):
         _LOGGER.debug(
             "Phone %s | rejected: shutdown_recent=%s batt_ok=%s fresh_ok=%s",
-            notify_service,
-            shutdown_recent,
-            batt_ok,
-            fresh_ok_any,
+            notify_service, shutdown_recent, batt_ok, fresh_ok_any,
         )
         return False
 
-    if require_unlocked and not _phone_is_unlocked_awake(hass, slug, fresh_s):
-        _LOGGER.debug("Phone %s | rejected (locked or not interactive)", notify_service)
-        return False
+    if require_unlocked:
+        # Fast-path: if your 'on_awake' is on, treat as unlocked/interactive
+        on_awake = hass.states.get(f"binary_sensor.{slug}_on_awake")
+        if on_awake is not None and str(on_awake.state).lower() in ("on", "true"):
+            return True
+        # Fallback to the stricter timestamp-based unlocked/interactive check
+        if not _phone_is_unlocked_awake(hass, slug, fresh_s):
+            _LOGGER.debug("Phone %s | rejected (locked or not interactive)", notify_service)
+            return False
 
     return True
-
 
 def _looks_awake(state: str) -> bool:
     s = state.lower()
@@ -552,42 +548,59 @@ def _looks_awake(state: str) -> bool:
         return False
     return True
 
-
 def _pc_is_eligible(
     hass: HomeAssistant,
     session_entity: str | None,
     fresh_s: int,
     require_awake: bool,
     require_unlocked: bool,
+    *,
+    pc_service: str | None = None,
 ) -> tuple[bool, bool]:
+    # derive slug from notify service
+    slug = None
+    if pc_service:
+        _, svc = _split_service(pc_service)
+        slug = svc
+
+    # soft hints
+    pc_usable_ok = True
+    pc_active_ok = False
+    if slug:
+        usable = hass.states.get(f"binary_sensor.{slug}_usable_for_notify")
+        if usable is not None:
+            pc_usable_ok = str(usable.state).lower() in ("on", "true")
+        active_recent = hass.states.get(f"binary_sensor.{slug}_active_recent")
+        if active_recent is not None:
+            pc_active_ok = str(active_recent.state).lower() in ("on", "true")
+
+    # no session → rely on hints
     if not session_entity:
-        return (False, False)
+        return ((pc_usable_ok and pc_active_ok), True)
 
     st = hass.states.get(session_entity)
     if st is None:
-        return (False, False)
+        return ((pc_usable_ok and pc_active_ok), True)
 
     now = dt_util.utcnow()
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
     awake = _looks_awake(state)
 
-    eligible = (
-        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
-    )
+    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+
+    # If session path rejected, but hints look good, allow PC
+    if not eligible and pc_usable_ok and pc_active_ok:
+        eligible = True
+        unlocked = True
+
     _LOGGER.debug(
-        "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
-        session_entity,
-        st.state,
-        fresh_ok,
-        awake,
-        unlocked,
-        eligible,
+        "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s (hints usable=%s active=%s)",
+        session_entity, st.state if st else None, fresh_ok, awake, unlocked, eligible, pc_usable_ok, pc_active_ok,
     )
     return (eligible, unlocked)
-
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
@@ -611,7 +624,8 @@ def _choose_service_smart(
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked
+        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked,
+        pc_service=pc_service,
     )
 
     eligible_phones: list[str] = []
