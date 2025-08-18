@@ -710,7 +710,7 @@ def _config_view(entry: ConfigEntry) -> dict[str, Any]:
 # ───────────────────────── live preview manager (async) ─────────────────────────
 
 
-_PREVIEW_INTERVAL = timedelta(seconds=30)  # periodic reevaluation for freshness windows
+_PREVIEW_INTERVAL = timedelta(seconds=5)  # periodic reevaluation for freshness windows
 
 
 class PreviewManager:
