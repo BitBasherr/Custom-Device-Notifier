@@ -325,6 +325,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "select": {
                             "options": [
                                 {"value": "reorder_phones", "label": "Reorder phones…"},
+                                {"value": "routing", "label": "Choose routing mode…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
                             "custom_value": False,
@@ -1190,6 +1191,11 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_smart_setup(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        if user_input and user_input.get("nav") == "routing":
+            return self.async_show_form(
+                step_id=STEP_ROUTING_MODE,
+                data_schema=self._get_routing_mode_schema(),
+            )
         # Open reorder builder
         if user_input and user_input.get("nav") == "reorder_phones":
             services = self._smart_phone_candidates()
@@ -1454,6 +1460,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         "select": {
                             "options": [
                                 {"value": "reorder_phones", "label": "Reorder phones…"},
+                                {"value": "routing", "label": "Choose routing mode…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
                             "custom_value": False,
@@ -1738,20 +1745,34 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """
-        Open directly on the correct editor form (no intermediate menu),
-        so tests expect step_id == 'target_more' for conditional mode.
+        Open the correct editor directly:
+        - If we already have conditional targets/priorities → go to target editor
+        - Else if we have smart-only fields → go to smart setup
+        - Else (no data yet) → show routing mode chooser (the true 'beginning')
         """
-        mode = self._data.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
-        if mode == ROUTING_SMART:
+        has_conditional = bool(self._targets or self._data.get(CONF_PRIORITY))
+        has_smart = any(self._data.get(k) for k in SMART_KEYS) or bool(self._phone_order_list)
+
+        if has_conditional:
+            # Force mode to conditional so the editor matches the stored data
+            self._data[CONF_ROUTING_MODE] = ROUTING_CONDITIONAL
+            return self.async_show_form(
+                step_id=STEP_TARGET_MORE,
+                data_schema=self._get_target_more_schema(),
+                description_placeholders=self._get_target_more_placeholders(),
+            )
+
+        if has_smart:
+            self._data[CONF_ROUTING_MODE] = ROUTING_SMART
             return self.async_show_form(
                 step_id=STEP_SMART_SETUP,
                 data_schema=self._get_smart_setup_schema(self._data),
             )
-        # Default: regular conditional editor
+
+        # No stored data yet → let the user choose the mode first
         return self.async_show_form(
-            step_id=STEP_TARGET_MORE,
-            data_schema=self._get_target_more_schema(),
-            description_placeholders=self._get_target_more_placeholders(),
+            step_id=STEP_ROUTING_MODE,
+            data_schema=self._get_routing_mode_schema(),
         )
 
     # ─── mirrors of config steps (options) ───
@@ -1789,6 +1810,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_smart_setup(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        if user_input and user_input.get("nav") == "routing":
+            return self.async_show_form(
+                step_id=STEP_ROUTING_MODE,
+                data_schema=self._get_routing_mode_schema(),
+            )
+
         # open reorder
         if user_input and user_input.get("nav") == "reorder_phones":
             services = self._smart_phone_candidates()
