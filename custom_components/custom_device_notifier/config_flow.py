@@ -1751,7 +1751,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         - Else (no data yet) → show routing mode chooser (the true 'beginning')
         """
         has_conditional = bool(self._targets or self._data.get(CONF_PRIORITY))
-        has_smart = any(self._data.get(k) for k in SMART_KEYS) or bool(self._phone_order_list)
+        has_smart = any(self._data.get(k) for k in SMART_KEYS) or bool(
+            self._phone_order_list
+        )
 
         if has_conditional:
             # Force mode to conditional so the editor matches the stored data
