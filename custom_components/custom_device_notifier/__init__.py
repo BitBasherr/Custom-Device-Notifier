@@ -593,6 +593,7 @@ def _looks_awake(state: str) -> bool:
         return False
     return True
 
+
 def _pc_is_eligible(
     hass: HomeAssistant,
     session_entity: str | None,
@@ -655,7 +656,9 @@ def _pc_is_eligible(
 
     # If not unlocked, hard reject regardless of hints
     if not unlocked_now:
-        _LOGGER.debug("PC %s | rejected (currently locked) state=%r", session_entity, raw_state)
+        _LOGGER.debug(
+            "PC %s | rejected (currently locked) state=%r", session_entity, raw_state
+        )
         return (False, False)
 
     # Awake assessment
@@ -679,9 +682,17 @@ def _pc_is_eligible(
     eligible = fresh_ok and unlocked_now and awake_ok
     _LOGGER.debug(
         "PC session %s | raw=%r fresh_ok=%s unlocked=%s awake_ok=%s (awake_from_session=%s hint_awake=%s) eligible=%s",
-        session_entity, raw_state, fresh_ok, unlocked_now, awake_ok, awake_from_session, hint_awake, eligible
+        session_entity,
+        raw_state,
+        fresh_ok,
+        unlocked_now,
+        awake_ok,
+        awake_from_session,
+        hint_awake,
+        eligible,
     )
     return (eligible, unlocked_now)
+
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
