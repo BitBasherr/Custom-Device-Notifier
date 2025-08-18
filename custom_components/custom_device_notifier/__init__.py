@@ -219,7 +219,9 @@ async def _route_and_forward(
             ok_fb = True
             # Only use a mobile_app fallback if that phone is actually eligible
             if fb.startswith("notify.mobile_app_"):
-                min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
+                min_batt = int(
+                    cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY)
+                )
                 phone_fresh = int(
                     cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S)
                 )
@@ -425,7 +427,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                latest_lock_ts = (
+                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                )
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -468,7 +472,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     if saw_lock and not saw_fresh_unlock:
         return False
@@ -537,7 +543,9 @@ def _phone_is_eligible(
 
     if require_unlocked:
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug("Phone %s | rejected (locked or not interactive)", notify_service)
+            _LOGGER.debug(
+                "Phone %s | rejected (locked or not interactive)", notify_service
+            )
             return False
 
     return True
@@ -572,14 +580,16 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
     # If the session explicitly indicates Unlocked/Active, accept even if timestamp is a bit stale.
     if not fresh_ok and (unlocked or awake):
         fresh_ok = True
 
-    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    eligible = (
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    )
 
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
@@ -650,7 +660,11 @@ def _choose_service_smart(
                 else (pc_service if pc_ok else None)
             )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -780,7 +794,10 @@ class PreviewManager:
                 if self.hass.states.get(f"sensor.{slug}_battery") is not None:
                     watch.add(f"sensor.{slug}_battery")
                 # freshness & shutdown (raw)
-                if self.hass.states.get(f"sensor.{slug}_last_update_trigger") is not None:
+                if (
+                    self.hass.states.get(f"sensor.{slug}_last_update_trigger")
+                    is not None
+                ):
                     watch.add(f"sensor.{slug}_last_update_trigger")
                 if self.hass.states.get(f"sensor.{slug}_last_update") is not None:
                     watch.add(f"sensor.{slug}_last_update")
@@ -868,7 +885,9 @@ class PreviewManager:
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
+            decision.update(
+                {"result": "forwarded", "service_full": f"{domain}.{service}"}
+            )
         else:
             decision.update({"result": "dropped", "service_full": None})
 
