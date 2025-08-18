@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Iterable, Set
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_time_interval,
+    async_track_state_change_event,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -56,6 +59,7 @@ _LOGGER = logging.getLogger(__name__)
 DATA = f"{DOMAIN}.data"
 SERVICE_HANDLES = f"{DOMAIN}.service_handles"
 TICK_UNSUBS = f"{DOMAIN}.tick_unsubs"
+LIVE_UNSUBS = f"{DOMAIN}.live_unsubs"
 
 # How often to recompute the “current target” preview
 PREVIEW_INTERVAL = timedelta(seconds=30)
@@ -80,6 +84,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DATA, {})
     hass.data.setdefault(SERVICE_HANDLES, {})
     hass.data.setdefault(TICK_UNSUBS, {})
+    hass.data.setdefault(LIVE_UNSUBS, {})
     return True
 
 
@@ -115,7 +120,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Register notify.<slug>, forward sensor, and start live preview ticker."""
+    """Register notify.<slug>, forward sensor, start live preview ticker + watchers."""
     slug = entry.data.get(CONF_SERVICE_NAME)
     if not slug:
         _LOGGER.error(
@@ -138,15 +143,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # live “current target” sensor platform (subscribes to our dispatcher)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
-    # Start safe, event-loop based periodic preview (no threads).
+    # Periodic preview (event-loop based)
     async def _tick(_now) -> None:
         await _publish_preview_decision(hass, entry, via="preview")
 
-    unsub = async_track_time_interval(hass, _tick, PREVIEW_INTERVAL)
-    hass.data[TICK_UNSUBS][entry.entry_id] = unsub
-    entry.async_on_unload(unsub)
+    unsub_tick = async_track_time_interval(hass, _tick, PREVIEW_INTERVAL)
+    hass.data[TICK_UNSUBS][entry.entry_id] = unsub_tick
+    entry.async_on_unload(unsub_tick)
 
-    # Also publish an immediate preview so dashboards update right away
+    # State-change watchers for instant live updates
+    _replace_live_watchers(hass, entry)
+
+    # Publish an immediate preview so dashboards update right away
     hass.async_create_task(_publish_preview_decision(hass, entry, via="preview"))
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -157,13 +165,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    # Just recompute preview on option changes
     _LOGGER.debug("Options updated for %s", entry.entry_id)
+    # Reinstall watchers because relevant entities may have changed
+    _replace_live_watchers(hass, entry)
     await _publish_preview_decision(hass, entry, via="options_change")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Tear down notify service, sensor platform, and ticker."""
+    """Tear down notify service, sensor platform, ticker, and watchers."""
     slug = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
     if slug and hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
@@ -173,7 +182,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unsub:
         try:
             unsub()
-        except Exception:  # defensively ignore
+        except Exception:
+            pass
+
+    # Stop watchers
+    wunsub = hass.data[LIVE_UNSUBS].pop(entry.entry_id, None)
+    if wunsub:
+        try:
+            wunsub()
+        except Exception:
             pass
 
     ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
@@ -302,9 +319,9 @@ async def _publish_preview_decision(
     domain, service = _split_service(svc)
     decision.update(
         {
-            "result": "forwarded",  # keep sensor display consistent
+            "result": "forwarded",          # keep sensor display consistent
             "service_full": f"{domain}.{service}",
-            "via": via,  # mark it as a preview
+            "via": via,                     # mark it as a preview
         }
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
@@ -429,8 +446,10 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     - Positive 'unlocked/interactive' must be fresh (<= fresh_s).
     - If no fresh positive and either a locked exists (stale or fresh) or nothing exists, treat as NOT unlocked.
     """
+    from datetime import timedelta as _td
+
     now = dt_util.utcnow()
-    fresh = timedelta(seconds=fresh_s)
+    fresh = _td(seconds=fresh_s)
 
     # collect likely "locked" signals
     latest_lock_ts = None
@@ -521,6 +540,8 @@ def _phone_is_eligible(
     require_unlocked: bool = False,
 ) -> bool:
     """Battery + freshness + not-shutdown + optional unlocked/interactive check."""
+    from datetime import timedelta as _td
+
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
@@ -566,7 +587,7 @@ def _phone_is_eligible(
         st = hass.states.get(ent_id)
         if not st:
             continue
-        if (now - st.last_updated) <= timedelta(seconds=fresh_s):
+        if (now - st.last_updated) <= _td(seconds=fresh_s):
             fresh_ok_any = True
             if (
                 ent_id.endswith("_last_update_trigger")
@@ -739,6 +760,90 @@ def _choose_service_smart(
         "require_phone_unlocked_effective": require_phone_unlocked_effective,
     }
     return (chosen, info)
+
+
+# ───────────────────────── watchers (live) ─────────────────────────
+
+
+def _entities_to_watch(cfg: dict[str, Any]) -> Set[str]:
+    """Collect entities that influence routing, for live preview updates."""
+    entities: Set[str] = set()
+    mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
+
+    if mode == ROUTING_CONDITIONAL:
+        for tgt in cfg.get(CONF_TARGETS, []) or []:
+            for c in tgt.get(KEY_CONDITIONS, []) or []:
+                eid = str(c.get("entity_id") or "").strip()
+                if eid:
+                    entities.add(eid)
+
+    # Smart mode signals
+    if mode == ROUTING_SMART:
+        pc_session = cfg.get(CONF_SMART_PC_SESSION)
+        if isinstance(pc_session, str) and pc_session:
+            entities.add(pc_session)
+
+        for svc in cfg.get(CONF_SMART_PHONE_ORDER, []) or []:
+            slug = _service_slug(svc)
+            # battery / freshness
+            entities.update(
+                {
+                    f"sensor.{slug}_battery_level",
+                    f"sensor.{slug}_battery",
+                    f"sensor.{slug}_last_update_trigger",
+                    f"sensor.{slug}_last_update",
+                    f"device_tracker.{slug}",
+                }
+            )
+            # interactive / lock signals
+            entities.update(
+                {
+                    f"binary_sensor.{slug}_interactive",
+                    f"sensor.{slug}_interactive",
+                    f"binary_sensor.{slug}_is_interactive",
+                    f"binary_sensor.{slug}_screen_on",
+                    f"sensor.{slug}_screen_state",
+                    f"sensor.{slug}_display_state",
+                    f"sensor.{slug}_keyguard",
+                    f"sensor.{slug}_lock_state",
+                    f"binary_sensor.{slug}_lock",
+                    f"binary_sensor.{slug}_awake",
+                    f"sensor.{slug}_awake",
+                    f"binary_sensor.{slug}_device_locked",
+                    f"binary_sensor.{slug}_locked",
+                }
+            )
+
+    # Drop blanks; HA doesn't like invalid entity IDs
+    return {e for e in entities if e and "." in e}
+
+
+def _replace_live_watchers(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """(Re)install state change watchers for live preview updates."""
+    # Uninstall old
+    old = hass.data[LIVE_UNSUBS].pop(entry.entry_id, None)
+    if old:
+        try:
+            old()
+        except Exception:
+            pass
+
+    entities = _entities_to_watch(_config_view(entry))
+    if not entities:
+        _LOGGER.debug("No live entities to watch for %s", entry.entry_id)
+        return
+
+    @callback
+    def _on_change(_event) -> None:
+        # Safe: we're already on the event loop (callback)
+        hass.async_create_task(_publish_preview_decision(hass, entry, via="state"))
+
+    unsub = async_track_state_change_event(hass, list(entities), _on_change)
+    hass.data[LIVE_UNSUBS][entry.entry_id] = unsub
+    entry.async_on_unload(unsub)
+    _LOGGER.debug(
+        "Installed live watchers for %s (%d entities)", entry.entry_id, len(entities)
+    )
 
 
 # ───────────────────────── utilities ─────────────────────────
