@@ -400,7 +400,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                latest_lock_ts = (
+                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                )
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -443,7 +445,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     if saw_lock and not saw_fresh_unlock:
         return False
@@ -468,7 +472,11 @@ def _explain_phone_eligibility(
     # battery
     batt_ok = True
     batt_val: float | None = None
-    for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery", f"sensor.{slug}_battery_percent"):
+    for ent_id in (
+        f"sensor.{slug}_battery_level",
+        f"sensor.{slug}_battery",
+        f"sensor.{slug}_battery_percent",
+    ):
         st = hass.states.get(ent_id)
         if st is None:
             continue
@@ -494,7 +502,10 @@ def _explain_phone_eligibility(
         st = hass.states.get(ent_id)
         if st and (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
+            if (
+                ent_id.endswith("_last_update_trigger")
+                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
+            ):
                 shutdown_recent = True
             break
     for eid in (
@@ -526,7 +537,9 @@ def _explain_phone_eligibility(
         unlocked = _phone_is_unlocked_awake(hass, slug, fresh_s)
     out["unlocked"] = unlocked
 
-    out["eligible"] = bool(batt_ok and fresh_ok_any and (not shutdown_recent) and unlocked)
+    out["eligible"] = bool(
+        batt_ok and fresh_ok_any and (not shutdown_recent) and unlocked
+    )
     return out
 
 
@@ -549,7 +562,9 @@ def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
+    if any(
+        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
+    ):
         return False
     return True
 
@@ -574,13 +589,18 @@ def _pc_is_eligible(
     now = dt_util.utcnow()
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
     eligible = fresh_ok and (awake or not require_awake) and unlocked
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
-        session_entity, st.state, fresh_ok, awake, unlocked, eligible,
+        session_entity,
+        st.state,
+        fresh_ok,
+        awake,
+        unlocked,
+        eligible,
     )
     return (eligible, unlocked)
 
@@ -595,13 +615,13 @@ def _choose_service_smart(
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
     # we *always* require phone unlocked; PC unlocked is enforced by session text
     _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
 
-    pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake
-    )
+    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
 
     eligibility_map: Dict[str, dict] = {}
     eligible_phones: list[str] = []
@@ -622,11 +642,22 @@ def _choose_service_smart(
             chosen = eligible_phones[0]
         elif pc_ok:
             chosen = pc_service
-    elif cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY) == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
+    elif (
+        cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
+        == SMART_POLICY_PHONE_IF_PC_UNLOCKED
+    ):
         if pc_unlocked:
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
     else:
         _LOGGER.warning("Unknown smart policy; defaulting to PC_FIRST")
         if pc_ok:
@@ -818,7 +849,9 @@ class PreviewManager:
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
+            decision.update(
+                {"result": "forwarded", "service_full": f"{domain}.{service}"}
+            )
         else:
             decision.update({"result": "dropped", "service_full": None})
 
