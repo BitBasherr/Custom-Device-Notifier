@@ -433,7 +433,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                latest_lock_ts = (
+                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                )
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -636,10 +638,12 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
-    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    eligible = (
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    )
 
     # If session says no but hints look good, allow
     if not eligible and pc_active_ok:
@@ -715,9 +719,17 @@ def _choose_service_smart(
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -984,14 +996,18 @@ class PreviewManager:
             decision["conditional"] = info
 
         if not chosen:
-            fb_full, fb_via = _resolve_fallback(self.hass, self.entry, cfg, preview=True)
+            fb_full, fb_via = _resolve_fallback(
+                self.hass, self.entry, cfg, preview=True
+            )
             if fb_full:
                 chosen = fb_full
                 decision["via"] = fb_via
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
+            decision.update(
+                {"result": "forwarded", "service_full": f"{domain}.{service}"}
+            )
         else:
             decision.update({"result": "dropped", "service_full": None})
 
