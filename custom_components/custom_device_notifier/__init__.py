@@ -593,28 +593,76 @@ def _looks_awake(state: str) -> bool:
         return False
     return True
 
-
 def _pc_is_eligible(
     hass: HomeAssistant,
     session_entity: str | None,
     fresh_s: int,
     require_awake: bool,
-    require_unlocked: bool,
+    require_unlocked: bool,  # kept for signature compatibility (ignored; we always require unlocked)
     *,
     pc_service: str | None = None,
 ) -> tuple[bool, bool]:
-    """PC eligibility from session state; optional 'active_recent' hint.
-
-    NOTE: We do not consult any *_usable_for_notify here.
+    """PC is eligible only if it is UNLOCKED and fresh.
+    - We still use 'awake' as a requirement when require_awake=True.
+    - Activity hints (e.g., binary_sensor.<slug>_active_recent) may help with 'awake'
+      but can NEVER override a locked state.
+    - If there is no session entity, or it is unavailable, we cannot prove unlocked → not eligible.
+    Returns: (eligible, unlocked_now)
     """
-    # derive slug from notify service (for hint patterns)
-    slug = None
+    # Derive slug (for optional hint/lock patterns)
+    slug: Optional[str] = None
     if pc_service:
         _, svc = _split_service(pc_service)
         slug = svc
 
-    # default: if no hints exist, don't assume activity
-    pc_active_ok = False
+    # 1) If we don't have a session entity, we can't assert "Unlocked" → reject.
+    if not session_entity:
+        return (False, False)
+
+    st = hass.states.get(session_entity)
+    if st is None:
+        return (False, False)
+
+    now = dt_util.utcnow()
+    fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
+
+    # Session state parsing
+    raw_state = (st.state or "").strip()
+    state = raw_state.lower()
+
+    # Strict unlock detection from the session string
+    # Accept anything that clearly says "Unlocked" and is not negated by "locked".
+    unlocked_now = ("unlock" in state and "locked" not in state) or state == "unlocked"
+
+    # Optional extra lock hints (cannot override an explicit "Unlocked", but can force lock)
+    if slug and not unlocked_now:
+        for eid in (
+            f"binary_sensor.{slug}_locked",
+            f"sensor.{slug}_lock_state",
+        ):
+            hint = hass.states.get(eid)
+            if not hint:
+                continue
+            hv = str(hint.state or "").strip().lower()
+            if eid.startswith("binary_sensor."):
+                if hv in ("on", "true"):  # on=true means "locked"
+                    unlocked_now = False
+                    break
+            else:
+                if hv in ("locked",) or ("locked" in hv and "unlock" not in hv):
+                    unlocked_now = False
+                    break
+
+    # If not unlocked, hard reject regardless of hints
+    if not unlocked_now:
+        _LOGGER.debug("PC %s | rejected (currently locked) state=%r", session_entity, raw_state)
+        return (False, False)
+
+    # Awake assessment
+    awake_from_session = _looks_awake(state)
+
+    # Optional activity hints (only help with 'awake'; they DO NOT affect lock)
+    hint_awake = False
     if slug:
         for eid in (
             f"binary_sensor.{slug}_active_recent",
@@ -622,46 +670,18 @@ def _pc_is_eligible(
             f"binary_sensor.{slug}_fresh",
         ):
             h = hass.states.get(eid)
-            if h is not None:
-                pc_active_ok = str(h.state).lower() in ("on", "true")
+            if h is not None and str(h.state).lower() in ("on", "true"):
+                hint_awake = True
                 break
 
-    # no session → rely on hints only
-    if not session_entity:
-        return (pc_active_ok, pc_active_ok)
+    awake_ok = awake_from_session or hint_awake or not require_awake
 
-    st = hass.states.get(session_entity)
-    if st is None:
-        return (pc_active_ok, pc_active_ok)
-
-    now = dt_util.utcnow()
-    fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
-
-    state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
-    awake = _looks_awake(state)
-
-    eligible = (
-        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
-    )
-
-    # If session says no but hints look good, allow
-    if not eligible and pc_active_ok:
-        eligible = True
-        unlocked = True
-
+    eligible = fresh_ok and unlocked_now and awake_ok
     _LOGGER.debug(
-        "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s (hint active=%s)",
-        session_entity,
-        st.state,
-        fresh_ok,
-        awake,
-        unlocked,
-        eligible,
-        pc_active_ok,
+        "PC session %s | raw=%r fresh_ok=%s unlocked=%s awake_ok=%s (awake_from_session=%s hint_awake=%s) eligible=%s",
+        session_entity, raw_state, fresh_ok, unlocked_now, awake_ok, awake_from_session, hint_awake, eligible
     )
-    return (eligible, unlocked)
-
+    return (eligible, unlocked_now)
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
