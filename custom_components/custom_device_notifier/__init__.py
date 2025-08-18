@@ -137,15 +137,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[SERVICE_HANDLES][entry.entry_id] = slug
 
     # live “current target” sensor platform (subscribes to our dispatcher)
-    await hass.config_entries.async_forward_entry_setup(entry, "sensor")
-
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    
     # start the live preview publisher (proactive)
     pm = PreviewManager(hass, entry)
     await pm.async_start()
     rt.preview = pm
+    # Register proper unload cleanup
+    async def _stop_preview() -> None:
+        await pm.async_stop()
 
-    # IMPORTANT: wrap async stop so HA doesn't call a coroutine like a function
-    entry.async_on_unload(lambda: hass.async_create_task(pm.async_stop()))
+    entry.async_on_unload(_stop_preview)
+
+    # Keep your options-listener registration
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
