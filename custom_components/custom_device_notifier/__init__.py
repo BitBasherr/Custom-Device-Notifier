@@ -39,7 +39,6 @@ from .const import (
     CONF_SMART_PHONE_FRESH_S,
     CONF_SMART_PC_FRESH_S,
     CONF_SMART_REQUIRE_AWAKE,
-    CONF_SMART_REQUIRE_UNLOCKED,
     CONF_SMART_POLICY,
     SMART_POLICY_PC_FIRST,
     SMART_POLICY_PHONE_IF_PC_UNLOCKED,
@@ -48,9 +47,8 @@ from .const import (
     DEFAULT_SMART_PHONE_FRESH_S,
     DEFAULT_SMART_PC_FRESH_S,
     DEFAULT_SMART_REQUIRE_AWAKE,
-    DEFAULT_SMART_REQUIRE_UNLOCKED,
     DEFAULT_SMART_POLICY,
-    # (kept for options compat, but we require unlocked anyway)
+    # new flag from the flow (phones must be interactive/unlocked when True)
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
