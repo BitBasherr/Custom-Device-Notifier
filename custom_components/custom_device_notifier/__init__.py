@@ -319,9 +319,9 @@ async def _publish_preview_decision(
     domain, service = _split_service(svc)
     decision.update(
         {
-            "result": "forwarded",          # keep sensor display consistent
+            "result": "forwarded",  # keep sensor display consistent
             "service_full": f"{domain}.{service}",
-            "via": via,                     # mark it as a preview
+            "via": via,  # mark it as a preview
         }
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
