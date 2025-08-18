@@ -490,6 +490,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         return False
     return bool(saw_fresh_unlock)
 
+
 def _phone_is_eligible(
     hass: HomeAssistant,
     notify_service: str,
@@ -499,10 +500,10 @@ def _phone_is_eligible(
     require_unlocked: bool = False,
 ) -> bool:
     """Phone eligible if:
-       - battery >= min_batt (if a battery sensor exists),
-       - recent activity within fresh_s (from built-in sensors),
-       - not recently shutdown,
-       - if require_unlocked: MUST be unlocked/interactive (strict; no 'on_awake' shortcut).
+    - battery >= min_batt (if a battery sensor exists),
+    - recent activity within fresh_s (from built-in sensors),
+    - not recently shutdown,
+    - if require_unlocked: MUST be unlocked/interactive (strict; no 'on_awake' shortcut).
     """
     domain, svc = _split_service(notify_service)
     if domain != "notify":
@@ -514,7 +515,11 @@ def _phone_is_eligible(
 
     # ---- Battery gate (best-effort; missing sensor doesn't block) ----
     batt_ok = True
-    for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery", f"sensor.{slug}_battery_percent"):
+    for ent_id in (
+        f"sensor.{slug}_battery_level",
+        f"sensor.{slug}_battery",
+        f"sensor.{slug}_battery_percent",
+    ):
         st = hass.states.get(ent_id)
         if st is None:
             continue
@@ -553,11 +558,18 @@ def _phone_is_eligible(
             continue
         if (now - st.last_updated) <= fresh_window:
             fresh_ok_any = True
-            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
+            if (
+                ent_id.endswith("_last_update_trigger")
+                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
+            ):
                 shutdown_recent = True
             # don't break; keep scanning to also catch shutdown flag
     # Soft hints can mark fresh_ok_any True but must NEVER force a lock to appear “unlocked”
-    for ent_id in (f"binary_sensor.{slug}_active_recent", f"binary_sensor.{slug}_recent_activity", f"binary_sensor.{slug}_fresh"):
+    for ent_id in (
+        f"binary_sensor.{slug}_active_recent",
+        f"binary_sensor.{slug}_recent_activity",
+        f"binary_sensor.{slug}_fresh",
+    ):
         st = hass.states.get(ent_id)
         if st is not None and str(st.state).lower() in ("on", "true"):
             fresh_ok_any = True
@@ -566,7 +578,10 @@ def _phone_is_eligible(
     if shutdown_recent or not (batt_ok and fresh_ok_any):
         _LOGGER.debug(
             "Phone %s | rejected: shutdown_recent=%s batt_ok=%s fresh_ok=%s",
-            notify_service, shutdown_recent, batt_ok, fresh_ok_any,
+            notify_service,
+            shutdown_recent,
+            batt_ok,
+            fresh_ok_any,
         )
         return False
 
@@ -590,7 +605,9 @@ def _phone_is_eligible(
                     explicit_locked = True
                     break
             else:
-                if v in ("locked", "screen_locked") or ("locked" in v and "unlock" not in v):
+                if v in ("locked", "screen_locked") or (
+                    "locked" in v and "unlock" not in v
+                ):
                     explicit_locked = True
                     break
         if explicit_locked:
@@ -599,7 +616,10 @@ def _phone_is_eligible(
 
         # Final authoritative check: timestamp-aware unlocked/interactive
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug("Phone %s | rejected (not unlocked/interactive by recency check)", notify_service)
+            _LOGGER.debug(
+                "Phone %s | rejected (not unlocked/interactive by recency check)",
+                notify_service,
+            )
             return False
 
     return True
@@ -614,6 +634,7 @@ def _looks_awake(state: str) -> bool:
     ):
         return False
     return True
+
 
 def _pc_is_eligible(
     hass: HomeAssistant,
