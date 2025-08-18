@@ -835,7 +835,9 @@ class PreviewManager:
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
+            decision.update(
+                {"result": "forwarded", "service_full": f"{domain}.{service}"}
+            )
         else:
             decision.update({"result": "dropped", "service_full": None})
 
