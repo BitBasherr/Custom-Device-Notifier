@@ -373,13 +373,40 @@ def _service_slug(full: str) -> str:
     return slug
 
 
+def _phone_is_locked_now(hass: HomeAssistant, slug: str) -> bool:
+    """Strict 'right now' locked check; if any lock sensor says locked, it's locked."""
+    lock_entities = [
+        f"binary_sensor.{slug}_device_locked",
+        f"binary_sensor.{slug}_locked",
+        f"binary_sensor.{slug}_lock",
+        f"sensor.{slug}_lock_state",
+        f"sensor.{slug}_keyguard",
+    ]
+    for ent_id in lock_entities:
+        st = hass.states.get(ent_id)
+        if not st:
+            continue
+        val = str(st.state or "").strip().lower()
+        # binary_sensors "on/true" → locked
+        if ent_id.startswith("binary_sensor."):
+            if val in ("on", "true"):
+                return True
+        else:
+            # sensors textual states
+            if val in ("locked", "screen_locked", "keyguard_on"):
+                return True
+            # handle generic strings like "...locked..." but not "...unlocked..."
+            if "locked" in val and "unlock" not in val:
+                return True
+    return False
+
+
 def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
     """
     Decide unlocked vs locked by timestamp precedence.
 
-    - Any 'locked' signal (even stale) blocks unless there's a newer fresh 'unlocked/interactive'.
+    - Any 'locked' signal blocks unless there's a newer fresh 'unlocked/interactive'.
     - Positive 'unlocked/interactive' must be fresh (<= fresh_s).
-    - If no fresh positive and either a locked exists (stale or fresh) or nothing exists, treat as NOT unlocked.
     """
     now = dt_util.utcnow()
     fresh = timedelta(seconds=fresh_s)
@@ -406,9 +433,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = (
-                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
-                )
+                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -472,15 +497,17 @@ def _phone_is_eligible(
     *,
     require_unlocked: bool = False,
 ) -> bool:
-    """Battery + freshness + optional unlocked/interactive check.
-
-    NOTE: We intentionally do NOT use any *_usable_for_notify gates.
-    """
+    """Battery + freshness + (strict) unlocked/interactive check."""
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
 
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
+
+    # HARD BLOCK: if any lock sensor says "locked" right now, reject this phone.
+    if _phone_is_locked_now(hass, slug):
+        _LOGGER.debug("Phone %s | rejected (currently locked)", notify_service)
+        return False
 
     # battery gate
     batt_ok = True
@@ -541,20 +568,13 @@ def _phone_is_eligible(
         return False
 
     if require_unlocked:
-        # quick positive hints
-        for eid in (
-            f"binary_sensor.{slug}_on_awake",
-            f"binary_sensor.{slug}_awake",
-            f"binary_sensor.{slug}_interactive",
-            f"binary_sensor.{slug}_screen_on",
-        ):
-            h = hass.states.get(eid)
-            if h is not None and str(h.state).lower() in ("on", "true"):
-                return True
-        # strict timestamp-based check
+        # With the new rule, we DO NOT allow hints to override a present lock.
+        # We already hard-blocked if locked_now == True. If no lock present,
+        # require a fresh unlocked/interactive signal.
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
             _LOGGER.debug(
-                "Phone %s | rejected (locked or not interactive)", notify_service
+                "Phone %s | rejected (no fresh unlocked/interactive evidence)",
+                notify_service,
             )
             return False
 
@@ -616,12 +636,10 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
     awake = _looks_awake(state)
 
-    eligible = (
-        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
-    )
+    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
 
     # If session says no but hints look good, allow
     if not eligible and pc_active_ok:
@@ -697,17 +715,9 @@ def _choose_service_smart(
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            chosen = (
-                eligible_phones[0]
-                if eligible_phones
-                else (pc_service if pc_ok else None)
-            )
+            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
         else:
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -873,7 +883,7 @@ class PreviewManager:
                 if self.hass.states.get(pc_session) is not None:
                     watch.add(pc_session)
 
-            # PC activity hints (no "usable" gates)
+            # PC activity hints
             pc_service = cfg.get(CONF_SMART_PC_NOTIFY)
             if pc_service:
                 _, svc = _split_service(pc_service)
@@ -974,18 +984,14 @@ class PreviewManager:
             decision["conditional"] = info
 
         if not chosen:
-            fb_full, fb_via = _resolve_fallback(
-                self.hass, self.entry, cfg, preview=True
-            )
+            fb_full, fb_via = _resolve_fallback(self.hass, self.entry, cfg, preview=True)
             if fb_full:
                 chosen = fb_full
                 decision["via"] = fb_via
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update(
-                {"result": "forwarded", "service_full": f"{domain}.{service}"}
-            )
+            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
         else:
             decision.update({"result": "dropped", "service_full": None})
 
