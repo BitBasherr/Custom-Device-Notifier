@@ -484,8 +484,18 @@ def _phone_is_eligible(
     ]
     for eid in usable_patterns:
         usable = hass.states.get(eid)
-        if usable is not None and str(usable.state).lower() in ("off", "false", "unavailable", "unknown"):
-            _LOGGER.debug("Phone %s | blocked by usable sensor %s=%s", notify_service, eid, usable.state)
+        if usable is not None and str(usable.state).lower() in (
+            "off",
+            "false",
+            "unavailable",
+            "unknown",
+        ):
+            _LOGGER.debug(
+                "Phone %s | blocked by usable sensor %s=%s",
+                notify_service,
+                eid,
+                usable.state,
+            )
             return False
         if usable is not None:
             break  # found one, assume OK if not off
@@ -523,7 +533,10 @@ def _phone_is_eligible(
         st = hass.states.get(ent_id)
         if st and (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
+            if (
+                ent_id.endswith("_last_update_trigger")
+                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
+            ):
                 shutdown_recent = True
             break
 
@@ -542,7 +555,10 @@ def _phone_is_eligible(
     if shutdown_recent or not (batt_ok and fresh_ok_any):
         _LOGGER.debug(
             "Phone %s | rejected: shutdown_recent=%s batt_ok=%s fresh_ok=%s",
-            notify_service, shutdown_recent, batt_ok, fresh_ok_any,
+            notify_service,
+            shutdown_recent,
+            batt_ok,
+            fresh_ok_any,
         )
         return False
 
@@ -560,7 +576,9 @@ def _phone_is_eligible(
                 return True  # hint overrides
         # Fallback to the stricter timestamp-based unlocked/interactive check
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug("Phone %s | rejected (locked or not interactive)", notify_service)
+            _LOGGER.debug(
+                "Phone %s | rejected (locked or not interactive)", notify_service
+            )
             return False
 
     return True
@@ -602,7 +620,12 @@ def _pc_is_eligible(
         ]
         for eid in usable_patterns:
             usable = hass.states.get(eid)
-            if usable is not None and str(usable.state).lower() in ("off", "false", "unavailable", "unknown"):
+            if usable is not None and str(usable.state).lower() in (
+                "off",
+                "false",
+                "unavailable",
+                "unknown",
+            ):
                 pc_usable_ok = False
             if usable is not None:
                 break
@@ -633,10 +656,12 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
-    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    eligible = (
+        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
+    )
 
     # If session path rejected, but hints look good, allow PC
     if not eligible and pc_usable_ok and pc_active_ok:
@@ -645,7 +670,14 @@ def _pc_is_eligible(
 
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s (hints usable=%s active=%s)",
-        session_entity, st.state if st else None, fresh_ok, awake, unlocked, eligible, pc_usable_ok, pc_active_ok,
+        session_entity,
+        st.state if st else None,
+        fresh_ok,
+        awake,
+        unlocked,
+        eligible,
+        pc_usable_ok,
+        pc_active_ok,
     )
     return (eligible, unlocked)
 
@@ -672,7 +704,11 @@ def _choose_service_smart(
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked,
+        hass,
+        pc_session,
+        pc_fresh,
+        require_pc_awake,
+        require_pc_unlocked,
         pc_service=pc_service,
     )
 
