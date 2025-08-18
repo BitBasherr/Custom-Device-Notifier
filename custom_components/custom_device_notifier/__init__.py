@@ -138,11 +138,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # live “current target” sensor platform (subscribes to our dispatcher)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
-    
+
     # start the live preview publisher (proactive)
     pm = PreviewManager(hass, entry)
     await pm.async_start()
     rt.preview = pm
+
     # Register proper unload cleanup
     async def _stop_preview() -> None:
         await pm.async_stop()
