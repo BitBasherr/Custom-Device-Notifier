@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any, Dict, List, Tuple, Optional, Set, Callable
+from typing import Any, Dict, List, Optional, Set, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -22,6 +22,7 @@ from .const import (
     CONF_TARGETS,
     CONF_PRIORITY,
     CONF_FALLBACK,
+    KEY_MATCH,
     CONF_MATCH_MODE,
     KEY_SERVICE,
     KEY_CONDITIONS,
@@ -136,15 +137,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[SERVICE_HANDLES][entry.entry_id] = slug
 
     # live “current target” sensor platform (subscribes to our dispatcher)
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    await hass.config_entries.async_forward_entry_setup(entry, "sensor")
 
     # start the live preview publisher (proactive)
     pm = PreviewManager(hass, entry)
     await pm.async_start()
     rt.preview = pm
-    entry.async_on_unload(pm.async_stop)
 
+    # IMPORTANT: wrap async stop so HA doesn't call a coroutine like a function
+    entry.async_on_unload(lambda: hass.async_create_task(pm.async_stop()))
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
     _LOGGER.info(
         "Registered notify.%s for %s", slug, entry.data.get(CONF_SERVICE_NAME_RAW, slug)
     )
@@ -267,7 +270,7 @@ def _choose_service_conditional_with_info(
     for tgt in targets:
         svc = str(tgt.get(KEY_SERVICE) or "")
         conds: List[dict[str, Any]] = list(tgt.get(KEY_CONDITIONS, []))
-        mode: str = str(tgt.get(CONF_MATCH_MODE, "all"))
+        mode: str = str(tgt.get(CONF_MATCH_MODE, tgt.get(KEY_MATCH, "all")))
         if svc and _evaluate_conditions(hass, conds, mode):
             matched_services.append(svc)
 
