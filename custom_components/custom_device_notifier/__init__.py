@@ -476,22 +476,28 @@ def _phone_is_eligible(
 
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
 
-    # kill switch (optional)
-    usable = hass.states.get(f"binary_sensor.{slug}_usable_for_notify")
-    if usable is not None and str(usable.state).lower() in (
-        "off",
-        "false",
-        "unavailable",
-        "unknown",
-    ):
-        _LOGGER.debug(
-            "Phone %s | blocked by usable_for_notify=%s", notify_service, usable.state
-        )
-        return False
+    # kill switch (optional, pattern: binary_sensor.{slug}_usable_for_notify or similar)
+    usable_patterns = [
+        f"binary_sensor.{slug}_usable_for_notify",
+        f"binary_sensor.{slug}_usable",
+        f"binary_sensor.{slug}_notify_usable",
+    ]
+    for eid in usable_patterns:
+        usable = hass.states.get(eid)
+        if usable is not None and str(usable.state).lower() in ("off", "false", "unavailable", "unknown"):
+            _LOGGER.debug("Phone %s | blocked by usable sensor %s=%s", notify_service, eid, usable.state)
+            return False
+        if usable is not None:
+            break  # found one, assume OK if not off
 
     # battery gate
     batt_ok = True
-    for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery"):
+    batt_patterns = [
+        f"sensor.{slug}_battery_level",
+        f"sensor.{slug}_battery",
+        f"sensor.{slug}_battery_percent",
+    ]
+    for ent_id in batt_patterns:
         st = hass.states.get(ent_id)
         if st is None:
             continue
@@ -499,57 +505,62 @@ def _phone_is_eligible(
             batt_ok = float(str(st.state)) >= float(min_batt)
         except Exception:
             pass
-        break
+        if st is not None:
+            break
 
     now = dt_util.utcnow()
     fresh_ok_any = False
     shutdown_recent = False
 
     # original freshness sources
-    for ent_id in (
+    fresh_patterns = [
         f"sensor.{slug}_last_update_trigger",
         f"sensor.{slug}_last_update",
         f"device_tracker.{slug}",
-    ):
+        f"sensor.{slug}_last_notification",
+    ]
+    for ent_id in fresh_patterns:
         st = hass.states.get(ent_id)
         if st and (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if (
-                ent_id.endswith("_last_update_trigger")
-                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
-            ):
+            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
                 shutdown_recent = True
             break
 
-    # >>> NEW: accept your own "recent/awake" sensors as freshness hints
-    for hint_id in (
+    # freshness hints (binary_sensor.{slug}_active_recent or similar)
+    fresh_hint_patterns = [
         f"binary_sensor.{slug}_active_recent",
-        f"binary_sensor.{slug}_on_awake",
-    ):
-        h = hass.states.get(hint_id)
+        f"binary_sensor.{slug}_recent_activity",
+        f"binary_sensor.{slug}_fresh",
+    ]
+    for eid in fresh_hint_patterns:
+        h = hass.states.get(eid)
         if h is not None and str(h.state).lower() in ("on", "true"):
             fresh_ok_any = True
+            break
 
     if shutdown_recent or not (batt_ok and fresh_ok_any):
         _LOGGER.debug(
             "Phone %s | rejected: shutdown_recent=%s batt_ok=%s fresh_ok=%s",
-            notify_service,
-            shutdown_recent,
-            batt_ok,
-            fresh_ok_any,
+            notify_service, shutdown_recent, batt_ok, fresh_ok_any,
         )
         return False
 
     if require_unlocked:
-        # Fast-path: if your 'on_awake' is on, treat as unlocked/interactive
-        on_awake = hass.states.get(f"binary_sensor.{slug}_on_awake")
-        if on_awake is not None and str(on_awake.state).lower() in ("on", "true"):
-            return True
+        # Fast-path: awake hints (binary_sensor.{slug}_on_awake or similar)
+        awake_patterns = [
+            f"binary_sensor.{slug}_on_awake",
+            f"binary_sensor.{slug}_awake",
+            f"binary_sensor.{slug}_interactive",
+            f"binary_sensor.{slug}_screen_on",
+        ]
+        for eid in awake_patterns:
+            h = hass.states.get(eid)
+            if h is not None and str(h.state).lower() in ("on", "true"):
+                return True  # hint overrides
         # Fallback to the stricter timestamp-based unlocked/interactive check
         if not _phone_is_unlocked_awake(hass, slug, fresh_s):
-            _LOGGER.debug(
-                "Phone %s | rejected (locked or not interactive)", notify_service
-            )
+            _LOGGER.debug("Phone %s | rejected (locked or not interactive)", notify_service)
             return False
 
     return True
@@ -575,41 +586,57 @@ def _pc_is_eligible(
     *,
     pc_service: str | None = None,
 ) -> tuple[bool, bool]:
-    # derive slug from notify service
+    # derive slug from notify service if provided
     slug = None
     if pc_service:
         _, svc = _split_service(pc_service)
         slug = svc
 
-    # soft hints
+    # kill switch (optional, pattern: binary_sensor.{slug}_usable_for_notify etc.)
     pc_usable_ok = True
-    pc_active_ok = False
     if slug:
-        usable = hass.states.get(f"binary_sensor.{slug}_usable_for_notify")
-        if usable is not None:
-            pc_usable_ok = str(usable.state).lower() in ("on", "true")
-        active_recent = hass.states.get(f"binary_sensor.{slug}_active_recent")
-        if active_recent is not None:
-            pc_active_ok = str(active_recent.state).lower() in ("on", "true")
+        usable_patterns = [
+            f"binary_sensor.{slug}_usable_for_notify",
+            f"binary_sensor.{slug}_usable",
+            f"binary_sensor.{slug}_notify_usable",
+        ]
+        for eid in usable_patterns:
+            usable = hass.states.get(eid)
+            if usable is not None and str(usable.state).lower() in ("off", "false", "unavailable", "unknown"):
+                pc_usable_ok = False
+            if usable is not None:
+                break
+
+    # freshness/active hints
+    pc_active_ok = True  # default true if no hints
+    if slug:
+        active_patterns = [
+            f"binary_sensor.{slug}_active_recent",
+            f"binary_sensor.{slug}_recent_activity",
+            f"binary_sensor.{slug}_fresh",
+        ]
+        for eid in active_patterns:
+            h = hass.states.get(eid)
+            if h is not None:
+                pc_active_ok = str(h.state).lower() in ("on", "true")
+                break
 
     # no session → rely on hints
     if not session_entity:
-        return ((pc_usable_ok and pc_active_ok), True)
+        return (pc_usable_ok and pc_active_ok, pc_active_ok)
 
     st = hass.states.get(session_entity)
     if st is None:
-        return ((pc_usable_ok and pc_active_ok), True)
+        return (pc_usable_ok and pc_active_ok, pc_active_ok)
 
     now = dt_util.utcnow()
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
     awake = _looks_awake(state)
 
-    eligible = (
-        fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
-    )
+    eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
 
     # If session path rejected, but hints look good, allow PC
     if not eligible and pc_usable_ok and pc_active_ok:
@@ -618,14 +645,7 @@ def _pc_is_eligible(
 
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s (hints usable=%s active=%s)",
-        session_entity,
-        st.state if st else None,
-        fresh_ok,
-        awake,
-        unlocked,
-        eligible,
-        pc_usable_ok,
-        pc_active_ok,
+        session_entity, st.state if st else None, fresh_ok, awake, unlocked, eligible, pc_usable_ok, pc_active_ok,
     )
     return (eligible, unlocked)
 
@@ -652,11 +672,7 @@ def _choose_service_smart(
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass,
-        pc_session,
-        pc_fresh,
-        require_pc_awake,
-        require_pc_unlocked,
+        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked,
         pc_service=pc_service,
     )
 
@@ -817,36 +833,86 @@ class PreviewManager:
             if isinstance(pc_session, str) and pc_session:
                 watch.add(pc_session)
 
+            # PC custom hints (if pc_service defined)
+            pc_service = cfg.get(CONF_SMART_PC_NOTIFY)
+            if pc_service:
+                _, svc = _split_service(pc_service)
+                for pattern in (
+                    f"binary_sensor.{svc}_usable_for_notify",
+                    f"binary_sensor.{svc}_usable",
+                    f"binary_sensor.{svc}_notify_usable",
+                    f"binary_sensor.{svc}_active_recent",
+                    f"binary_sensor.{svc}_recent_activity",
+                    f"binary_sensor.{svc}_fresh",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
+
             # All phone candidates from the priority list
             for full in list(cfg.get(CONF_SMART_PHONE_ORDER, []) or []):
                 slug = _service_slug(full)
-                # kill switch
-                watch.add(f"binary_sensor.{slug}_usable_for_notify")
+                # kill switch patterns
+                for pattern in (
+                    f"binary_sensor.{slug}_usable_for_notify",
+                    f"binary_sensor.{slug}_usable",
+                    f"binary_sensor.{slug}_notify_usable",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
+                # freshness hint patterns
+                for pattern in (
+                    f"binary_sensor.{slug}_active_recent",
+                    f"binary_sensor.{slug}_recent_activity",
+                    f"binary_sensor.{slug}_fresh",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
+                # awake/unlocked hint patterns
+                for pattern in (
+                    f"binary_sensor.{slug}_on_awake",
+                    f"binary_sensor.{slug}_awake",
+                    f"binary_sensor.{slug}_interactive",
+                    f"binary_sensor.{slug}_screen_on",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
                 # battery
-                watch.add(f"sensor.{slug}_battery_level")
-                watch.add(f"sensor.{slug}_battery")
+                for pattern in (
+                    f"sensor.{slug}_battery_level",
+                    f"sensor.{slug}_battery",
+                    f"sensor.{slug}_battery_percent",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
                 # freshness & shutdown
-                watch.add(f"sensor.{slug}_last_update_trigger")
-                watch.add(f"sensor.{slug}_last_update")
-                watch.add(f"device_tracker.{slug}")
-                # locks / interactive / awake
-                watch.add(f"binary_sensor.{slug}_device_locked")
-                watch.add(f"binary_sensor.{slug}_locked")
-                watch.add(f"sensor.{slug}_keyguard")
-                watch.add(f"sensor.{slug}_lock_state")
-                watch.add(f"binary_sensor.{slug}_lock")
-                watch.add(f"binary_sensor.{slug}_interactive")
-                watch.add(f"sensor.{slug}_interactive")
-                watch.add(f"binary_sensor.{slug}_is_interactive")
-                watch.add(f"binary_sensor.{slug}_screen_on")
-                watch.add(f"sensor.{slug}_screen_state")
-                watch.add(f"sensor.{slug}_display_state")
-                watch.add(f"binary_sensor.{slug}_awake")
-                watch.add(f"sensor.{slug}_awake")
+                for pattern in (
+                    f"sensor.{slug}_last_update_trigger",
+                    f"sensor.{slug}_last_update",
+                    f"sensor.{slug}_last_notification",
+                    f"device_tracker.{slug}",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
+                # locks / interactive / awake (built-in)
+                for pattern in (
+                    f"binary_sensor.{slug}_device_locked",
+                    f"binary_sensor.{slug}_locked",
+                    f"sensor.{slug}_keyguard",
+                    f"sensor.{slug}_lock_state",
+                    f"binary_sensor.{slug}_lock",
+                    f"binary_sensor.{slug}_interactive",
+                    f"sensor.{slug}_interactive",
+                    f"binary_sensor.{slug}_is_interactive",
+                    f"binary_sensor.{slug}_screen_on",
+                    f"sensor.{slug}_screen_state",
+                    f"sensor.{slug}_display_state",
+                    f"binary_sensor.{slug}_awake",
+                    f"sensor.{slug}_awake",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
 
-        # only keep ones that exist (avoid noisy listeners)
-        existing = {e for e in watch if self.hass.states.get(e) is not None}
-        return existing
+        return watch
 
     @callback
     def _on_states_changed(self, _event) -> None:
