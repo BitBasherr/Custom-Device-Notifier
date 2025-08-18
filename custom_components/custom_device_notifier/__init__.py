@@ -75,6 +75,7 @@ class EntryRuntime:
 
 # ─────────────────────────── lifecycle ───────────────────────────
 
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
@@ -143,13 +144,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await pm.async_start()
     rt.preview = pm
 
-    # Register proper unload cleanup
+    # proper unload cleanup
     async def _stop_preview() -> None:
         await pm.async_stop()
 
     entry.async_on_unload(_stop_preview)
 
-    # Keep your options-listener registration
+    # options listener
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
@@ -182,6 +183,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 # ─────────────────────────── routing entry point ───────────────────────────
 
+
 async def _route_and_forward(
     hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any]
 ) -> None:
@@ -212,15 +214,17 @@ async def _route_and_forward(
 
     via = "matched"
     if not target_service:
-        fb = cfg.get(CONF_FALLBACK)
-        if isinstance(fb, str) and fb:
-            target_service = fb
-            via = "fallback"
-            _LOGGER.debug("Using fallback %s", fb)
+        fb_full, fb_via = _resolve_fallback(hass, entry, cfg, preview=False)
+        if fb_full:
+            target_service = fb_full
+            via = fb_via
+            _LOGGER.debug("Using fallback %s (%s)", target_service, via)
         else:
             decision.update({"result": "dropped"})
             async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
-            _LOGGER.debug("No eligible target and no fallback; dropping")
+            _LOGGER.warning(
+                "No eligible target and no safe fallback available; dropping notification"
+            )
             return
 
     clean = dict(payload)
@@ -229,17 +233,17 @@ async def _route_and_forward(
 
     domain, service = _split_service(target_service)
 
-    # refuse to call ourselves; try fallback if available
+    # refuse to call ourselves; resolve a safe fallback instead
     own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if own_slug and domain == "notify" and service == own_slug:
         _LOGGER.warning(
-            "Refusing to call notifier onto itself (%s); using fallback if set.",
+            "Refusing to call notifier onto itself (%s); resolving safe fallback.",
             target_service,
         )
-        fb = cfg.get(CONF_FALLBACK)
-        if isinstance(fb, str) and fb and fb != target_service:
-            domain, service = _split_service(fb)
-            via = "self-recursion-fallback"
+        fb_full, fb_via = _resolve_fallback(hass, entry, cfg, preview=False)
+        if fb_full:
+            domain, service = _split_service(fb_full)
+            via = "self-recursion-" + fb_via
         else:
             decision.update({"result": "dropped_self"})
             async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
@@ -259,6 +263,7 @@ async def _route_and_forward(
 
 
 # ───────────────────────── conditional routing ─────────────────────────
+
 
 def _choose_service_conditional_with_info(
     hass: HomeAssistant, cfg: dict[str, Any]
@@ -336,7 +341,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
             return lhs <= rhs
         if op == "==":
             return lhs == rhs
-        if op == "!=":
+        if op == "!="":
             return lhs != rhs
 
     lstr = str(s)
@@ -357,6 +362,7 @@ def _as_float(v: Any) -> float | None:
 
 
 # ───────────────────────── smart select routing ─────────────────────────
+
 
 def _service_slug(full: str) -> str:
     """Return the slug portion from a notify service (strip domain and mobile_app_)."""
@@ -412,9 +418,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"binary_sensor.{slug}_screen_on",
         f"sensor.{slug}_screen_state",
         f"sensor.{slug}_display_state",
-        f"sensor.{slug}_keyguard",
-        f"sensor.{slug}_lock_state",
-        f"binary_sensor.{slug}_lock",
+        f"sensor.{slug}_keyguard",  # "none", "keyguard_off"
+        f"sensor.{slug}_lock_state",  # "unlocked"
+        f"binary_sensor.{slug}_lock",  # off == unlocked
         f"binary_sensor.{slug}_awake",
         f"sensor.{slug}_awake",
     ]
@@ -427,13 +433,25 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             continue
         val = str(st.state or "").strip().lower()
         is_unlocked = (
-            val in ("on", "true", "unlocked", "awake", "interactive", "screen_on", "none", "keyguard_off")
+            val
+            in (
+                "on",
+                "true",
+                "unlocked",
+                "awake",
+                "interactive",
+                "screen_on",
+                "none",
+                "keyguard_off",
+            )
             or (ent_id.endswith("_lock") and val in ("off", "false"))
             or ("unlock" in val and "locked" not in val)
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     if saw_lock and not saw_fresh_unlock:
         return False
@@ -453,14 +471,16 @@ def _phone_is_eligible(
     require_unlocked: bool = False,
 ) -> bool:
     """Battery + freshness + optional unlocked/interactive check.
-       NOTE: deliberately ignores any *_usable_for_notify helper sensors."""
+
+    NOTE: We intentionally do NOT use any *_usable_for_notify gates.
+    """
     domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
 
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
 
-    # battery gate (best-effort)
+    # battery gate
     batt_ok = True
     for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery", f"sensor.{slug}_battery_percent"):
         st = hass.states.get(ent_id)
@@ -472,10 +492,11 @@ def _phone_is_eligible(
             pass
         break
 
-    # freshness / shutdown
     now = dt_util.utcnow()
     fresh_ok_any = False
     shutdown_recent = False
+
+    # core freshness sources
     for ent_id in (
         f"sensor.{slug}_last_update_trigger",
         f"sensor.{slug}_last_update",
@@ -485,20 +506,51 @@ def _phone_is_eligible(
         st = hass.states.get(ent_id)
         if st and (now - st.last_updated) <= timedelta(seconds=fresh_s):
             fresh_ok_any = True
-            if ent_id.endswith("_last_update_trigger") and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN":
+            if (
+                ent_id.endswith("_last_update_trigger")
+                and str(st.state).strip() == "android.intent.action.ACTION_SHUTDOWN"
+            ):
                 shutdown_recent = True
+            break
+
+    # optional freshness hints (do not require custom sensors)
+    for hint_id in (
+        f"binary_sensor.{slug}_active_recent",
+        f"binary_sensor.{slug}_recent_activity",
+        f"binary_sensor.{slug}_fresh",
+    ):
+        h = hass.states.get(hint_id)
+        if h is not None and str(h.state).lower() in ("on", "true"):
+            fresh_ok_any = True
             break
 
     if shutdown_recent or not (batt_ok and fresh_ok_any):
         _LOGGER.debug(
             "Phone %s | rejected: shutdown_recent=%s batt_ok=%s fresh_ok=%s",
-            notify_service, shutdown_recent, batt_ok, fresh_ok_any,
+            notify_service,
+            shutdown_recent,
+            batt_ok,
+            fresh_ok_any,
         )
         return False
 
-    if require_unlocked and not _phone_is_unlocked_awake(hass, slug, fresh_s):
-        _LOGGER.debug("Phone %s | rejected (locked or not interactive)", notify_service)
-        return False
+    if require_unlocked:
+        # quick positive hints
+        for eid in (
+            f"binary_sensor.{slug}_on_awake",
+            f"binary_sensor.{slug}_awake",
+            f"binary_sensor.{slug}_interactive",
+            f"binary_sensor.{slug}_screen_on",
+        ):
+            h = hass.states.get(eid)
+            if h is not None and str(h.state).lower() in ("on", "true"):
+                return True
+        # strict timestamp-based check
+        if not _phone_is_unlocked_awake(hass, slug, fresh_s):
+            _LOGGER.debug(
+                "Phone %s | rejected (locked or not interactive)", notify_service
+            )
+            return False
 
     return True
 
@@ -507,9 +559,10 @@ def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
+    if any(
+        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
+    ):
         return False
-    # Neutral strings (e.g. "Unlocked") we treat as awake enough.
     return True
 
 
@@ -522,41 +575,60 @@ def _pc_is_eligible(
     *,
     pc_service: str | None = None,
 ) -> tuple[bool, bool]:
-    """PC eligibility.
-       - Ignores any *_usable_for_notify helpers by design.
-       - Treats positive session *content* ('Unlocked', 'Active', etc.) as immediately valid,
-         not gated by freshness timestamps (prevents 'dropped' when state is correct but stale)."""
+    """PC eligibility from session state; optional 'active_recent' hint.
 
-    # optional slug (not strictly needed now)
+    NOTE: We do not consult any *_usable_for_notify here.
+    """
+    # derive slug from notify service (for hint patterns)
     slug = None
     if pc_service:
         _, svc = _split_service(pc_service)
-        slug = svc  # e.g. 'vitaliys_main_pc'
+        slug = svc
 
-    # No session entity? We can't assert awake/unlocked from content; assume not eligible.
+    # default: if no hints exist, don't assume activity
+    pc_active_ok = False
+    if slug:
+        for eid in (
+            f"binary_sensor.{slug}_active_recent",
+            f"binary_sensor.{slug}_recent_activity",
+            f"binary_sensor.{slug}_fresh",
+        ):
+            h = hass.states.get(eid)
+            if h is not None:
+                pc_active_ok = str(h.state).lower() in ("on", "true")
+                break
+
+    # no session → rely on hints only
     if not session_entity:
-        return (False, False)
+        return (pc_active_ok, pc_active_ok)
 
     st = hass.states.get(session_entity)
     if st is None:
-        return (False, False)
+        return (pc_active_ok, pc_active_ok)
 
-    state = (st.state or "").strip()
-    s = state.lower()
-
-    # If the textual state itself indicates a positive condition, consider it valid immediately.
-    unlocked = ("unlock" in s and "locked" not in s) or s == "unlocked"
-    awake = _looks_awake(s)
-
-    # If the text isn't clearly positive, fall back to freshness window.
     now = dt_util.utcnow()
-    fresh_ok = True if (unlocked or awake) else ((now - st.last_updated) <= timedelta(seconds=fresh_s))
+    fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
+
+    state = (st.state or "").lower().strip()
+    unlocked = ("unlock" in state and "locked" not in state)
+    awake = _looks_awake(state)
 
     eligible = fresh_ok and (awake or not require_awake) and (unlocked or not require_unlocked)
 
+    # If session says no but hints look good, allow
+    if not eligible and pc_active_ok:
+        eligible = True
+        unlocked = True
+
     _LOGGER.debug(
-        "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
-        session_entity, state, fresh_ok, awake, unlocked, eligible,
+        "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s (hint active=%s)",
+        session_entity,
+        st.state,
+        fresh_ok,
+        awake,
+        unlocked,
+        eligible,
+        pc_active_ok,
     )
     return (eligible, unlocked)
 
@@ -571,21 +643,34 @@ def _choose_service_smart(
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
-    require_pc_unlocked = bool(cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
+    require_pc_unlocked = bool(
+        cfg.get(CONF_SMART_REQUIRE_UNLOCKED, DEFAULT_SMART_REQUIRE_UNLOCKED)
+    )
     require_phone_unlocked_effective = bool(
         cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
     )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake, require_pc_unlocked, pc_service=pc_service
+        hass,
+        pc_session,
+        pc_fresh,
+        require_pc_awake,
+        require_pc_unlocked,
+        pc_service=pc_service,
     )
 
     eligible_phones: list[str] = []
     for svc in phone_order:
         if _phone_is_eligible(
-            hass, svc, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
+            hass,
+            svc,
+            min_batt,
+            phone_fresh,
+            require_unlocked=require_phone_unlocked_effective,
         ):
             eligible_phones.append(svc)
 
@@ -615,12 +700,19 @@ def _choose_service_smart(
         elif eligible_phones:
             chosen = eligible_phones[0]
 
-    # if a phone was selected, verify again
+    # final guard against stale reads: if a phone was selected, verify again
     if chosen and chosen.startswith("notify.mobile_app_"):
         if not _phone_is_eligible(
-            hass, chosen, min_batt, phone_fresh, require_unlocked=require_phone_unlocked_effective
+            hass,
+            chosen,
+            min_batt,
+            phone_fresh,
+            require_unlocked=require_phone_unlocked_effective,
         ):
-            _LOGGER.debug("Final guard rejected %s; falling back to None.", chosen)
+            _LOGGER.debug(
+                "Final guard rejected %s (locked/shutdown/not fresh). Falling back.",
+                chosen,
+            )
             chosen = None
 
     info = {
@@ -642,6 +734,7 @@ def _choose_service_smart(
 
 # ───────────────────────── utilities ─────────────────────────
 
+
 def _split_service(full: str) -> tuple[str, str]:
     if "." not in full:
         return ("notify", full)
@@ -655,7 +748,52 @@ def _config_view(entry: ConfigEntry) -> dict[str, Any]:
     return cfg
 
 
+def _resolve_fallback(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    cfg: dict[str, Any],
+    *,
+    preview: bool = False,
+) -> tuple[Optional[str], str]:
+    """
+    Pick a safe fallback notify service.
+
+    - Uses configured CONF_FALLBACK if set.
+    - Coerces to "notify.<service>" if a bare service was provided.
+    - Avoids self recursion (notify.<own_slug>) by picking a safe built-in.
+    - If no configured fallback, tries persistent_notification, then notify.
+    - Returns (full_service, via_string). If none found, returns (None, reason).
+    """
+    via_base = "preview-fallback" if preview else "fallback"
+    own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
+
+    fb = cfg.get(CONF_FALLBACK)
+    # 1) If user configured a fallback, try to use it
+    if isinstance(fb, str) and fb.strip():
+        dom, svc = _split_service(fb.strip())
+        if dom != "notify":
+            dom = "notify"
+
+        # avoid self recursion
+        if svc == own_slug:
+            # prefer persistent_notification, else notify
+            for cand in ("persistent_notification", "notify"):
+                if hass.services.has_service("notify", cand):
+                    return (f"notify.{cand}", f"{via_base}-safe")
+            return (None, "no-fallback-available")
+        return (f"{dom}.{svc}", via_base)
+
+    # 2) No configured fallback -> pick a safe default if available
+    for cand in ("persistent_notification", "notify"):
+        if hass.services.has_service("notify", cand):
+            return (f"notify.{cand}", f"{via_base}-default")
+
+    # 3) Absolutely nothing available
+    return (None, "no-fallback-configured")
+
+
 # ───────────────────────── live preview manager (async) ─────────────────────────
+
 
 _PREVIEW_INTERVAL = timedelta(seconds=5)  # periodic reevaluation for freshness windows
 
@@ -671,6 +809,7 @@ class PreviewManager:
 
     async def async_start(self) -> None:
         await self._setup_listeners()
+        # kick an immediate preview
         await self._publish_preview()
 
     async def async_rebuild(self) -> None:
@@ -689,11 +828,13 @@ class PreviewManager:
         cfg = _config_view(self.entry)
         entities = self._collect_entities(cfg)
 
+        # state-change driven updates
         if entities:
             self._unsub_entities = async_track_state_change_event(
                 self.hass, list(entities), self._on_states_changed
             )
 
+        # periodic freshness guard
         self._unsub_timer = async_track_time_interval(
             self.hass, self._on_timer, _PREVIEW_INTERVAL
         )
@@ -706,18 +847,49 @@ class PreviewManager:
             for tgt in cfg.get(CONF_TARGETS, []) or []:
                 for c in tgt.get(KEY_CONDITIONS, []) or []:
                     ent = str(c.get("entity_id") or "")
-                    if ent and self.hass.states.get(ent) is not None:
+                    if ent:
                         watch.add(ent)
 
         elif mode == ROUTING_SMART:
             # PC session
             pc_session = cfg.get(CONF_SMART_PC_SESSION)
             if isinstance(pc_session, str) and pc_session:
-                watch.add(pc_session)
+                if self.hass.states.get(pc_session) is not None:
+                    watch.add(pc_session)
 
-            # Phones
+            # PC activity hints (no "usable" gates)
+            pc_service = cfg.get(CONF_SMART_PC_NOTIFY)
+            if pc_service:
+                _, svc = _split_service(pc_service)
+                for pattern in (
+                    f"binary_sensor.{svc}_active_recent",
+                    f"binary_sensor.{svc}_recent_activity",
+                    f"binary_sensor.{svc}_fresh",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
+
+            # Phones: all candidates in the priority list
             for full in list(cfg.get(CONF_SMART_PHONE_ORDER, []) or []):
                 slug = _service_slug(full)
+
+                # freshness hint patterns
+                for pattern in (
+                    f"binary_sensor.{slug}_active_recent",
+                    f"binary_sensor.{slug}_recent_activity",
+                    f"binary_sensor.{slug}_fresh",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
+                # awake/unlocked hint patterns
+                for pattern in (
+                    f"binary_sensor.{slug}_on_awake",
+                    f"binary_sensor.{slug}_awake",
+                    f"binary_sensor.{slug}_interactive",
+                    f"binary_sensor.{slug}_screen_on",
+                ):
+                    if self.hass.states.get(pattern) is not None:
+                        watch.add(pattern)
                 # battery
                 for pattern in (
                     f"sensor.{slug}_battery_level",
@@ -758,6 +930,7 @@ class PreviewManager:
 
     @callback
     def _on_states_changed(self, _event) -> None:
+        # schedule async evaluation on loop
         self.hass.async_create_task(self._publish_preview())
 
     @callback
@@ -765,6 +938,7 @@ class PreviewManager:
         self.hass.async_create_task(self._publish_preview())
 
     async def _publish_preview(self) -> None:
+        """Evaluate using the SAME logic as routing, and publish via dispatcher with via='preview'."""
         cfg = _config_view(self.entry)
         mode = cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
 
@@ -772,7 +946,7 @@ class PreviewManager:
         decision: Dict[str, Any] = {
             "timestamp": dt_util.utcnow().isoformat(),
             "mode": mode,
-            "payload_keys": [],
+            "payload_keys": [],  # preview has no payload
             "via": "preview",
         }
 
@@ -784,10 +958,10 @@ class PreviewManager:
             decision["conditional"] = info
 
         if not chosen:
-            fb = cfg.get(CONF_FALLBACK)
-            if isinstance(fb, str) and fb:
-                chosen = fb
-                decision["via"] = "preview-fallback"
+            fb_full, fb_via = _resolve_fallback(self.hass, self.entry, cfg, preview=True)
+            if fb_full:
+                chosen = fb_full
+                decision["via"] = fb_via
 
         if chosen:
             domain, service = _split_service(chosen)
