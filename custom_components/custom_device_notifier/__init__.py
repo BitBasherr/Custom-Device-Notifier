@@ -475,7 +475,11 @@ def _phone_is_eligible(
 
     # battery gate (optional; if no sensor found, don't block)
     batt_ok = True
-    for ent_id in (f"sensor.{slug}_battery_level", f"sensor.{slug}_battery", f"sensor.{slug}_battery_percent"):
+    for ent_id in (
+        f"sensor.{slug}_battery_level",
+        f"sensor.{slug}_battery",
+        f"sensor.{slug}_battery_percent",
+    ):
         st = hass.states.get(ent_id)
         if st is None:
             continue
@@ -547,7 +551,7 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
     awake = _looks_awake(state)
 
     eligible = fresh_ok and unlocked and (awake or not require_awake)
@@ -580,9 +584,7 @@ def _choose_service_smart(
     # pc: ALWAYS require unlocked; require_pc_awake follows option above
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake
-    )
+    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
 
     # Build eligible phones in declared priority, but EXCLUDE fallback
     fb = cfg.get(CONF_FALLBACK)
