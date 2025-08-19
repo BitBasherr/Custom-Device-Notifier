@@ -165,7 +165,6 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Tear down notify service, preview manager, and sensor platform."""
     rt: EntryRuntime | None = hass.data[DATA].pop(entry.entry_id, None)
     if rt and rt.preview:
         await rt.preview.async_stop()
@@ -174,8 +173,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if slug and hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
-    # Coerce Any → bool for mypy
-    return bool(await hass.config_entries.async_unload_platforms(entry, ["sensor"]))
+    ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    return bool(ok)
 
 
 # ─────────────────────────── routing entry point ───────────────────────────
