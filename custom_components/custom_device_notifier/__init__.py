@@ -536,7 +536,9 @@ def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
+    if any(
+        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
+    ):
         return False
     return True
 
