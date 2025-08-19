@@ -41,14 +41,14 @@ from .const import (
     CONF_SMART_REQUIRE_AWAKE,
     CONF_SMART_POLICY,
     SMART_POLICY_PC_FIRST,
-    SMART_POLICY_PHONE_FIRST,
     SMART_POLICY_PHONE_IF_PC_UNLOCKED,
+    SMART_POLICY_PHONE_FIRST,
     DEFAULT_SMART_MIN_BATTERY,
     DEFAULT_SMART_PHONE_FRESH_S,
     DEFAULT_SMART_PC_FRESH_S,
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_POLICY,
-    # kept for options compat / migration
+    # kept for options compat, but we hard-require phone unlocked anyway
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -102,7 +102,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data.setdefault(CONF_PRIORITY, list(data.get(CONF_PRIORITY, [])))
     data.setdefault(CONF_FALLBACK, str(data.get(CONF_FALLBACK, "") or ""))
 
-    # still set for options compat; not used by routing logic anymore
+    # still set for options compat; not used for the decision anymore
     data.setdefault(
         CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED
     )
@@ -173,8 +173,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if slug and hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
-    ok_any = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    ok_bool: bool = bool(ok_any)  # coerce Any -> bool for mypy
+    # Force Any -> bool for mypy
+    ok_bool: bool = bool(
+        await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    )
     return ok_bool
 
 
@@ -376,7 +378,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     Treat as unlocked ONLY if we see a FRESH (<= fresh_s) explicit unlock signal:
       - binary_sensor.{slug}_device_locked == off
       - binary_sensor.{slug}_lock == off
-      - sensor.{slug}_lock_state contains 'unlocked'
+      - sensor.{slug}_lock_state == 'unlocked'
       - sensor.{slug}_keyguard in {'none', 'keyguard_off'}
 
     If we also saw a 'locked' signal, the most recent wins.
@@ -453,7 +455,7 @@ def _explain_phone_eligibility(
     fresh_s: int,
 ) -> dict[str, Any]:
     """Return a dict explaining each check for debug."""
-    _, svc = _split_service(notify_service)
+    domain, svc = _split_service(notify_service)
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
     out: Dict[str, Any] = {"service": notify_service, "slug": slug}
 
@@ -477,7 +479,7 @@ def _explain_phone_eligibility(
     out["battery_ok"] = batt_ok
     out["battery_val"] = batt_val
 
-    # freshness (raw) + hints that can only help
+    # freshness
     now = dt_util.utcnow()
     fresh_ok_any = False
     shutdown_recent = False
@@ -496,6 +498,7 @@ def _explain_phone_eligibility(
             ):
                 shutdown_recent = True
             break
+    # hints can only make it "fresh", never block
     for eid in (
         f"binary_sensor.{slug}_active_recent",
         f"binary_sensor.{slug}_recent_activity",
@@ -524,8 +527,8 @@ def _phone_is_eligible(
     min_batt: int,
     fresh_s: int,
 ) -> bool:
-    """Battery + freshness + not-shutdown + unlocked (strict)."""
-    domain, _svc = _split_service(notify_service)
+    """Battery + freshness + not-shutdown + unlocked/interactive (always required)."""
+    domain, svc = _split_service(notify_service)
     if domain != "notify":
         return False
 
@@ -607,6 +610,9 @@ def _choose_service_smart(
         cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
     )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
+
+    # we hard-require phone unlocked regardless of the option (kept for compat)
+    _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
 
     # PC eligibility
     pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
