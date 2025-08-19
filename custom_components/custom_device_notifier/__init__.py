@@ -333,7 +333,9 @@ def _evaluate_conditions(
         val = c.get("value")
         ok = _compare_entity(hass, entity_id, op, val)
         results.append(ok)
-    return all(results) if mode == "all" else any(results)
+    if mode == "all":
+        return bool(all(results))
+    return bool(any(results))
 
 
 def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) -> bool:
@@ -341,8 +343,8 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     # special literal: "unknown or unavailable"
     if isinstance(value, str) and value.strip().lower() == "unknown or unavailable":
         if st is None or (st.state in ("unknown", "unavailable")):
-            return op == "=="
-        return op == "!="
+            return True if op == "==" else False if op == "!=" else False
+        return True if op == "!=" else False if op == "==" else False
     if st is None:
         return False
 
@@ -553,7 +555,6 @@ def _explain_phone_eligibility(
     out["unlocked"] = unlocked
 
     # expose window used (handy for your debug sensor)
-    # recompute the same window value we used inside _phone_is_unlocked_awake
     window_s = max(int(fresh_s), _PHONE_UNLOCK_BASE_WINDOW_S)
     for hint in (
         f"binary_sensor.{slug}_on_awake",
@@ -619,7 +620,7 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
 
     # If explicitly unlocked, consider it fresh-enough and also 'awake'.
     if unlocked and not fresh_ok:
