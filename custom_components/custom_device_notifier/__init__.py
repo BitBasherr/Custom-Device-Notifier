@@ -601,7 +601,6 @@ def _looks_awake(state: str) -> bool:
         return False
     return True
 
-
 def _pc_is_eligible(
     hass: HomeAssistant,
     session_entity: str | None,
@@ -609,8 +608,8 @@ def _pc_is_eligible(
     require_awake: bool,
 ) -> tuple[bool, bool]:
     """
-    PC is eligible if session is (fresh OR explicitly unlocked), AND unlocked,
-    AND (awake if required). Treat 'Unlocked' as implying 'awake' and 'fresh-enough'.
+    PC is eligible if the session is (fresh OR explicitly unlocked), AND unlocked,
+    AND (awake if required). 'Unlocked' implies both fresh-enough and awake.
     """
     if not session_entity:
         return (False, False)
@@ -619,30 +618,27 @@ def _pc_is_eligible(
     if st is None:
         return (False, False)
 
-    now = dt_util.utcnow()
-    fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
+    now_dt: datetime = dt_util.utcnow()
+    last_any = getattr(st, "last_updated", None)
+    last_dt: Optional[datetime] = last_any if isinstance(last_any, datetime) else None
+    age_ok = False
+    if last_dt is not None:
+        age_ok = (now_dt - last_dt) <= timedelta(seconds=fresh_s)
 
-    state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    state = (st.state or "").strip().lower()
+    # "unlocked" wins over "locked" if both appear (defensive)
+    unlocked = ("unlock" in state and "locked" not in state)
 
-    # If explicitly unlocked, consider it fresh-enough and also 'awake'.
-    if unlocked and not fresh_ok:
-        fresh_ok = True
-
+    # If it's unlocked, treat it as fresh and awake enough
+    fresh_ok = age_ok or unlocked
     awake = _looks_awake(state) or unlocked
 
     eligible = fresh_ok and unlocked and (awake or not require_awake)
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
-        session_entity,
-        st.state,
-        fresh_ok,
-        awake,
-        unlocked,
-        eligible,
+        session_entity, st.state, fresh_ok, awake, unlocked, eligible,
     )
     return (eligible, unlocked)
-
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
