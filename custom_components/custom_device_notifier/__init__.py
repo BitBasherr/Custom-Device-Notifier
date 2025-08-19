@@ -104,7 +104,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # still set for options compat; not used for the decision anymore
     data.setdefault(
-        CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED
+        CONF_SMART_REQUIRE_PHONE_UNLOCKED,
+        DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
     )
 
     hass.config_entries.async_update_entry(entry, data=data, version=3)
@@ -173,8 +174,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if slug and hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
-    ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    return ok
+    # Coerce Any → bool for mypy
+    return bool(
+        await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    )
 
 
 # ─────────────────────────── routing entry point ───────────────────────────
