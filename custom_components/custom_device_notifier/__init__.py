@@ -549,7 +549,6 @@ def _looks_awake(state: str) -> bool:
         return False
     return True
 
-
 def _pc_is_eligible(
     hass: HomeAssistant,
     session_entity: str | None,
@@ -557,8 +556,8 @@ def _pc_is_eligible(
     require_awake: bool,
 ) -> tuple[bool, bool]:
     """
-    PC is eligible only if session sensor is fresh AND (awake if required) AND unlocked.
-    We do NOT consult any custom *_usable_for_notify here.
+    PC is eligible if session is (fresh OR explicitly unlocked), AND unlocked,
+    AND (awake if required). Treat 'Unlocked' text as implying 'awake'.
     """
     if not session_entity:
         return (False, False)
@@ -569,11 +568,17 @@ def _pc_is_eligible(
 
     now = dt_util.utcnow()
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
-    state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
-    awake = _looks_awake(state)
 
-    eligible = fresh_ok and (awake or not require_awake) and unlocked
+    state = (st.state or "").lower().strip()
+    unlocked = ("unlock" in state and "locked" not in state)
+
+    # If we see 'Unlocked', consider it fresh-enough and also 'awake'.
+    if unlocked and not fresh_ok:
+        fresh_ok = True
+
+    awake = _looks_awake(state) or unlocked
+
+    eligible = fresh_ok and unlocked and (awake or not require_awake)
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
         session_entity,
@@ -584,7 +589,6 @@ def _pc_is_eligible(
         eligible,
     )
     return (eligible, unlocked)
-
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
@@ -599,8 +603,9 @@ def _choose_service_smart(
         If any eligible phone → first eligible phone in order.
         Else → PC if eligible.
     - PHONE_IF_PC_UNLOCKED:
-        If PC is UNLOCKED (and fresh) → prefer phones (first eligible); if none, choose PC if eligible.
-        If PC is locked or not fresh → prefer PC if eligible; else phones (first eligible).
+        If PC is eligible (i.e., unlocked + fresh [+awake if required]) → use PC
+        UNLESS there exists a strictly-eligible phone (unlocked+battery+fresh).
+        If PC not eligible → use first eligible phone (if any).
     """
     pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
     pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
@@ -614,10 +619,10 @@ def _choose_service_smart(
     )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    # we hard-require phone unlocked regardless of the option (kept for compat)
+    # phones are always required to be explicitly unlocked (strict)
     _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
 
-    # PC eligibility
+    # PC eligibility (lenient if explicitly 'Unlocked')
     pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
 
     # Phones: compute ordered list that already satisfies battery/freshness/unlocked
@@ -629,31 +634,26 @@ def _choose_service_smart(
         if expl["eligible"]:
             eligible_phones.append(svc)
 
-    # choose by policy
     chosen: Optional[str] = None
     if policy == SMART_POLICY_PC_FIRST:
         if pc_ok:
             chosen = pc_service
         elif eligible_phones:
             chosen = eligible_phones[0]
+
     elif policy == SMART_POLICY_PHONE_FIRST:
         if eligible_phones:
             chosen = eligible_phones[0]
         elif pc_ok:
             chosen = pc_service
+
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
-        if pc_unlocked:
-            chosen = (
-                eligible_phones[0]
-                if eligible_phones
-                else (pc_service if pc_ok else None)
-            )
+        # Prefer PC when it’s eligible, unless a strictly-eligible phone exists.
+        if pc_ok:
+            chosen = eligible_phones[0] if eligible_phones else pc_service
         else:
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            chosen = eligible_phones[0] if eligible_phones else None
+
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
         if pc_ok:
@@ -677,7 +677,6 @@ def _choose_service_smart(
         "phones_require_unlocked": True,
     }
     return (chosen, info)
-
 
 # ───────────────────────── utilities ─────────────────────────
 
