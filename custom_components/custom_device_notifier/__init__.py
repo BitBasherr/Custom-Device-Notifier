@@ -549,6 +549,7 @@ def _looks_awake(state: str) -> bool:
         return False
     return True
 
+
 def _pc_is_eligible(
     hass: HomeAssistant,
     session_entity: str | None,
@@ -570,7 +571,7 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
 
     # If we see 'Unlocked', consider it fresh-enough and also 'awake'.
     if unlocked and not fresh_ok:
@@ -589,6 +590,7 @@ def _pc_is_eligible(
         eligible,
     )
     return (eligible, unlocked)
+
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
@@ -677,6 +679,7 @@ def _choose_service_smart(
         "phones_require_unlocked": True,
     }
     return (chosen, info)
+
 
 # ───────────────────────── utilities ─────────────────────────
 
