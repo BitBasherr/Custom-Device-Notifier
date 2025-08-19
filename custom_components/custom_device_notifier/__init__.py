@@ -370,94 +370,73 @@ def _service_slug(full: str) -> str:
 
 def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
     """
-    Decide unlocked vs locked by timestamp precedence.
+    STRICT unlock detection (no 'interactive/screen_on/awake' shortcuts).
 
-    Rules:
-    - Any 'locked' signal (even stale) blocks unless there's a newer fresh 'unlocked/interactive'.
-    - 'Unlocked/interactive' MUST be fresh (<= fresh_s).
-    - If we have neither, treat as locked.
+    Treat as unlocked ONLY if we see a FRESH (<= fresh_s) explicit unlock signal:
+      - binary_sensor.{slug}_device_locked == off
+      - binary_sensor.{slug}_lock == off
+      - sensor.{slug}_lock_state == 'unlocked'
+      - sensor.{slug}_keyguard in {'none', 'keyguard_off'}
+
+    If we also saw a 'locked' signal, the most recent wins.
+    If no fresh unlock evidence → locked.
     """
     now = dt_util.utcnow()
     fresh = timedelta(seconds=fresh_s)
 
-    # collect likely "locked" signals
-    latest_lock_ts = None
-    saw_lock = False
-    lock_entities = [
+    candidates = [
         f"binary_sensor.{slug}_device_locked",
         f"binary_sensor.{slug}_locked",
-        f"sensor.{slug}_keyguard",
+        f"binary_sensor.{slug}_lock",
         f"sensor.{slug}_lock_state",
-        f"binary_sensor.{slug}_lock",  # some templates; on == locked
+        f"sensor.{slug}_keyguard",
     ]
-    for ent_id in lock_entities:
-        st = hass.states.get(ent_id)
-        if not st:
-            continue
-        val = str(st.state or "").strip().lower()
-        is_locked = val in ("on", "true", "locked", "screen_locked") or (
-            "locked" in val and "unlock" not in val
-        )
-        if is_locked:
-            saw_lock = True
-            ts = getattr(st, "last_updated", None)
-            if ts:
-                latest_lock_ts = (
-                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
-                )
 
-    # collect fresh positive "interactive/unlocked/awake"
+    latest_lock_ts = None
     latest_unlock_ts = None
-    saw_fresh_unlock = False
-    positive_entities = [
-        f"binary_sensor.{slug}_interactive",
-        f"sensor.{slug}_interactive",
-        f"binary_sensor.{slug}_is_interactive",
-        f"binary_sensor.{slug}_screen_on",
-        f"sensor.{slug}_screen_state",
-        f"sensor.{slug}_display_state",
-        f"sensor.{slug}_keyguard",  # "none", "keyguard_off"
-        f"sensor.{slug}_lock_state",  # "unlocked"
-        f"binary_sensor.{slug}_lock",  # off == unlocked
-        f"binary_sensor.{slug}_awake",
-        f"sensor.{slug}_awake",
-    ]
-    for ent_id in positive_entities:
+
+    for ent_id in candidates:
         st = hass.states.get(ent_id)
         if not st:
             continue
         ts = getattr(st, "last_updated", None)
-        if not ts or (now - ts) > fresh:
+        if not ts:
             continue
-        val = str(st.state or "").strip().lower()
-        is_unlocked = (
-            val
-            in (
-                "on",
-                "true",
-                "unlocked",
-                "awake",
-                "interactive",
-                "screen_on",
-                "none",
-                "keyguard_off",
-            )
-            or (ent_id.endswith("_lock") and val in ("off", "false"))
-            or ("unlock" in val and "locked" not in val)
-        )
-        if is_unlocked:
-            saw_fresh_unlock = True
-            latest_unlock_ts = (
-                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
-            )
 
-    if saw_lock and not saw_fresh_unlock:
+        val = str(st.state or "").strip().lower()
+        is_locked = False
+        is_unlocked = False
+
+        # binary sensors: on/true => locked, off/false => unlocked
+        if ent_id.endswith("_device_locked") or ent_id.endswith("_locked") or ent_id.endswith("_lock"):
+            if val in ("on", "true", "1", "yes", "locked", "screen_locked"):
+                is_locked = True
+            elif val in ("off", "false", "0", "no"):
+                is_unlocked = True
+
+        elif ent_id.endswith("_lock_state"):
+            if "unlocked" in val:
+                is_unlocked = True
+            elif "locked" in val and "unlock" not in val:
+                is_locked = True
+
+        elif ent_id.endswith("_keyguard"):
+            if val in ("none", "keyguard_off"):
+                is_unlocked = True
+            else:
+                # anything other than explicit "none"/"keyguard_off" counts as locked
+                is_locked = True
+
+        if is_locked:
+            latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+        if is_unlocked and (now - ts) <= fresh:
+            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+
+    if latest_unlock_ts is None:
         return False
-    if saw_lock and saw_fresh_unlock:
-        if latest_lock_ts and latest_unlock_ts and latest_unlock_ts > latest_lock_ts:
-            return True
-        return False
-    return bool(saw_fresh_unlock)
+    if latest_lock_ts is None:
+        return True
+    return latest_unlock_ts > latest_lock_ts
 
 
 def _explain_phone_eligibility(
@@ -523,20 +502,8 @@ def _explain_phone_eligibility(
     out["fresh_ok"] = fresh_ok_any
     out["shutdown_recent"] = shutdown_recent
 
-    # unlocked/interactive (hard-required)
-    unlocked = False
-    for eid in (
-        f"binary_sensor.{slug}_on_awake",
-        f"binary_sensor.{slug}_awake",
-        f"binary_sensor.{slug}_interactive",
-        f"binary_sensor.{slug}_screen_on",
-    ):
-        h = hass.states.get(eid)
-        if h is not None and str(h.state).lower() in ("on", "true"):
-            unlocked = True
-            break
-    if not unlocked:
-        unlocked = _phone_is_unlocked_awake(hass, slug, fresh_s)
+    # unlocked (explicit only; no "screen_on/awake/interactive" shortcuts)
+    unlocked = _phone_is_unlocked_awake(hass, slug, fresh_s)
     out["unlocked"] = unlocked
 
     out["eligible"] = bool(
@@ -872,3 +839,4 @@ class PreviewManager:
             decision.update({"result": "dropped", "service_full": None})
 
         async_dispatcher_send(self.hass, _signal_name(self.entry.entry_id), decision)
+```0
