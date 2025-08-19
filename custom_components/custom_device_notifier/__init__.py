@@ -619,7 +619,7 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
 
     # If explicitly unlocked, consider it fresh-enough and also 'awake'.
     if unlocked and not fresh_ok:
