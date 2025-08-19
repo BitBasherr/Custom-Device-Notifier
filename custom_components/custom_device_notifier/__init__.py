@@ -67,6 +67,7 @@ _PHONE_UNLOCK_EXTENDED_WINDOW_S = 30 * 60
 # but ONLY used when PC is NOT unlocked. (When PC is unlocked we require fresh unlock.)
 UNLOCK_STICKY_WINDOW_S = 1800  # 30 minutes; adjust if you want
 
+
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
@@ -491,6 +492,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     is_within: bool = since_unlock <= sticky
     return is_within
 
+
 def _phone_is_unlocked_fresh(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
     """
     Return True only if we have a FRESH (<= fresh_s) explicit unlock
@@ -556,6 +558,7 @@ def _phone_is_unlocked_fresh(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         return True
     return latest_unlock_fresh > latest_lock
 
+
 def _phone_is_unlocked_sticky(
     hass: HomeAssistant,
     slug: str,
@@ -618,7 +621,9 @@ def _phone_is_unlocked_sticky(
         if is_locked:
             latest_lock = ts if latest_lock is None else max(latest_lock, ts)
         if is_unlocked:
-            latest_unlock_any = ts if latest_unlock_any is None else max(latest_unlock_any, ts)
+            latest_unlock_any = (
+                ts if latest_unlock_any is None else max(latest_unlock_any, ts)
+            )
             if (now_dt - ts) <= fresh:
                 latest_unlock_fresh = (
                     ts if latest_unlock_fresh is None else max(latest_unlock_fresh, ts)
@@ -636,6 +641,7 @@ def _phone_is_unlocked_sticky(
     if latest_lock is None:
         return True
     return latest_unlock_any > latest_lock
+
 
 def _explain_phone_eligibility(
     hass: HomeAssistant,
@@ -680,7 +686,9 @@ def _explain_phone_eligibility(
         st = hass.states.get(ent_id)
         if st:
             last_any = getattr(st, "last_updated", None)
-            last_dt: Optional[datetime] = last_any if isinstance(last_any, datetime) else None
+            last_dt: Optional[datetime] = (
+                last_any if isinstance(last_any, datetime) else None
+            )
             if last_dt is not None and (now_dt - last_dt) <= timedelta(seconds=fresh_s):
                 fresh_ok_any = True
                 if (
@@ -716,6 +724,7 @@ def _explain_phone_eligibility(
     )
     return out
 
+
 def _phone_is_eligible(
     hass: HomeAssistant,
     notify_service: str,
@@ -740,6 +749,7 @@ def _looks_awake(state: str) -> bool:
     ):
         return False
     return True
+
 
 def _pc_is_eligible(
     hass: HomeAssistant,
@@ -766,7 +776,7 @@ def _pc_is_eligible(
         age_ok = (now_dt - last_dt) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").strip().lower()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
 
     # If unlocked, treat as fresh and awake enough
     fresh_ok = age_ok or unlocked
@@ -783,6 +793,7 @@ def _pc_is_eligible(
         eligible,
     )
     return (eligible, unlocked)
+
 
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
@@ -826,14 +837,25 @@ def _choose_service_smart(
         if pc_unlocked:
             # ONLY let a phone beat an unlocked PC if it is *currently* unlocked (fresh proof)
             current_unlocked_phone = next(
-                (svc for svc in phone_order
-                 if eligibility_by_phone.get(svc, {}).get("unlocked_current") is True
-                 and svc in eligible_phones),
+                (
+                    svc
+                    for svc in phone_order
+                    if eligibility_by_phone.get(svc, {}).get("unlocked_current") is True
+                    and svc in eligible_phones
+                ),
                 None,
             )
-            chosen = current_unlocked_phone or (pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None))
+            chosen = current_unlocked_phone or (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
