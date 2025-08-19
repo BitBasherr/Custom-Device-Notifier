@@ -402,7 +402,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             saw_lock = True
             ts = getattr(st, "last_updated", None)
             if ts:
-                latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                latest_lock_ts = (
+                    ts if latest_lock_ts is None else max(latest_lock_ts, ts)
+                )
 
     # collect fresh positive "interactive/unlocked/awake"
     latest_unlock_ts = None
@@ -445,7 +447,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         )
         if is_unlocked:
             saw_fresh_unlock = True
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     if saw_lock and not saw_fresh_unlock:
         return False
@@ -626,16 +630,16 @@ def _choose_service_smart(
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
     pc_fresh = int(cfg.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S))
-    require_pc_awake = bool(cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE))
+    require_pc_awake = bool(
+        cfg.get(CONF_SMART_REQUIRE_AWAKE, DEFAULT_SMART_REQUIRE_AWAKE)
+    )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     # we hard-require phone unlocked regardless of the option (kept for compat)
     _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
 
     # PC eligibility
-    pc_ok, pc_unlocked = _pc_is_eligible(
-        hass, pc_session, pc_fresh, require_pc_awake
-    )
+    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
 
     # Phones: compute ordered list that already satisfies battery/freshness/(un)locked
     eligible_phones: list[str] = []
@@ -660,9 +664,17 @@ def _choose_service_smart(
             chosen = pc_service
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            chosen = eligible_phones[0] if eligible_phones else (pc_service if pc_ok else None)
+            chosen = (
+                eligible_phones[0]
+                if eligible_phones
+                else (pc_service if pc_ok else None)
+            )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
         if pc_ok:
