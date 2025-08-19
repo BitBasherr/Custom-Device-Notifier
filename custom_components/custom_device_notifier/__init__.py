@@ -489,6 +489,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     is_within: bool = since_unlock <= sticky
     return is_within
 
+
 def _explain_phone_eligibility(
     hass: HomeAssistant,
     notify_service: str,
