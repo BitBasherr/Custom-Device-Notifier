@@ -173,8 +173,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if slug and hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
-    ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    return bool(ok)
+    ok_any = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    ok_bool: bool = bool(ok_any)  # coerce Any -> bool for mypy
+    return ok_bool
 
 
 # ─────────────────────────── routing entry point ───────────────────────────
