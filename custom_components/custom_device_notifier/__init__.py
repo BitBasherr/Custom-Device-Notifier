@@ -408,9 +408,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
 
     Most recent 'locked' after an unlock wins immediately.
     """
-    now = dt_util.utcnow()
-
-    # Build window
+    # Build sticky window (seconds)
     window_s = max(int(fresh_s), _PHONE_UNLOCK_BASE_WINDOW_S)
     for hint in (
         f"binary_sensor.{slug}_on_awake",
@@ -421,9 +419,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         if h is not None and str(h.state).lower() in ("on", "true"):
             window_s = max(window_s, _PHONE_UNLOCK_EXTENDED_WINDOW_S)
             break
-    sticky = timedelta(seconds=window_s)
+    sticky: timedelta = timedelta(seconds=window_s)
 
-    # Explicit signals
+    # Explicit lock/unlock signals
     candidates = [
         f"binary_sensor.{slug}_device_locked",
         f"binary_sensor.{slug}_locked",
@@ -439,9 +437,8 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         st = hass.states.get(ent_id)
         if not st:
             continue
-        ts_any = getattr(st, "last_updated", None)
 
-        # Only accept proper datetimes; ignore anything else for typing safety
+        ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
         if ts is None:
             continue
@@ -482,13 +479,15 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     if latest_unlock_ts is None:
         return False
 
-    # Lock after unlock always wins
+    # A newer lock than unlock → locked
     if latest_lock_ts is not None and latest_lock_ts > latest_unlock_ts:
         return False
 
-    # Within sticky window?
-    return (now - latest_unlock_ts) <= sticky
-
+    # Typesafe: compute a timedelta and compare to the sticky window
+    now_dt: datetime = dt_util.utcnow()
+    since_unlock: timedelta = now_dt - latest_unlock_ts
+    is_within: bool = since_unlock <= sticky
+    return is_within
 
 def _explain_phone_eligibility(
     hass: HomeAssistant,
