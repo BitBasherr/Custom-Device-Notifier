@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -41,14 +41,14 @@ from .const import (
     CONF_SMART_REQUIRE_AWAKE,
     CONF_SMART_POLICY,
     SMART_POLICY_PC_FIRST,
-    SMART_POLICY_PHONE_IF_PC_UNLOCKED,
     SMART_POLICY_PHONE_FIRST,
+    SMART_POLICY_PHONE_IF_PC_UNLOCKED,
     DEFAULT_SMART_MIN_BATTERY,
     DEFAULT_SMART_PHONE_FRESH_S,
     DEFAULT_SMART_PC_FRESH_S,
     DEFAULT_SMART_REQUIRE_AWAKE,
     DEFAULT_SMART_POLICY,
-    # kept for options compat, but we hard-require phone unlocked anyway
+    # kept for options compat / migration
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
 )
@@ -102,10 +102,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data.setdefault(CONF_PRIORITY, list(data.get(CONF_PRIORITY, [])))
     data.setdefault(CONF_FALLBACK, str(data.get(CONF_FALLBACK, "") or ""))
 
-    # still set for options compat; not used for the decision anymore
+    # still set for options compat; not used by routing logic anymore
     data.setdefault(
-        CONF_SMART_REQUIRE_PHONE_UNLOCKED,
-        DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
+        CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED
     )
 
     hass.config_entries.async_update_entry(entry, data=data, version=3)
@@ -165,6 +164,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Tear down notify service, preview manager, and sensor platform."""
     rt: EntryRuntime | None = hass.data[DATA].pop(entry.entry_id, None)
     if rt and rt.preview:
         await rt.preview.async_stop()
@@ -375,7 +375,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
     Treat as unlocked ONLY if we see a FRESH (<= fresh_s) explicit unlock signal:
       - binary_sensor.{slug}_device_locked == off
       - binary_sensor.{slug}_lock == off
-      - sensor.{slug}_lock_state == 'unlocked'
+      - sensor.{slug}_lock_state contains 'unlocked'
       - sensor.{slug}_keyguard in {'none', 'keyguard_off'}
 
     If we also saw a 'locked' signal, the most recent wins.
@@ -452,7 +452,7 @@ def _explain_phone_eligibility(
     fresh_s: int,
 ) -> dict[str, Any]:
     """Return a dict explaining each check for debug."""
-    domain, svc = _split_service(notify_service)
+    _, svc = _split_service(notify_service)
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
     out: Dict[str, Any] = {"service": notify_service, "slug": slug}
 
@@ -476,7 +476,7 @@ def _explain_phone_eligibility(
     out["battery_ok"] = batt_ok
     out["battery_val"] = batt_val
 
-    # freshness
+    # freshness (raw) + hints that can only help
     now = dt_util.utcnow()
     fresh_ok_any = False
     shutdown_recent = False
@@ -495,7 +495,6 @@ def _explain_phone_eligibility(
             ):
                 shutdown_recent = True
             break
-    # hints can only make it "fresh", never block
     for eid in (
         f"binary_sensor.{slug}_active_recent",
         f"binary_sensor.{slug}_recent_activity",
@@ -524,8 +523,8 @@ def _phone_is_eligible(
     min_batt: int,
     fresh_s: int,
 ) -> bool:
-    """Battery + freshness + not-shutdown + unlocked/interactive (always required)."""
-    domain, svc = _split_service(notify_service)
+    """Battery + freshness + not-shutdown + unlocked (strict)."""
+    domain, _svc = _split_service(notify_service)
     if domain != "notify":
         return False
 
@@ -537,9 +536,7 @@ def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
         return True
-    if any(
-        k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")
-    ):
+    if any(k in s for k in ("asleep", "sleep", "idle", "suspended", "hibernate", "offline")):
         return False
     return True
 
@@ -584,7 +581,7 @@ def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
 ) -> tuple[str | None, dict[str, Any]]:
     """
-    Policy semantics (clear!):
+    Policy semantics:
 
     - PC_FIRST:
         If PC eligible → PC.
@@ -608,13 +605,10 @@ def _choose_service_smart(
     )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
-    # we hard-require phone unlocked regardless of the option (kept for compat)
-    _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
-
     # PC eligibility
     pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
 
-    # Phones: compute ordered list that already satisfies battery/freshness/(un)locked
+    # Phones: compute ordered list that already satisfies battery/freshness/unlocked
     eligible_phones: list[str] = []
     eligibility_by_phone: Dict[str, Any] = {}
     for svc in phone_order:
@@ -655,7 +649,6 @@ def _choose_service_smart(
         elif eligible_phones:
             chosen = eligible_phones[0]
 
-    # No second-guessing "final guard"; eligibility lists already enforce freshness/unlock.
     info = {
         "policy": policy,
         "phone_order": phone_order,
