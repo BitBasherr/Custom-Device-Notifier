@@ -359,7 +359,7 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     rstr = str(value)
     if op == "==":
         return lstr == rstr
-    if op == "!="":
+    if op == "!=":
         return lstr != rstr
     _LOGGER.debug("Unknown operator %s for %s", op, entity_id)
     return False
