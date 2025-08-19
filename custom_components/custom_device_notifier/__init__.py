@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import timedelta, datetime
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -432,15 +432,18 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         f"sensor.{slug}_keyguard",
     ]
 
-    latest_lock_ts = None
-    latest_unlock_ts = None
+    latest_lock_ts: Optional[datetime] = None
+    latest_unlock_ts: Optional[datetime] = None
 
     for ent_id in candidates:
         st = hass.states.get(ent_id)
         if not st:
             continue
-        ts = getattr(st, "last_updated", None)
-        if not ts:
+        ts_any = getattr(st, "last_updated", None)
+
+        # Only accept proper datetimes; ignore anything else for typing safety
+        ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
+        if ts is None:
             continue
 
         val = str(st.state or "").strip().lower()
@@ -480,7 +483,7 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         return False
 
     # Lock after unlock always wins
-    if latest_lock_ts and latest_lock_ts > latest_unlock_ts:
+    if latest_lock_ts is not None and latest_lock_ts > latest_unlock_ts:
         return False
 
     # Within sticky window?
@@ -620,7 +623,7 @@ def _pc_is_eligible(
     fresh_ok = (now - st.last_updated) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
 
     # If explicitly unlocked, consider it fresh-enough and also 'awake'.
     if unlocked and not fresh_ok:
