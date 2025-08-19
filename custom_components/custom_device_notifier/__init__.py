@@ -408,7 +408,11 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         is_unlocked = False
 
         # binary sensors: on/true => locked, off/false => unlocked
-        if ent_id.endswith("_device_locked") or ent_id.endswith("_locked") or ent_id.endswith("_lock"):
+        if (
+            ent_id.endswith("_device_locked")
+            or ent_id.endswith("_locked")
+            or ent_id.endswith("_lock")
+        ):
             if val in ("on", "true", "1", "yes", "locked", "screen_locked"):
                 is_locked = True
             elif val in ("off", "false", "0", "no"):
@@ -430,7 +434,9 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         if is_locked:
             latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
         if is_unlocked and (now - ts) <= fresh:
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
+            )
 
     if latest_unlock_ts is None:
         return False
