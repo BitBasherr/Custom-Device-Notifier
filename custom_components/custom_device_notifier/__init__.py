@@ -474,8 +474,8 @@ def _phone_is_unlocked_with_sticky(
     - Else if we previously saw an unlock within unlock_window_s and no newer lock → unlocked.
     - Else locked.
     """
-    latest_lock_ts, latest_fresh_unlock_ts, latest_any_unlock_ts = _explicit_unlock_times(
-        hass, slug, fresh_s
+    latest_lock_ts, latest_fresh_unlock_ts, latest_any_unlock_ts = (
+        _explicit_unlock_times(hass, slug, fresh_s)
     )
     now_dt = dt_util.utcnow()
 
@@ -695,7 +695,9 @@ def _choose_service_smart(
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
     # Sticky unlock window (configurable via options, falls back to default)
-    unlock_window_s = int(cfg.get("smart_phone_unlock_window_s", DEFAULT_UNLOCK_WINDOW_S))
+    unlock_window_s = int(
+        cfg.get("smart_phone_unlock_window_s", DEFAULT_UNLOCK_WINDOW_S)
+    )
 
     # we hard-require phone unlocked regardless of the option (kept for compat)
     _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
