@@ -581,7 +581,7 @@ def _pc_is_eligible(
     ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
     age_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
 
-    state_raw = (st.state or "")
+    state_raw = st.state or ""
     state = state_raw.lower().strip()
 
     # IMPORTANT: check 'unlocked' BEFORE checking 'locked' (since 'unlocked' contains 'locked')
