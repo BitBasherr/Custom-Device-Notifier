@@ -566,8 +566,8 @@ def _pc_is_eligible(
     require_awake: bool,
 ) -> tuple[bool, bool]:
     """
-    PC is eligible only if session sensor is fresh AND (awake if required) AND unlocked.
-    Additionally, treat explicit 'Unlocked' text as fresh-enough and awake.
+    PC is eligible only if session sensor is fresh (or explicitly 'Unlocked')
+    AND unlocked, AND (awake if required). Treat 'Unlocked' as both fresh and awake.
     """
     if not session_entity:
         return (False, False)
@@ -576,31 +576,38 @@ def _pc_is_eligible(
     if st is None:
         return (False, False)
 
-    now_dt: datetime = dt_util.utcnow()
+    now_dt = dt_util.utcnow()
     ts_any = getattr(st, "last_updated", None)
     ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
-    age_ok = False
-    if ts is not None:
-        age_ok = (now_dt - ts) <= timedelta(seconds=fresh_s)
+    age_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
 
-    state = (st.state or "").lower().strip()
-    unlocked = "unlock" in state and "locked" not in state
+    state_raw = (st.state or "")
+    state = state_raw.lower().strip()
 
-    # If we see 'Unlocked', consider it fresh-enough and also 'awake'.
-    fresh_ok = age_ok or unlocked
-    awake = _looks_awake(state) or unlocked
+    # IMPORTANT: check 'unlocked' BEFORE checking 'locked' (since 'unlocked' contains 'locked')
+    if "unlocked" in state:
+        is_unlocked = True
+    elif "locked" in state:
+        is_unlocked = False
+    else:
+        # Fallback heuristic: any 'unlock' hint without an explicit 'locked'
+        is_unlocked = "unlock" in state
 
-    eligible = fresh_ok and (awake or not require_awake) and unlocked
+    # If explicitly unlocked, treat as fresh and awake enough
+    fresh_ok = age_ok or is_unlocked
+    awake = _looks_awake(state) or is_unlocked
+
+    eligible = fresh_ok and (awake or not require_awake) and is_unlocked
     _LOGGER.debug(
         "PC session %s | state=%s fresh_ok=%s awake=%s unlocked=%s eligible=%s",
         session_entity,
-        st.state,
+        state_raw,
         fresh_ok,
         awake,
-        unlocked,
+        is_unlocked,
         eligible,
     )
-    return (eligible, unlocked)
+    return (eligible, is_unlocked)
 
 
 def _choose_service_smart(
