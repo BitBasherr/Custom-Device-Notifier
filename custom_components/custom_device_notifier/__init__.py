@@ -507,8 +507,8 @@ def _phone_is_unlocked_sticky(
         if is_locked:
             latest_lock = ts if latest_lock is None else max(latest_lock, ts)
         if is_unlocked:
-            latest_unlock_any = ts if latest_unlock_any is None else max(
-                latest_unlock_any, ts
+            latest_unlock_any = (
+                ts if latest_unlock_any is None else max(latest_unlock_any, ts)
             )
             if (now_dt - ts) <= fresh:
                 latest_unlock_fresh = (
@@ -575,7 +575,9 @@ def _explain_phone_eligibility(
         st = hass.states.get(ent_id)
         if st:
             last_any = getattr(st, "last_updated", None)
-            last_dt: Optional[datetime] = last_any if isinstance(last_any, datetime) else None
+            last_dt: Optional[datetime] = (
+                last_any if isinstance(last_any, datetime) else None
+            )
             if last_dt is not None and (now_dt - last_dt) <= timedelta(seconds=fresh_s):
                 fresh_ok_any = True
                 if (
@@ -664,7 +666,7 @@ def _pc_is_eligible(
         age_ok = (now_dt - last_dt) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").strip().lower()
-    unlocked = ("unlock" in state and "locked" not in state)
+    unlocked = "unlock" in state and "locked" not in state
 
     # If unlocked, treat as fresh and awake enough
     fresh_ok = age_ok or unlocked
@@ -754,9 +756,17 @@ def _choose_service_smart(
             if current_unlocked_phone is not None:
                 chosen = current_unlocked_phone
             else:
-                chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+                chosen = (
+                    pc_service
+                    if pc_ok
+                    else (eligible_phones[0] if eligible_phones else None)
+                )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
         if pc_ok:
