@@ -960,4 +960,3 @@ class PreviewManager:
             decision.update({"result": "dropped", "service_full": None})
 
         async_dispatcher_send(self.hass, _signal_name(self.entry.entry_id), decision)
-```0
