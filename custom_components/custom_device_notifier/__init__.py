@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -58,14 +58,9 @@ _LOGGER = logging.getLogger(__name__)
 DATA = f"{DOMAIN}.data"
 SERVICE_HANDLES = f"{DOMAIN}.service_handles"
 
-# Sticky unlock window for phones:
-# - Base: 120s so minute-ticking lock sensors don't constantly de-prioritize.
-# - Extended: 30 minutes while activity hints are ON (does not itself imply unlock).
-_PHONE_UNLOCK_BASE_WINDOW_S = 120
-_PHONE_UNLOCK_EXTENDED_WINDOW_S = 30 * 60
-# Sticky window for phones: allows "recently unlocked" to remain eligible
-# but ONLY used when PC is NOT unlocked. (When PC is unlocked we require fresh unlock.)
-UNLOCK_STICKY_WINDOW_S = 1800  # 30 minutes; adjust if you want
+# Sticky window for phones: allows "recently unlocked" to remain eligible,
+# but ONLY used when PC is *not* unlocked. (When PC is unlocked we require fresh unlock.)
+UNLOCK_STICKY_WINDOW_S = 1800  # 30 minutes; adjust to taste
 
 
 def _signal_name(entry_id: str) -> str:
@@ -183,7 +178,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_remove("notify", slug)
 
     ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    return bool(ok)
+    return ok
 
 
 # ─────────────────────────── routing entry point ───────────────────────────
@@ -307,23 +302,6 @@ def _choose_service_conditional_with_info(
     return (None, info)
 
 
-def _cmp_float(lhs: float, rhs: float, op: str) -> bool:
-    """Typed numeric comparator to keep mypy happy."""
-    if op == ">":
-        return lhs > rhs
-    if op == "<":
-        return lhs < rhs
-    if op == ">=":
-        return lhs >= rhs
-    if op == "<=":
-        return lhs <= rhs
-    if op == "==":
-        return lhs == rhs
-    if op == "!=":
-        return lhs != rhs
-    return False
-
-
 def _evaluate_conditions(
     hass: HomeAssistant, conds: list[dict[str, Any]], mode: str
 ) -> bool:
@@ -336,9 +314,7 @@ def _evaluate_conditions(
         val = c.get("value")
         ok = _compare_entity(hass, entity_id, op, val)
         results.append(ok)
-    if mode == "all":
-        return bool(all(results))
-    return bool(any(results))
+    return all(results) if mode == "all" else any(results)
 
 
 def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) -> bool:
@@ -346,8 +322,8 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
     # special literal: "unknown or unavailable"
     if isinstance(value, str) and value.strip().lower() == "unknown or unavailable":
         if st is None or (st.state in ("unknown", "unavailable")):
-            return True if op == "==" else False if op == "!=" else False
-        return True if op == "!=" else False if op == "==" else False
+            return op == "=="
+        return op == "!="
     if st is None:
         return False
 
@@ -357,7 +333,20 @@ def _compare_entity(hass: HomeAssistant, entity_id: str, op: str, value: Any) ->
 
     # numeric compare (both sides parse as numbers)
     if lhs is not None and rhs is not None and op in (">", "<", ">=", "<=", "==", "!="):
-        return _cmp_float(lhs, rhs, op)
+        left_val = lhs
+        right_val = rhs
+        if op == ">":
+            return left_val > right_val
+        if op == "<":
+            return left_val < right_val
+        if op == ">=":
+            return left_val >= right_val
+        if op == "<=":
+            return left_val <= right_val
+        if op == "==":
+            return left_val == right_val
+        if op == "!=":
+            return left_val != right_val
 
     # string compare fallback
     lstr = str(s)
@@ -389,110 +378,6 @@ def _service_slug(full: str) -> str:
     return slug
 
 
-def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
-    """
-    STRICT unlock detection + STICKY window.
-
-    Treat as unlocked ONLY if we see explicit unlock evidence:
-      - binary_sensor.{slug}_device_locked == off
-      - binary_sensor.{slug}_lock == off
-      - sensor.{slug}_lock_state == 'unlocked'
-      - sensor.{slug}_keyguard in {'none', 'keyguard_off'}
-
-    We ignore 'interactive/screen_on/awake' for *unlock*; however, activity hints
-    may extend the sticky window.
-
-    Sticky window:
-      - Base: max(fresh_s, _PHONE_UNLOCK_BASE_WINDOW_S)
-      - Extended to _PHONE_UNLOCK_EXTENDED_WINDOW_S while any of:
-          binary_sensor.{slug}_on_awake, binary_sensor.{slug}_active_recent,
-          binary_sensor.{slug}_recent_activity
-        are ON. Hints do NOT create unlock; they only extend recency tolerance.
-
-    Most recent 'locked' after an unlock wins immediately.
-    """
-    # Build sticky window (seconds)
-    window_s = max(int(fresh_s), _PHONE_UNLOCK_BASE_WINDOW_S)
-    for hint in (
-        f"binary_sensor.{slug}_on_awake",
-        f"binary_sensor.{slug}_active_recent",
-        f"binary_sensor.{slug}_recent_activity",
-    ):
-        h = hass.states.get(hint)
-        if h is not None and str(h.state).lower() in ("on", "true"):
-            window_s = max(window_s, _PHONE_UNLOCK_EXTENDED_WINDOW_S)
-            break
-    sticky: timedelta = timedelta(seconds=window_s)
-
-    # Explicit lock/unlock signals
-    candidates = [
-        f"binary_sensor.{slug}_device_locked",
-        f"binary_sensor.{slug}_locked",
-        f"binary_sensor.{slug}_lock",
-        f"sensor.{slug}_lock_state",
-        f"sensor.{slug}_keyguard",
-    ]
-
-    latest_lock_ts: Optional[datetime] = None
-    latest_unlock_ts: Optional[datetime] = None
-
-    for ent_id in candidates:
-        st = hass.states.get(ent_id)
-        if not st:
-            continue
-
-        ts_any = getattr(st, "last_updated", None)
-        ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
-        if ts is None:
-            continue
-
-        val = str(st.state or "").strip().lower()
-        is_locked = False
-        is_unlocked = False
-
-        # binary sensors: on/true => locked, off/false => unlocked
-        if (
-            ent_id.endswith("_device_locked")
-            or ent_id.endswith("_locked")
-            or ent_id.endswith("_lock")
-        ):
-            if val in ("on", "true", "1", "yes", "locked", "screen_locked"):
-                is_locked = True
-            elif val in ("off", "false", "0", "no"):
-                is_unlocked = True
-        elif ent_id.endswith("_lock_state"):
-            if "unlocked" in val:
-                is_unlocked = True
-            elif "locked" in val and "unlock" not in val:
-                is_locked = True
-        elif ent_id.endswith("_keyguard"):
-            if val in ("none", "keyguard_off"):
-                is_unlocked = True
-            else:
-                is_locked = True
-
-        if is_locked:
-            latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
-        if is_unlocked:
-            latest_unlock_ts = (
-                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
-            )
-
-    # No explicit unlock evidence
-    if latest_unlock_ts is None:
-        return False
-
-    # A newer lock than unlock → locked
-    if latest_lock_ts is not None and latest_lock_ts > latest_unlock_ts:
-        return False
-
-    # Typesafe: compute a timedelta and compare to the sticky window
-    now_dt: datetime = dt_util.utcnow()
-    since_unlock: timedelta = now_dt - latest_unlock_ts
-    is_within: bool = since_unlock <= sticky
-    return is_within
-
-
 def _phone_is_unlocked_fresh(hass: HomeAssistant, slug: str, fresh_s: int) -> bool:
     """
     Return True only if we have a FRESH (<= fresh_s) explicit unlock
@@ -518,13 +403,14 @@ def _phone_is_unlocked_fresh(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
             continue
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
-        if not ts:
+        if ts is None:
             continue
 
         val = str(st.state or "").strip().lower()
         is_locked = False
         is_unlocked = False
 
+        # binary sensors: on/true => locked, off/false => unlocked
         if (
             ent_id.endswith("_device_locked")
             or ent_id.endswith("_locked")
@@ -591,7 +477,7 @@ def _phone_is_unlocked_sticky(
             continue
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
-        if not ts:
+        if ts is None:
             continue
 
         val = str(st.state or "").strip().lower()
@@ -621,8 +507,8 @@ def _phone_is_unlocked_sticky(
         if is_locked:
             latest_lock = ts if latest_lock is None else max(latest_lock, ts)
         if is_unlocked:
-            latest_unlock_any = (
-                ts if latest_unlock_any is None else max(latest_unlock_any, ts)
+            latest_unlock_any = ts if latest_unlock_any is None else max(
+                latest_unlock_any, ts
             )
             if (now_dt - ts) <= fresh:
                 latest_unlock_fresh = (
@@ -636,7 +522,9 @@ def _phone_is_unlocked_sticky(
         return latest_unlock_fresh > latest_lock
 
     # Otherwise, sticky window: must have a recent unlock AND no newer lock
-    if latest_unlock_any is None or (now_dt - latest_unlock_any) > sticky:
+    if latest_unlock_any is None:
+        return False
+    if (now_dt - latest_unlock_any) > sticky:
         return False
     if latest_lock is None:
         return True
@@ -649,6 +537,7 @@ def _explain_phone_eligibility(
     min_batt: int,
     fresh_s: int,
 ) -> dict[str, Any]:
+    """Return a dict explaining each check for debug."""
     _, svc = _split_service(notify_service)
     slug = svc[11:] if svc.startswith("mobile_app_") else svc
     out: Dict[str, Any] = {"service": notify_service, "slug": slug}
@@ -686,9 +575,7 @@ def _explain_phone_eligibility(
         st = hass.states.get(ent_id)
         if st:
             last_any = getattr(st, "last_updated", None)
-            last_dt: Optional[datetime] = (
-                last_any if isinstance(last_any, datetime) else None
-            )
+            last_dt: Optional[datetime] = last_any if isinstance(last_any, datetime) else None
             if last_dt is not None and (now_dt - last_dt) <= timedelta(seconds=fresh_s):
                 fresh_ok_any = True
                 if (
@@ -697,6 +584,7 @@ def _explain_phone_eligibility(
                 ):
                     shutdown_recent = True
                 break
+    # hints can only make it "fresh", never block
     for eid in (
         f"binary_sensor.{slug}_active_recent",
         f"binary_sensor.{slug}_recent_activity",
@@ -731,7 +619,7 @@ def _phone_is_eligible(
     min_batt: int,
     fresh_s: int,
 ) -> bool:
-    """Battery + freshness + not-shutdown + unlocked (strict+sticky)."""
+    """Battery + freshness + not-shutdown + unlocked (strict/sticky handled in explainer)."""
     domain, _ = _split_service(notify_service)
     if domain != "notify":
         return False
@@ -759,7 +647,7 @@ def _pc_is_eligible(
 ) -> tuple[bool, bool]:
     """
     PC is eligible if the session is (fresh OR explicitly unlocked), AND unlocked,
-    AND (awake if required). 'Unlocked' implies both fresh-enough and awake.
+    AND (awake if required). 'Unlocked' implies fresh-enough and awake.
     """
     if not session_entity:
         return (False, False)
@@ -776,7 +664,7 @@ def _pc_is_eligible(
         age_ok = (now_dt - last_dt) <= timedelta(seconds=fresh_s)
 
     state = (st.state or "").strip().lower()
-    unlocked = "unlock" in state and "locked" not in state
+    unlocked = ("unlock" in state and "locked" not in state)
 
     # If unlocked, treat as fresh and awake enough
     fresh_ok = age_ok or unlocked
@@ -798,6 +686,20 @@ def _pc_is_eligible(
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
 ) -> tuple[str | None, dict[str, Any]]:
+    """
+    Policy semantics:
+
+    - PC_FIRST:
+        If PC eligible → PC.
+        Else → first eligible phone in CONF_SMART_PHONE_ORDER.
+    - PHONE_FIRST:
+        If any eligible phone → first eligible phone in order.
+        Else → PC if eligible.
+    - PHONE_IF_PC_UNLOCKED:
+        If PC is UNLOCKED/eligible → prefer PC unless there exists a
+        strictly-eligible & CURRENTLY unlocked phone (fresh proof).
+        If PC not eligible → use first eligible phone (sticky allowed).
+    """
     pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
     pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
     phone_order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
@@ -810,8 +712,13 @@ def _choose_service_smart(
     )
     policy = cfg.get(CONF_SMART_POLICY, DEFAULT_SMART_POLICY)
 
+    # we hard-require phone unlocked regardless of the option (kept for compat)
+    _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
+
+    # PC eligibility
     pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
 
+    # Phones: compute ordered list that already satisfies battery/freshness/unlocked (sticky allowed)
     eligible_phones: list[str] = []
     eligibility_by_phone: Dict[str, Any] = {}
     for svc in phone_order:
@@ -820,22 +727,21 @@ def _choose_service_smart(
         if expl["eligible"]:
             eligible_phones.append(svc)
 
+    # choose by policy
     chosen: Optional[str] = None
     if policy == SMART_POLICY_PC_FIRST:
         if pc_ok:
             chosen = pc_service
         elif eligible_phones:
             chosen = eligible_phones[0]
-
     elif policy == SMART_POLICY_PHONE_FIRST:
         if eligible_phones:
             chosen = eligible_phones[0]
         elif pc_ok:
             chosen = pc_service
-
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
         if pc_unlocked:
-            # ONLY let a phone beat an unlocked PC if it is *currently* unlocked (fresh proof)
+            # ONLY let a phone beat an unlocked PC if it is *currently* unlocked (fresh proof) AND eligible.
             current_unlocked_phone = next(
                 (
                     svc
@@ -845,18 +751,12 @@ def _choose_service_smart(
                 ),
                 None,
             )
-            chosen = current_unlocked_phone or (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            if current_unlocked_phone is not None:
+                chosen = current_unlocked_phone
+            else:
+                chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
         else:
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
-
+            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
         if pc_ok:
