@@ -442,8 +442,8 @@ def _phone_is_unlocked_awake(hass: HomeAssistant, slug: str, fresh_s: int) -> bo
         if is_locked:
             latest_lock_ts = ts if latest_lock_ts is None else max(latest_lock_ts, ts)
         if is_unlocked and (now_dt - ts) <= fresh:
-            latest_unlock_ts = ts if latest_unlock_ts is None else max(
-                latest_unlock_ts, ts
+            latest_unlock_ts = (
+                ts if latest_unlock_ts is None else max(latest_unlock_ts, ts)
             )
 
     if latest_unlock_ts is None:
@@ -673,11 +673,17 @@ def _choose_service_smart(
                 ),
                 None,
             )
-            chosen = current_unlocked_phone if current_unlocked_phone else (
-                pc_service if pc_ok else None
+            chosen = (
+                current_unlocked_phone
+                if current_unlocked_phone
+                else (pc_service if pc_ok else None)
             )
         else:
-            chosen = pc_service if pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                pc_service
+                if pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
