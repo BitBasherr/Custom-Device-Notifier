@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -63,6 +63,12 @@ DEFAULT_UNLOCK_WINDOW_S = 120
 
 # In-memory store for last known explicit unlock timestamps per phone slug
 _LAST_PHONE_UNLOCK_UTC: Dict[str, datetime] = {}
+
+# New, optional option keys (read as raw strings from entry options)
+# - smart_pc_like_services: List[str] of notify services to force as PC-like
+# - smart_pc_autodetect: bool to enable auto-detect (screen_lock/non-mobile_app) as PC-like
+OPT_PC_LIKE_SERVICES = "smart_pc_like_services"
+OPT_PC_AUTODETECT = "smart_pc_autodetect"
 
 
 def _signal_name(entry_id: str) -> str:
@@ -371,6 +377,13 @@ def _as_float(v: Any) -> float | None:
 # ───────────────────────── smart select routing ─────────────────────────
 
 
+def _split_service(full: str) -> tuple[str, str]:
+    if "." not in full:
+        return ("notify", full)
+    d, s = full.split(".", 1)
+    return (d, s)
+
+
 def _service_slug(full: str) -> str:
     """Return the slug portion from a notify service (strip domain and mobile_app_)."""
     _, svc = _split_service(full)
@@ -378,6 +391,9 @@ def _service_slug(full: str) -> str:
     if slug.startswith("mobile_app_"):
         slug = slug[len("mobile_app_") :]
     return slug
+
+
+# ---------- PHONE logic (sticky explicit unlock) ----------
 
 
 def _explicit_unlock_times(
@@ -603,6 +619,9 @@ def _phone_is_eligible(
     return bool(expl["eligible"])
 
 
+# ---------- PC logic (session or explicit lock sensor) ----------
+
+
 def _looks_awake(state: str) -> bool:
     s = state.lower()
     if any(k in s for k in ("awake", "active", "online", "available")):
@@ -665,6 +684,152 @@ def _pc_is_eligible(
     return (eligible, is_unlocked)
 
 
+def _pc_from_lock_entity_is_eligible(
+    hass: HomeAssistant,
+    lock_entity: str,
+    fresh_s: int,
+) -> tuple[bool, bool]:
+    """
+    Evaluate a PC-like candidate from a lock entity:
+      e.g., binary_sensor.<slug>_screen_lock (go-hass-agent) or
+            binary_sensor.<slug}_device_locked (off == unlocked) as a weak fallback.
+
+    Unlocked if state is 'Unlocked' (case-insensitive) OR boolean off/false.
+    Fresh if last_updated <= fresh_s.
+    """
+    st = hass.states.get(lock_entity)
+    if st is None:
+        return (False, False)
+
+    val_raw = str(st.state or "")
+    val = val_raw.strip().lower()
+
+    # Interpret locked/unlocked
+    if val in ("unlocked", "off", "false", "0", "no"):
+        is_unlocked = True
+    elif val in ("locked", "on", "true", "1", "yes"):
+        is_unlocked = False
+    else:
+        # unknown value -> treat as locked
+        is_unlocked = False
+
+    ts_any = getattr(st, "last_updated", None)
+    ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
+    now_dt = dt_util.utcnow()
+    fresh_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
+
+    eligible = bool(is_unlocked and fresh_ok)
+    _LOGGER.debug(
+        "PC (lock) %s | state=%s fresh_ok=%s unlocked=%s eligible=%s",
+        lock_entity,
+        val_raw,
+        fresh_ok,
+        is_unlocked,
+        eligible,
+    )
+    return (eligible, is_unlocked)
+
+
+def _pc_like_is_eligible(
+    hass: HomeAssistant,
+    service: str,
+    *,
+    session_entity: Optional[str],
+    fresh_s: int,
+    require_awake: bool,
+    autodetect: bool,
+) -> tuple[bool, bool, str]:
+    """
+    Evaluate a PC-like notify service.
+
+    - If session_entity provided → use session-based logic.
+    - Else if autodetect: try lock entity: binary_sensor.<slug>_screen_lock
+    - Else try a couple of generic fallbacks (rare on PC):
+        binary_sensor.{slug}_device_locked == off
+        sensor.{slug}_lock_state == 'unlocked'
+    Returns: (eligible, unlocked, mode) where mode in {'session','screen_lock','fallback','none'}
+    """
+    slug = _service_slug(service)
+
+    # 1) session-based (Windows style)
+    if session_entity:
+        eligible, unlocked = _pc_is_eligible(hass, session_entity, fresh_s, require_awake)
+        return (eligible, unlocked, "session")
+
+    # 2) go-hass-agent: explicit screen_lock
+    if autodetect:
+        lock_entity = f"binary_sensor.{slug}_screen_lock"
+        if hass.states.get(lock_entity) is not None:
+            eligible, unlocked = _pc_from_lock_entity_is_eligible(hass, lock_entity, fresh_s)
+            return (eligible, unlocked, "screen_lock")
+
+    # 3) fallbacks (rare)
+    #    a) device_locked (off == unlocked)
+    dev_lock = f"binary_sensor.{slug}_device_locked"
+    if hass.states.get(dev_lock) is not None:
+        elig, unlocked = _pc_from_lock_entity_is_eligible(hass, dev_lock, fresh_s)
+        return (elig, unlocked, "fallback")
+
+    #    b) lock_state sensor
+    lock_state = f"sensor.{slug}_lock_state"
+    st = hass.states.get(lock_state)
+    if st is not None:
+        val_raw = str(st.state or "")
+        val = val_raw.lower().strip()
+        is_unlocked = "unlocked" in val and "locked" not in val
+        ts_any = getattr(st, "last_updated", None)
+        ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
+        now_dt = dt_util.utcnow()
+        fresh_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
+        eligible = bool(is_unlocked and fresh_ok)
+        _LOGGER.debug(
+            "PC (lock_state) %s | state=%s fresh_ok=%s unlocked=%s eligible=%s",
+            lock_state,
+            val_raw,
+            fresh_ok,
+            is_unlocked,
+            eligible,
+        )
+        return (eligible, is_unlocked, "fallback")
+
+    # None found
+    return (False, False, "none")
+
+
+def _is_pc_like_service(
+    hass: HomeAssistant,
+    service: str,
+    legacy_pc_service: Optional[str],
+    forced_pc_like: Set[str],
+    autodetect: bool,
+) -> bool:
+    """Classify a service as PC-like."""
+    if legacy_pc_service and service == legacy_pc_service:
+        return True
+    if service in forced_pc_like:
+        return True
+    _, svc = _split_service(service)
+    slug = _service_slug(service)
+    # Auto-detect: screen_lock or non-mobile_app service
+    if autodetect:
+        if hass.states.get(f"binary_sensor.{slug}_screen_lock") is not None:
+            return True
+        if not svc.startswith("mobile_app_"):
+            return True
+    # otherwise treat as phone
+    return False
+
+
+def _dedupe_preserve_order(seq: List[str]) -> List[str]:
+    seen: Set[str] = set()
+    out: List[str] = []
+    for s in seq:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def _choose_service_smart(
     hass: HomeAssistant, cfg: dict[str, Any]
 ) -> tuple[str | None, dict[str, Any]]:
@@ -672,19 +837,20 @@ def _choose_service_smart(
     Policy semantics:
 
     - PC_FIRST:
-        If PC eligible → PC.
+        If any PC candidate eligible → pick the first eligible PC (ordered).
         Else → first eligible phone in CONF_SMART_PHONE_ORDER.
     - PHONE_FIRST:
         If any eligible phone → first eligible phone in order.
-        Else → PC if eligible.
+        Else → first eligible PC.
     - PHONE_IF_PC_UNLOCKED:
-        If PC is UNLOCKED (and eligible) → use PC *unless* there exists a phone
-        that is eligible AND currently unlocked (fresh explicit unlock).
-        If PC is not unlocked/eligible → use first eligible phone (if any).
+        If at least one PC candidate is UNLOCKED/eligible:
+            prefer phones (first eligible); if none, use the first eligible PC.
+        If no PC is unlocked/eligible:
+            pick first eligible PC; else first eligible phone.
     """
-    pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
-    pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
-    phone_order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
+    legacy_pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
+    legacy_pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
+    order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
 
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
@@ -699,16 +865,61 @@ def _choose_service_smart(
         cfg.get("smart_phone_unlock_window_s", DEFAULT_UNLOCK_WINDOW_S)
     )
 
+    # Optional: list of services to force as PC-like
+    forced_pc_like_list = cfg.get(OPT_PC_LIKE_SERVICES, []) or []
+    forced_pc_like: Set[str] = {str(s) for s in forced_pc_like_list if isinstance(s, str)}
+
+    # Optional: autodetect PC-like by screen_lock / non-mobile_app
+    autodetect_pc_like = bool(cfg.get(OPT_PC_AUTODETECT, True))
+
     # we hard-require phone unlocked regardless of the option (kept for compat)
     _ = cfg.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED, DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED)
 
-    # PC eligibility
-    pc_ok, pc_unlocked = _pc_is_eligible(hass, pc_session, pc_fresh, require_pc_awake)
+    # Split services into PC-like vs Phone-like (dynamic)
+    pc_candidates_order: List[str] = []
+    phone_candidates_order: List[str] = []
+    for svc in order:
+        if _is_pc_like_service(
+            hass, svc, legacy_pc_service, forced_pc_like, autodetect_pc_like
+        ):
+            pc_candidates_order.append(svc)
+        else:
+            phone_candidates_order.append(svc)
 
-    # Phones: compute ordered list with sticky unlock
+    # Ensure legacy PC (if provided) stays first among PCs
+    if legacy_pc_service:
+        pc_candidates_order = _dedupe_preserve_order(
+            [legacy_pc_service] + pc_candidates_order
+        )
+
+    # Evaluate PCs
+    pc_evals: List[Dict[str, Any]] = []
+    for svc in pc_candidates_order:
+        sess = legacy_pc_session if svc == legacy_pc_service else None
+        ok, unlocked, mode = _pc_like_is_eligible(
+            hass,
+            svc,
+            session_entity=sess,
+            fresh_s=pc_fresh,
+            require_awake=require_pc_awake,
+            autodetect=autodetect_pc_like,
+        )
+        pc_evals.append(
+            {
+                "service": svc,
+                "session_entity": sess,
+                "ok": ok,
+                "unlocked": unlocked,
+                "mode": mode,
+            }
+        )
+    first_pc_ok: Optional[str] = next((e["service"] for e in pc_evals if e["ok"]), None)
+    any_pc_unlocked_ok: bool = any(e["ok"] and e["unlocked"] for e in pc_evals)
+
+    # Evaluate phones (sticky unlock)
     eligible_phones: list[str] = []
     eligibility_by_phone: Dict[str, Any] = {}
-    for svc in phone_order:
+    for svc in phone_candidates_order:
         expl = _explain_phone_eligibility(
             hass, svc, min_batt, phone_fresh, unlock_window_s
         )
@@ -716,69 +927,39 @@ def _choose_service_smart(
         if expl["eligible"]:
             eligible_phones.append(svc)
 
+    # choose by policy
     chosen: Optional[str] = None
     if policy == SMART_POLICY_PC_FIRST:
-        if pc_ok:
-            chosen = pc_service
+        if first_pc_ok:
+            chosen = first_pc_ok
         elif eligible_phones:
             chosen = eligible_phones[0]
 
     elif policy == SMART_POLICY_PHONE_FIRST:
         if eligible_phones:
             chosen = eligible_phones[0]
-        elif pc_ok:
-            chosen = pc_service
+        elif first_pc_ok:
+            chosen = first_pc_ok
 
     elif policy == SMART_POLICY_PHONE_IF_PC_UNLOCKED:
-        if pc_unlocked:
-            # Only allow a phone to beat an unlocked PC if that phone is
-            # *currently* unlocked (fresh explicit unlock) AND eligible.
-            # We detect "currently" via: fresh_s window inside _explicit_unlock_times.
-            def _is_current_unlocked(svc_name: str) -> bool:
-                slug = _service_slug(svc_name)
-                latest_lock, latest_fresh_unlock, _ = _explicit_unlock_times(
-                    hass, slug, phone_fresh
-                )
-                if latest_fresh_unlock is None:
-                    return False
-                if latest_lock is None:
-                    return True
-                return latest_fresh_unlock > latest_lock
-
-            current_unlocked_phone = next(
-                (
-                    svc
-                    for svc in phone_order
-                    if svc in eligible_phones and _is_current_unlocked(svc)
-                ),
-                None,
-            )
-            chosen = (
-                current_unlocked_phone
-                if current_unlocked_phone
-                else (pc_service if pc_ok else None)
-            )
+        if any_pc_unlocked_ok:
+            chosen = eligible_phones[0] if eligible_phones else first_pc_ok
         else:
-            chosen = (
-                pc_service
-                if pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            chosen = first_pc_ok if first_pc_ok else (eligible_phones[0] if eligible_phones else None)
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
-        if pc_ok:
-            chosen = pc_service
+        if first_pc_ok:
+            chosen = first_pc_ok
         elif eligible_phones:
             chosen = eligible_phones[0]
 
     info = {
         "policy": policy,
-        "phone_order": phone_order,
-        "pc_service": pc_service,
-        "pc_session": pc_session,
-        "pc_ok": pc_ok,
-        "pc_unlocked": pc_unlocked,
+        "phone_order": order,  # original declared order
+        "pc_service": legacy_pc_service,
+        "pc_session": legacy_pc_session,
+        "pc_candidates": pc_evals,  # detailed per-PC evaluation
         "eligible_phones": eligible_phones,
         "eligibility_by_phone": eligibility_by_phone,
         "min_battery": min_batt,
@@ -787,24 +968,10 @@ def _choose_service_smart(
         "require_pc_awake": require_pc_awake,
         "phones_require_unlocked": True,
         "unlock_window_s": unlock_window_s,
+        "pc_like_forced": sorted(forced_pc_like),
+        "pc_like_autodetect": autodetect_pc_like,
     }
     return (chosen, info)
-
-
-# ───────────────────────── utilities ─────────────────────────
-
-
-def _split_service(full: str) -> tuple[str, str]:
-    if "." not in full:
-        return ("notify", full)
-    d, s = full.split(".", 1)
-    return (d, s)
-
-
-def _config_view(entry: ConfigEntry) -> dict[str, Any]:
-    cfg = dict(entry.data)
-    cfg.update(entry.options or {})
-    return cfg
 
 
 # ───────────────────────── live preview manager (async) ─────────────────────────
@@ -866,13 +1033,39 @@ class PreviewManager:
                         watch.add(ent)
 
         elif mode == ROUTING_SMART:
-            # PC session only (no custom usable_* signals)
+            # legacy PC session (Windows)
             pc_session = cfg.get(CONF_SMART_PC_SESSION)
             if isinstance(pc_session, str) and pc_session:
                 watch.add(pc_session)
 
-            # All phone candidates from the priority list
-            for full in list(cfg.get(CONF_SMART_PHONE_ORDER, []) or []):
+            order = list(cfg.get(CONF_SMART_PHONE_ORDER, []) or [])
+
+            # Optional PC-like config
+            forced_pc_like_list = cfg.get(OPT_PC_LIKE_SERVICES, []) or []
+            forced_pc_like: Set[str] = {str(s) for s in forced_pc_like_list if isinstance(s, str)}
+            autodetect_pc_like = bool(cfg.get(OPT_PC_AUTODETECT, True))
+            legacy_pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
+
+            for full in order:
+                # Determine PC-like vs phone-like
+                if _is_pc_like_service(
+                    self.hass, full, legacy_pc_service, forced_pc_like, autodetect_pc_like
+                ):
+                    slug = _service_slug(full)
+                    # PC-like (go-hass-agent / custom)
+                    scr = f"binary_sensor.{slug}_screen_lock"
+                    if self.hass.states.get(scr) is not None:
+                        watch.add(scr)
+                    # fallbacks
+                    dev = f"binary_sensor.{slug}_device_locked"
+                    if self.hass.states.get(dev) is not None:
+                        watch.add(dev)
+                    lks = f"sensor.{slug}_lock_state"
+                    if self.hass.states.get(lks) is not None:
+                        watch.add(lks)
+                    continue
+
+                # Otherwise treat as a PHONE and watch phone-related sensors
                 slug = _service_slug(full)
                 # battery
                 for pattern in (
@@ -891,7 +1084,7 @@ class PreviewManager:
                 ):
                     if self.hass.states.get(pattern) is not None:
                         watch.add(pattern)
-                # locks / interactive / awake (raw) + hints (to trigger refresh only)
+                # phone locks / interactive / awake (raw) + hints
                 for pattern in (
                     f"binary_sensor.{slug}_device_locked",
                     f"binary_sensor.{slug}_locked",
@@ -906,7 +1099,7 @@ class PreviewManager:
                     f"sensor.{slug}_display_state",
                     f"binary_sensor.{slug}_awake",
                     f"sensor.{slug}_awake",
-                    # hints that should cause preview to refresh quickly
+                    # hints
                     f"binary_sensor.{slug}_active_recent",
                     f"binary_sensor.{slug}_recent_activity",
                     f"binary_sensor.{slug}_fresh",
@@ -962,3 +1155,12 @@ class PreviewManager:
             decision.update({"result": "dropped", "service_full": None})
 
         async_dispatcher_send(self.hass, _signal_name(self.entry.entry_id), decision)
+
+
+# ───────────────────────── utilities ─────────────────────────
+
+
+def _config_view(entry: ConfigEntry) -> dict[str, Any]:
+    cfg = dict(entry.data)
+    cfg.update(entry.options or {})
+    return cfg
