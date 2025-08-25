@@ -1312,12 +1312,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
+
         if user_input:
             # Picking next_priority without touching "action" counts as Add
             action = user_input.get("action") or (
                 "add" if user_input.get("next_priority") else "confirm"
             )
             anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+
             if action == "add":
                 to_add = [s for s in user_input.get("priority", []) if s in services]
                 self._phone_order_list = _insert_items_at(
@@ -1333,6 +1335,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     description_placeholders=placeholders,
                 )
+
             if action == "reset":
                 self._phone_order_list = []
                 placeholders = _order_placeholders(services, self._phone_order_list)
@@ -1346,20 +1349,30 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     description_placeholders=placeholders,
                 )
 
-            # Confirm → persist into data and jump back to Smart setup
+            # confirm (or anything else) → persist and jump back to Smart setup
             selected = user_input.get("priority")
             if isinstance(selected, list) and selected:
                 final_priority = [s for s in selected if s in services]
             elif self._phone_order_list:
                 final_priority = [s for s in self._phone_order_list if s in services]
             else:
-                final_priority = []  # keep empty if user chose nothing
+                final_priority = []
 
             self._data[CONF_SMART_PHONE_ORDER] = final_priority
             return self.async_show_form(
                 step_id=STEP_SMART_SETUP,
                 data_schema=self._get_smart_setup_schema(self._data),
             )
+
+        # Default render when first opening the phone-order page
+        placeholders = _order_placeholders(services, self._phone_order_list)
+        return self.async_show_form(
+            step_id=STEP_SMART_ORDER_PHONES,
+            data_schema=self._get_order_targets_schema(
+                services=services, current=self._phone_order_list, default_action="add"
+            ),
+            description_placeholders=placeholders,
+        )
 
     @staticmethod
     @callback
@@ -1940,11 +1953,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
+
         if user_input:
+            # Picking next_priority without touching "action" counts as Add
             action = user_input.get("action") or (
                 "add" if user_input.get("next_priority") else "confirm"
             )
             anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+
             if action == "add":
                 to_add = [s for s in user_input.get("priority", []) if s in services]
                 self._phone_order_list = _insert_items_at(
@@ -1960,6 +1976,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                     description_placeholders=placeholders,
                 )
+
             if action == "reset":
                 self._phone_order_list = []
                 placeholders = _order_placeholders(services, self._phone_order_list)
@@ -1973,6 +1990,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     description_placeholders=placeholders,
                 )
 
+            # confirm (or anything else) → persist and jump back to Smart setup
             selected = user_input.get("priority")
             if isinstance(selected, list) and selected:
                 final_priority = [s for s in selected if s in services]
@@ -1982,11 +2000,20 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 final_priority = []
 
             self._data[CONF_SMART_PHONE_ORDER] = final_priority
-            # Return to smart setup, preserving changes
             return self.async_show_form(
                 step_id=STEP_SMART_SETUP,
                 data_schema=self._get_smart_setup_schema(self._data),
             )
+
+        # Default render when first opening the phone-order page
+        placeholders = _order_placeholders(services, self._phone_order_list)
+        return self.async_show_form(
+            step_id=STEP_SMART_ORDER_PHONES,
+            data_schema=self._get_order_targets_schema(
+                services=services, current=self._phone_order_list, default_action="add"
+            ),
+            description_placeholders=placeholders,
+        )
 
     # ─── conditional editors (mirror) ───
     async def async_step_add_target(
