@@ -1237,27 +1237,20 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SMART_MIN_BATTERY, self._data.get(CONF_SMART_MIN_BATTERY)
                     ),
                     CONF_SMART_PHONE_FRESH_S: user_input.get(
-                        CONF_SMART_PHONE_FRESH_S,
-                        self._data.get(CONF_SMART_PHONE_FRESH_S),
+                        CONF_SMART_PHONE_FRESH_S, self._data.get(CONF_SMART_PHONE_FRESH_S)
                     ),
                     CONF_SMART_PC_FRESH_S: user_input.get(
                         CONF_SMART_PC_FRESH_S, self._data.get(CONF_SMART_PC_FRESH_S)
                     ),
                     CONF_SMART_REQUIRE_AWAKE: user_input.get(
-                        CONF_SMART_REQUIRE_AWAKE,
-                        self._data.get(CONF_SMART_REQUIRE_AWAKE),
+                        CONF_SMART_REQUIRE_AWAKE, self._data.get(CONF_SMART_REQUIRE_AWAKE)
                     ),
                     CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_UNLOCKED,
-                        self._data.get(CONF_SMART_REQUIRE_UNLOCKED),
+                        CONF_SMART_REQUIRE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_UNLOCKED)
                     ),
                     CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(
                         CONF_SMART_REQUIRE_PHONE_UNLOCKED,
                         self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED),
-                    ),
-                    CONF_SMART_PHONE_UNLOCK_WINDOW_S: user_input.get(
-                        CONF_SMART_PHONE_UNLOCK_WINDOW_S,
-                        self._data.get(CONF_SMART_PHONE_UNLOCK_WINDOW_S),
                     ),
                     CONF_SMART_PHONE_UNLOCK_WINDOW_S: user_input.get(
                         CONF_SMART_PHONE_UNLOCK_WINDOW_S,
