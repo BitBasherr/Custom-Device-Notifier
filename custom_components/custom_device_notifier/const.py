@@ -40,6 +40,10 @@ CONF_SMART_REQUIRE_AWAKE = "smart_require_awake"  # bool
 CONF_SMART_REQUIRE_UNLOCKED = "smart_require_unlocked"  # bool
 CONF_SMART_POLICY = "smart_policy"  # one of SMART_POLICY_*
 
+# --- Smart Select extras ---
+CONF_SMART_PHONE_UNLOCK_WINDOW_S = "smart_phone_unlock_window_s"
+DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S = 120  # seconds
+
 # require phones to be unlocked/awake to take priority
 CONF_SMART_REQUIRE_PHONE_UNLOCKED = "smart_require_phone_unlocked"
 DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED = False

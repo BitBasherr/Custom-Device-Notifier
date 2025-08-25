@@ -18,6 +18,8 @@ from .const import (
     CONF_FALLBACK,
     CONF_MATCH_MODE,
     CONF_PRIORITY,
+    CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+    DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
     CONF_TARGETS,
@@ -103,6 +105,7 @@ SMART_KEYS: list[str] = [
     CONF_SMART_REQUIRE_UNLOCKED,
     CONF_SMART_POLICY,
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
+    CONF_SMART_PHONE_UNLOCK_WINDOW_S,
 ]
 
 
@@ -367,6 +370,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S
                     ),
                 ): selector({"number": {"min": 30, "max": 1800, "step": 10}}),
+                vol.Required(
+                    CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+                    default=existing.get(
+                        CONF_SMART_PHONE_UNLOCK_WINDOW_S, DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S
+                    ),
+                ): selector({"number": {"min": 30, "max": 7200, "step": 10}}),
                 vol.Required(
                     CONF_SMART_PC_FRESH_S,
                     default=existing.get(
@@ -1246,6 +1255,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SMART_REQUIRE_PHONE_UNLOCKED,
                         self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED),
                     ),
+                    CONF_SMART_PHONE_UNLOCK_WINDOW_S: user_input.get(
+                        CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+                        self._data.get(CONF_SMART_PHONE_UNLOCK_WINDOW_S),
+                    ),
+                    CONF_SMART_PHONE_UNLOCK_WINDOW_S: user_input.get(
+                        CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+                        self._data.get(CONF_SMART_PHONE_UNLOCK_WINDOW_S),
+                    ),
                 }
             )
             return self.async_show_form(
@@ -1270,6 +1287,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(
                         CONF_SMART_REQUIRE_PHONE_UNLOCKED
+                    ),
+                    CONF_SMART_PHONE_UNLOCK_WINDOW_S: user_input.get(
+                        CONF_SMART_PHONE_UNLOCK_WINDOW_S
                     ),
                 }
             )
@@ -1527,6 +1547,13 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
                     ),
                 ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+                    default=existing.get(
+                        CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+                        DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
+                    ),
+                ): selector({"number": {"min": 30, "max": 7200, "step": 10}}),
             }
         )
 

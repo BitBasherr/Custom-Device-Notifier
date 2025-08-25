@@ -51,6 +51,8 @@ from .const import (
     # kept for options compat, but we hard-require phone unlocked anyway
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
+    CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+    DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -753,18 +755,14 @@ def _pc_like_is_eligible(
 
     # 1) session-based (Windows style)
     if session_entity:
-        eligible, unlocked = _pc_is_eligible(
-            hass, session_entity, fresh_s, require_awake
-        )
+        eligible, unlocked = _pc_is_eligible(hass, session_entity, fresh_s, require_awake)
         return (eligible, unlocked, "session")
 
     # 2) go-hass-agent: explicit screen_lock
     if autodetect:
         lock_entity = f"binary_sensor.{slug}_screen_lock"
         if hass.states.get(lock_entity) is not None:
-            eligible, unlocked = _pc_from_lock_entity_is_eligible(
-                hass, lock_entity, fresh_s
-            )
+            eligible, unlocked = _pc_from_lock_entity_is_eligible(hass, lock_entity, fresh_s)
             return (eligible, unlocked, "screen_lock")
 
     # 3) fallbacks (rare)
@@ -784,9 +782,7 @@ def _pc_like_is_eligible(
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
         now_dt = dt_util.utcnow()
-        fresh_ok = (
-            (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
-        )
+        fresh_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
         eligible = bool(is_unlocked and fresh_ok)
         _LOGGER.debug(
             "PC (lock_state) %s | state=%s fresh_ok=%s unlocked=%s eligible=%s",
@@ -868,14 +864,12 @@ def _choose_service_smart(
 
     # Sticky unlock window (configurable via options, falls back to default)
     unlock_window_s = int(
-        cfg.get("smart_phone_unlock_window_s", DEFAULT_UNLOCK_WINDOW_S)
+        cfg.get(CONF_SMART_PHONE_UNLOCK_WINDOW_S, DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S)
     )
 
     # Optional: list of services to force as PC-like
     forced_pc_like_list = cfg.get(OPT_PC_LIKE_SERVICES, []) or []
-    forced_pc_like: Set[str] = {
-        str(s) for s in forced_pc_like_list if isinstance(s, str)
-    }
+    forced_pc_like: Set[str] = {str(s) for s in forced_pc_like_list if isinstance(s, str)}
 
     # Optional: autodetect PC-like by screen_lock / non-mobile_app
     autodetect_pc_like = bool(cfg.get(OPT_PC_AUTODETECT, True))
@@ -953,11 +947,7 @@ def _choose_service_smart(
         if any_pc_unlocked_ok:
             chosen = eligible_phones[0] if eligible_phones else first_pc_ok
         else:
-            chosen = (
-                first_pc_ok
-                if first_pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            chosen = first_pc_ok if first_pc_ok else (eligible_phones[0] if eligible_phones else None)
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -1054,20 +1044,14 @@ class PreviewManager:
 
             # Optional PC-like config
             forced_pc_like_list = cfg.get(OPT_PC_LIKE_SERVICES, []) or []
-            forced_pc_like: Set[str] = {
-                str(s) for s in forced_pc_like_list if isinstance(s, str)
-            }
+            forced_pc_like: Set[str] = {str(s) for s in forced_pc_like_list if isinstance(s, str)}
             autodetect_pc_like = bool(cfg.get(OPT_PC_AUTODETECT, True))
             legacy_pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
 
             for full in order:
                 # Determine PC-like vs phone-like
                 if _is_pc_like_service(
-                    self.hass,
-                    full,
-                    legacy_pc_service,
-                    forced_pc_like,
-                    autodetect_pc_like,
+                    self.hass, full, legacy_pc_service, forced_pc_like, autodetect_pc_like
                 ):
                     slug = _service_slug(full)
                     # PC-like (go-hass-agent / custom)
