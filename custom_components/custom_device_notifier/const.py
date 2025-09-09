@@ -18,16 +18,16 @@ ROUTING_SMART = "smart"
 DEFAULT_ROUTING_MODE = ROUTING_CONDITIONAL
 
 # ── Smart Select config ────────────────────────────────────────────────
-CONF_SMART_PC_NOTIFY = "smart_pc_notify"          # e.g. notify.desktop_pop
-CONF_SMART_PC_SESSION = "smart_pc_session_sensor" # e.g. sensor.desktop_session_state
-CONF_SMART_PHONE_ORDER = "smart_phone_order"      # list[str] of notify.mobile_app_*
+CONF_SMART_PC_NOTIFY = "smart_pc_notify"  # e.g. notify.desktop_pop
+CONF_SMART_PC_SESSION = "smart_pc_session_sensor"  # e.g. sensor.desktop_session_state
+CONF_SMART_PHONE_ORDER = "smart_phone_order"  # list[str] of notify.mobile_app_*
 
-CONF_SMART_MIN_BATTERY = "smart_min_battery"      # int
+CONF_SMART_MIN_BATTERY = "smart_min_battery"  # int
 CONF_SMART_PHONE_FRESH_S = "smart_phone_fresh_s"  # int
-CONF_SMART_PC_FRESH_S = "smart_pc_fresh_s"        # int
+CONF_SMART_PC_FRESH_S = "smart_pc_fresh_s"  # int
 CONF_SMART_REQUIRE_AWAKE = "smart_require_awake"  # bool
 CONF_SMART_REQUIRE_UNLOCKED = "smart_require_unlocked"  # bool
-CONF_SMART_POLICY = "smart_policy"                # one of SMART_POLICY_*
+CONF_SMART_POLICY = "smart_policy"  # one of SMART_POLICY_*
 
 # --- Smart Select extras (phone unlock stickiness) ---
 CONF_SMART_PHONE_UNLOCK_WINDOW_S = "smart_phone_unlock_window_s"
@@ -51,11 +51,15 @@ DEFAULT_SMART_REQUIRE_UNLOCKED = True
 DEFAULT_SMART_POLICY = SMART_POLICY_PC_FIRST
 
 # ── Audio / TTS (new, optional) ────────────────────────────────────────
-CONF_TTS_ENABLE = "tts_enable"            # show Audio/TTS controls in UI; keep settings
-CONF_TTS_DEFAULT = "tts_default"          # if true, speak by default unless overridden
-CONF_TTS_SERVICE = "tts_service"          # e.g. "tts.speak" (default) or legacy "tts.google_translate_say"
-CONF_TTS_LANGUAGE = "tts_language"        # optional language string
-CONF_MEDIA_PLAYER_ORDER = "media_player_order"  # list[str] media_player.* in preference order
+CONF_TTS_ENABLE = "tts_enable"  # show Audio/TTS controls in UI; keep settings
+CONF_TTS_DEFAULT = "tts_default"  # if true, speak by default unless overridden
+CONF_TTS_SERVICE = (
+    "tts_service"  # e.g. "tts.speak" (default) or legacy "tts.google_translate_say"
+)
+CONF_TTS_LANGUAGE = "tts_language"  # optional language string
+CONF_MEDIA_PLAYER_ORDER = (
+    "media_player_order"  # list[str] media_player.* in preference order
+)
 
 DEFAULT_TTS_ENABLE = False
 DEFAULT_TTS_DEFAULT = False
@@ -77,8 +81,8 @@ STEP_ORDER_TARGETS = "order_targets"
 STEP_CHOOSE_FALLBACK = "choose_fallback"
 STEP_SELECT_TARGET_TO_EDIT = "select_target_to_edit"
 STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
-STEP_SMART_SETUP = "smart_setup"              # smart branch
-STEP_SMART_ORDER_PHONES = "smart_phone_order" # smart branch
+STEP_SMART_SETUP = "smart_setup"  # smart branch
+STEP_SMART_ORDER_PHONES = "smart_phone_order"  # smart branch
 
 # Audio/TTS branch
 STEP_AUDIO_SETUP = "audio_setup"

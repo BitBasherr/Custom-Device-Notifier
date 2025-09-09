@@ -31,18 +31,19 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
     hass.services.async_register("notify", slug, _handle)
     _LOGGER.debug("Tests shim registered notify.%s", slug)
 
-#prior notify.py:
-#import logging
 
-#from homeassistant.core import HomeAssistant
+# prior notify.py:
+# import logging
 
-#from .__init__ import _NotifierService  # re-export the real class
-#from .const import DOMAIN
+# from homeassistant.core import HomeAssistant
 
-#_LOGGER = logging.getLogger(DOMAIN)
+# from .__init__ import _NotifierService  # re-export the real class
+# from .const import DOMAIN
+
+# _LOGGER = logging.getLogger(DOMAIN)
 
 
-#async def async_register_services(hass: HomeAssistant, entry) -> None:
+# async def async_register_services(hass: HomeAssistant, entry) -> None:
 #    """Register notify.<slug> for tests."""
 #    data = entry.data
 #    service = _NotifierService(

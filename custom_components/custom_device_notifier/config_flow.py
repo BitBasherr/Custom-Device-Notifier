@@ -121,6 +121,7 @@ SMART_KEYS: list[str] = [
 ]
 # NOTE: Audio/TTS keys persist regardless of routing mode, so they are not wiped.
 
+
 # ──────────────────────────── helper utils ────────────────────────────────
 def _order_placeholders(
     services: list[str], current: list[str] | None
@@ -438,7 +439,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         mp = _media_players(self.hass)
         return _order_placeholders(mp, self._media_order_list)
 
-    def _get_audio_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+    def _get_audio_setup_schema(
+        self, existing: dict[str, Any] | None = None
+    ) -> vol.Schema:
         existing = existing or {}
         services = _tts_services(self.hass)
         if DEFAULT_TTS_SERVICE not in services:
@@ -466,7 +469,10 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "select": {
                             "options": [
-                                {"value": "reorder_players", "label": "Reorder media players…"},
+                                {
+                                    "value": "reorder_players",
+                                    "label": "Reorder media players…",
+                                },
                                 {"value": "routing", "label": "Back to routing…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
@@ -1481,7 +1487,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_show_form(
                 step_id=STEP_MEDIA_ORDER,
                 data_schema=self._get_order_targets_schema(
-                    services=services, current=self._media_order_list, default_action="add"
+                    services=services,
+                    current=self._media_order_list,
+                    default_action="add",
                 ),
                 description_placeholders=placeholders,
             )
@@ -1490,16 +1498,20 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data.update(
                 {
                     CONF_TTS_ENABLE: user_input.get(
-                        CONF_TTS_ENABLE, self._data.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE)
+                        CONF_TTS_ENABLE,
+                        self._data.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE),
                     ),
                     CONF_TTS_DEFAULT: user_input.get(
-                        CONF_TTS_DEFAULT, self._data.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT)
+                        CONF_TTS_DEFAULT,
+                        self._data.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT),
                     ),
                     CONF_TTS_SERVICE: user_input.get(
-                        CONF_TTS_SERVICE, self._data.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE)
+                        CONF_TTS_SERVICE,
+                        self._data.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
                     ),
                     CONF_TTS_LANGUAGE: user_input.get(
-                        CONF_TTS_LANGUAGE, self._data.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE)
+                        CONF_TTS_LANGUAGE,
+                        self._data.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE),
                     ),
                 }
             )
@@ -1512,10 +1524,18 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             self._data.update(
                 {
-                    CONF_TTS_ENABLE: user_input.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE),
-                    CONF_TTS_DEFAULT: user_input.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT),
-                    CONF_TTS_SERVICE: user_input.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
-                    CONF_TTS_LANGUAGE: user_input.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE),
+                    CONF_TTS_ENABLE: user_input.get(
+                        CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE
+                    ),
+                    CONF_TTS_DEFAULT: user_input.get(
+                        CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT
+                    ),
+                    CONF_TTS_SERVICE: user_input.get(
+                        CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE
+                    ),
+                    CONF_TTS_LANGUAGE: user_input.get(
+                        CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE
+                    ),
                     CONF_MEDIA_PLAYER_ORDER: list(self._media_order_list),
                 }
             )
@@ -1559,7 +1579,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id=STEP_MEDIA_ORDER,
                     data_schema=self._get_order_targets_schema(
-                        services=services, current=self._media_order_list, default_action="add"
+                        services=services,
+                        current=self._media_order_list,
+                        default_action="add",
                     ),
                     description_placeholders=placeholders,
                 )
@@ -1570,7 +1592,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id=STEP_MEDIA_ORDER,
                     data_schema=self._get_order_targets_schema(
-                        services=services, current=self._media_order_list, default_action="add"
+                        services=services,
+                        current=self._media_order_list,
+                        default_action="add",
                     ),
                     description_placeholders=placeholders,
                 )
@@ -1791,7 +1815,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         mp = _media_players(self.hass)
         return _order_placeholders(mp, self._media_order_list)
 
-    def _get_audio_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+    def _get_audio_setup_schema(
+        self, existing: dict[str, Any] | None = None
+    ) -> vol.Schema:
         existing = existing or {}
         services = _tts_services(self.hass)
         if DEFAULT_TTS_SERVICE not in services:
@@ -1819,7 +1845,10 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     {
                         "select": {
                             "options": [
-                                {"value": "reorder_players", "label": "Reorder media players…"},
+                                {
+                                    "value": "reorder_players",
+                                    "label": "Reorder media players…",
+                                },
                                 {"value": "routing", "label": "Back to routing…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
