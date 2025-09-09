@@ -43,6 +43,7 @@ def build_notify_payload(payload: Mapping[str, Any] | None = None) -> Dict[str, 
 
     return out
 
+
 # prior notify.py:
 # import logging
 
