@@ -53,7 +53,6 @@
           "next": "Action"
         }
       },
-
       "routing_mode": {
         "title": "Routing mode",
         "data": {
@@ -65,7 +64,7 @@
         "description": "Configure PC/Phone smart routing.\nUse “Reorder phones…” to set the phone order used by Smart Select.",
         "data": {
           "smart_pc_notify": "PC notify service",
-          "smart_pc_session_sensor": "PC session state sensor",
+          "smart_pc_session": "PC session state sensor",
           "nav": "Navigate",
           "smart_policy": "Policy",
           "smart_min_battery": "Min phone battery (%)",
@@ -86,7 +85,6 @@
           "action": "action"
         }
       },
-
       "order_targets": {
         "title": "Order targets",
         "description": "Set the priority your notifier will try.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
@@ -104,7 +102,6 @@
           "nav": "Navigate"
         }
       },
-
       "select_target_to_edit": {
         "title": "Edit a target",
         "description": "Choose which target to edit.",
@@ -132,13 +129,32 @@
         "data": {
           "conditions_to_remove": "Conditions"
         }
+      },
+      "audio_setup": {
+        "title": "Audio / TTS",
+        "description": "Enable TTS and choose the default service and language.\nUse “Reorder media players…” to set playback order.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "tts_enable": "Enable Text-to-Speech",
+          "tts_default": "Send TTS by default",
+          "tts_service": "TTS service",
+          "tts_language": "Language (optional)",
+          "nav": "Navigate"
+        }
+      },
+      "media_order": {
+        "title": "Order media players",
+        "description": "Choose the order to try when playing TTS.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "priority": "priority",
+          "next_priority": "next_priority",
+          "action": "action"
+        }
       }
     },
     "error": {
       "must_be_notify": "Must be a notify.* service"
     }
   },
-
   "options": {
     "step": {
       "init": {
@@ -190,7 +206,6 @@
           "next": "Action"
         }
       },
-
       "routing_mode": {
         "title": "Routing mode",
         "data": {
@@ -202,7 +217,7 @@
         "description": "Configure PC/Phone smart routing.\nUse “Reorder phones…” to set the phone order used by Smart Select.",
         "data": {
           "smart_pc_notify": "PC notify service",
-          "smart_pc_session_sensor": "PC session state sensor",
+          "smart_pc_session": "PC session state sensor",
           "nav": "Navigate",
           "smart_policy": "Policy",
           "smart_min_battery": "Min phone battery (%)",
@@ -223,7 +238,6 @@
           "action": "action"
         }
       },
-
       "order_targets": {
         "title": "Order targets",
         "description": "Set the priority your notifier will try.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
@@ -241,7 +255,6 @@
           "nav": "Navigate"
         }
       },
-
       "select_target_to_edit": {
         "title": "Edit a target",
         "description": "Choose which target to edit.",
@@ -268,6 +281,26 @@
         "description": "Select one or more conditions to remove.",
         "data": {
           "conditions_to_remove": "Conditions"
+        }
+      },
+      "audio_setup": {
+        "title": "Audio / TTS",
+        "description": "Enable TTS and choose the default service and language.\nUse “Reorder media players…” to set playback order.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "tts_enable": "Enable Text-to-Speech",
+          "tts_default": "Send TTS by default",
+          "tts_service": "TTS service",
+          "tts_language": "Language (optional)",
+          "nav": "Navigate"
+        }
+      },
+      "media_order": {
+        "title": "Order media players",
+        "description": "Choose the order to try when playing TTS.\n\nCurrent order:\n{current_order}\n\nRemaining:\n{remaining}",
+        "data": {
+          "priority": "priority",
+          "next_priority": "next_priority",
+          "action": "action"
         }
       }
     },

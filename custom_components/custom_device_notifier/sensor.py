@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.entity import DeviceEntryType  # ← use enum
 
 from .const import (
     DOMAIN,
@@ -56,7 +57,7 @@ class CurrentTargetSensor(RestoreEntity, SensorEntity):
                 self._entry.data.get(CONF_SERVICE_NAME_RAW) or "Custom Device Notifier"
             ),
             "manufacturer": "Custom Device Notifier",
-            "entry_type": "service",
+            "entry_type": DeviceEntryType.SERVICE,  # ← enum instead of raw string
         }
 
     async def async_added_to_hass(self) -> None:

@@ -52,6 +52,17 @@ from .const import (
     # NEW
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
+    # ── Audio / TTS (new) ──
+    CONF_TTS_ENABLE,
+    CONF_TTS_DEFAULT,
+    CONF_TTS_SERVICE,
+    CONF_TTS_LANGUAGE,
+    CONF_MEDIA_PLAYER_ORDER,
+    DEFAULT_TTS_ENABLE,
+    DEFAULT_TTS_DEFAULT,
+    DEFAULT_TTS_SERVICE,
+    DEFAULT_TTS_LANGUAGE,
+    # steps
     STEP_USER,
     STEP_ROUTING_MODE,
     STEP_ADD_TARGET,
@@ -68,6 +79,9 @@ from .const import (
     STEP_SELECT_TARGET_TO_REMOVE,
     STEP_SMART_SETUP,
     STEP_SMART_ORDER_PHONES,
+    # audio steps
+    STEP_AUDIO_SETUP,
+    STEP_MEDIA_ORDER,
 )
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -105,7 +119,7 @@ SMART_KEYS: list[str] = [
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     CONF_SMART_PHONE_UNLOCK_WINDOW_S,
 ]
-
+# NOTE: Audio/TTS keys persist regardless of routing mode, so they are not wiped.
 
 # ──────────────────────────── helper utils ────────────────────────────────
 def _order_placeholders(
@@ -164,6 +178,18 @@ def _format_targets_pretty(
 def _notify_services(hass) -> list[str]:
     """Return service names in the 'notify' domain (without 'notify.' prefix)."""
     return sorted(hass.services.async_services().get("notify", {}))
+
+
+def _tts_services(hass) -> list[str]:
+    """Return 'tts' domain services as fully qualified (tts.speak, tts.xxx)."""
+    return [f"tts.{s}" for s in sorted(hass.services.async_services().get("tts", {}))]
+
+
+def _media_players(hass) -> list[str]:
+    """Return media_player.* entity_ids (sorted)."""
+    return sorted(
+        [e for e in hass.states.async_entity_ids() if e.startswith("media_player.")]
+    )
 
 
 def _default_pc_notify(services: list[str]) -> str:
@@ -236,6 +262,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._editing_condition_index: int | None = None
         self._priority_list: list[str] = []  # conditional ordering buffer
         self._phone_order_list: list[str] = []  # smart phone-order builder
+
+        # audio/tts
+        self._media_order_list: list[str] = []
 
     # ───────── schema helpers ─────────
     def _get_routing_mode_schema(self) -> vol.Schema:
@@ -326,6 +355,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "select": {
                             "options": [
                                 {"value": "reorder_phones", "label": "Reorder phones…"},
+                                {"value": "audio", "label": "Audio / TTS setup…"},
                                 {"value": "routing", "label": "Choose routing mode…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
@@ -400,6 +430,50 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
                     ),
                 ): selector({"boolean": {}}),
+            }
+        )
+
+    # ── Audio / TTS helpers ────────────────────────────────────────────
+    def _audio_placeholders(self) -> dict[str, str]:
+        mp = _media_players(self.hass)
+        return _order_placeholders(mp, self._media_order_list)
+
+    def _get_audio_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+        existing = existing or {}
+        services = _tts_services(self.hass)
+        if DEFAULT_TTS_SERVICE not in services:
+            services = [DEFAULT_TTS_SERVICE] + services  # ensure default present
+
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_TTS_ENABLE,
+                    default=existing.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE),
+                ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_TTS_DEFAULT,
+                    default=existing.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT),
+                ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_TTS_SERVICE,
+                    default=existing.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
+                ): selector({"select": {"options": services, "custom_value": True}}),
+                vol.Optional(
+                    CONF_TTS_LANGUAGE,
+                    default=existing.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE),
+                ): str,
+                vol.Optional("nav"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "reorder_players", "label": "Reorder media players…"},
+                                {"value": "routing", "label": "Back to routing…"},
+                                {"value": "stay", "label": "Stay here"},
+                            ],
+                            "custom_value": False,
+                        }
+                    }
+                ),
             }
         )
 
@@ -572,6 +646,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_target_more_schema(self) -> vol.Schema:
         options = [
             {"value": "add", "label": "➕ Add target"},
+            {"value": "audio", "label": "🔊 Audio / TTS setup"},
             {"value": "routing", "label": "🧠 Choose routing mode"},
             {"value": "done", "label": "✅ Done"},
         ]
@@ -586,7 +661,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-    # Reusable schema for ordering
+    # Reusable schema for ordering (targets / phones / media players)
     def _get_order_targets_schema(
         self,
         *,
@@ -634,9 +709,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # persist basic names
             self._data.update({CONF_SERVICE_NAME_RAW: raw, CONF_SERVICE_NAME: slug})
 
-            # IMPORTANT: default routing mode to conditional and continue to add_target
+            # default to conditional and start adding a target
             self._data.setdefault(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE)
-            # Most tests expect to start with adding a target, not choosing a mode
             return await self.async_step_add_target()
 
         return self.async_show_form(
@@ -647,13 +721,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_routing_mode(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Select Regular vs Smart and *wipe irrelevant keys* to prevent cross-mode bleed."""
+        """Select Regular vs Smart and wipe irrelevant keys to prevent cross-mode bleed."""
         if user_input:
             mode = user_input[CONF_ROUTING_MODE]
             self._data[CONF_ROUTING_MODE] = mode
 
             if mode == ROUTING_SMART:
-                # Clean conditional leftovers and go to smart setup
                 _wipe_keys(self._data, CONDITIONAL_KEYS)
                 self._targets.clear()
                 self._priority_list.clear()
@@ -662,7 +735,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=self._get_smart_setup_schema(self._data),
                 )
 
-            # mode == ROUTING_CONDITIONAL
             _wipe_keys(self._data, SMART_KEYS)
             self._phone_order_list.clear()
             return await self.async_step_add_target()
@@ -982,6 +1054,12 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_select_target_to_edit()
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
+            if nxt == "audio":
+                return self.async_show_form(
+                    step_id=STEP_AUDIO_SETUP,
+                    data_schema=self._get_audio_setup_schema(self._data),
+                    description_placeholders=self._audio_placeholders(),
+                )
             if nxt == "routing":
                 # Let the user switch modes mid-flow; ensure we wipe incompatible keys
                 return self.async_show_form(
@@ -1137,6 +1215,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "select": {
                             "options": [
                                 {"value": "back", "label": "⬅ Back"},
+                                {"value": "audio", "label": "Audio / TTS setup…"},
                                 {"value": "continue", "label": "Continue"},
                             ]
                         }
@@ -1153,7 +1232,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         service_options = sorted(notify_svcs)
 
         if user_input:
-            # Allow navigating back (goes to order step only in conditional mode)
+            # quick navs
+            if user_input.get("nav") == "audio":
+                return self.async_show_form(
+                    step_id=STEP_AUDIO_SETUP,
+                    data_schema=self._get_audio_setup_schema(self._data),
+                    description_placeholders=self._audio_placeholders(),
+                )
+
             if (
                 user_input.get("nav") == "back"
                 and self._data.get(CONF_ROUTING_MODE) == ROUTING_CONDITIONAL
@@ -1174,7 +1260,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if fb not in notify_svcs:
                 errors["fallback"] = "must_be_notify"
             else:
-                # Finish the wizard (both modes confirm fallback)
+                # Finish the wizard
                 self._data[CONF_FALLBACK] = f"notify.{fb}"
                 title = (
                     self._data.get(CONF_SERVICE_NAME_RAW)
@@ -1196,6 +1282,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    # ─────────────── SMART SETUP / PHONE ORDER ───────────────
     async def async_step_smart_setup(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -1216,6 +1303,13 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     default_action="add",
                 ),
                 description_placeholders=placeholders,
+            )
+        # Audio / TTS
+        if user_input and user_input.get("nav") == "audio":
+            return self.async_show_form(
+                step_id=STEP_AUDIO_SETUP,
+                data_schema=self._get_audio_setup_schema(self._data),
+                description_placeholders=self._audio_placeholders(),
             )
 
         # Stay here: persist posted values but do not advance
@@ -1306,7 +1400,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=self._get_smart_setup_schema(self._data),
         )
 
-    async def async_step_smart_phone_order(
+    async def async_step_smart_order_phones(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
@@ -1372,6 +1466,138 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders=placeholders,
         )
 
+    # ─────────────── AUDIO / TTS ───────────────
+    async def async_step_audio_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input and user_input.get("nav") == "routing":
+            return self.async_show_form(
+                step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+            )
+
+        if user_input and user_input.get("nav") == "reorder_players":
+            services = _media_players(self.hass)
+            placeholders = self._audio_placeholders()
+            return self.async_show_form(
+                step_id=STEP_MEDIA_ORDER,
+                data_schema=self._get_order_targets_schema(
+                    services=services, current=self._media_order_list, default_action="add"
+                ),
+                description_placeholders=placeholders,
+            )
+
+        if user_input and user_input.get("nav") == "stay":
+            self._data.update(
+                {
+                    CONF_TTS_ENABLE: user_input.get(
+                        CONF_TTS_ENABLE, self._data.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE)
+                    ),
+                    CONF_TTS_DEFAULT: user_input.get(
+                        CONF_TTS_DEFAULT, self._data.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT)
+                    ),
+                    CONF_TTS_SERVICE: user_input.get(
+                        CONF_TTS_SERVICE, self._data.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE)
+                    ),
+                    CONF_TTS_LANGUAGE: user_input.get(
+                        CONF_TTS_LANGUAGE, self._data.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE)
+                    ),
+                }
+            )
+            return self.async_show_form(
+                step_id=STEP_AUDIO_SETUP,
+                data_schema=self._get_audio_setup_schema(self._data),
+                description_placeholders=self._audio_placeholders(),
+            )
+
+        if user_input:
+            self._data.update(
+                {
+                    CONF_TTS_ENABLE: user_input.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE),
+                    CONF_TTS_DEFAULT: user_input.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT),
+                    CONF_TTS_SERVICE: user_input.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
+                    CONF_TTS_LANGUAGE: user_input.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE),
+                    CONF_MEDIA_PLAYER_ORDER: list(self._media_order_list),
+                }
+            )
+            # take user back to fallback/continue path
+            return self.async_show_form(
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._get_choose_fallback_schema(),
+                errors={},
+                description_placeholders={
+                    "available_services": ", ".join(
+                        sorted(self.hass.services.async_services().get("notify", {}))
+                    ),
+                    "current_order": "—",
+                    "remaining": "—",
+                },
+            )
+
+        # default render
+        return self.async_show_form(
+            step_id=STEP_AUDIO_SETUP,
+            data_schema=self._get_audio_setup_schema(self._data),
+            description_placeholders=self._audio_placeholders(),
+        )
+
+    async def async_step_media_order(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        services = _media_players(self.hass)
+        if user_input:
+            action = user_input.get("action") or (
+                "add" if user_input.get("next_priority") else "confirm"
+            )
+            anchor = user_input.get("next_priority", _INSERT_BOTTOM)
+
+            if action == "add":
+                to_add = [s for s in user_input.get("priority", []) if s in services]
+                self._media_order_list = _insert_items_at(
+                    self._media_order_list, to_add, anchor
+                )
+                placeholders = self._audio_placeholders()
+                return self.async_show_form(
+                    step_id=STEP_MEDIA_ORDER,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._media_order_list, default_action="add"
+                    ),
+                    description_placeholders=placeholders,
+                )
+
+            if action == "reset":
+                self._media_order_list = []
+                placeholders = self._audio_placeholders()
+                return self.async_show_form(
+                    step_id=STEP_MEDIA_ORDER,
+                    data_schema=self._get_order_targets_schema(
+                        services=services, current=self._media_order_list, default_action="add"
+                    ),
+                    description_placeholders=placeholders,
+                )
+
+            selected = user_input.get("priority")
+            if isinstance(selected, list) and selected:
+                final_priority = [s for s in selected if s in services]
+            elif self._media_order_list:
+                final_priority = [s for s in self._media_order_list if s in services]
+            else:
+                final_priority = []
+
+            self._data[CONF_MEDIA_PLAYER_ORDER] = final_priority
+            return self.async_show_form(
+                step_id=STEP_AUDIO_SETUP,
+                data_schema=self._get_audio_setup_schema(self._data),
+                description_placeholders=self._audio_placeholders(),
+            )
+
+        return self.async_show_form(
+            step_id=STEP_MEDIA_ORDER,
+            data_schema=self._get_order_targets_schema(
+                services=services, current=self._media_order_list, default_action="add"
+            ),
+            description_placeholders=self._audio_placeholders(),
+        )
+
     @staticmethod
     @callback
     def async_get_options_flow(
@@ -1395,6 +1621,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         self._priority_list: list[str] = list(self._data.get(CONF_PRIORITY, []))
         self._phone_order_list: list[str] = list(
             self._data.get(CONF_SMART_PHONE_ORDER, [])
+        )
+        self._media_order_list: list[str] = list(
+            self._data.get(CONF_MEDIA_PLAYER_ORDER, [])
         )
 
     # ───────── schema helpers (mirror) ─────────
@@ -1479,6 +1708,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         "select": {
                             "options": [
                                 {"value": "reorder_phones", "label": "Reorder phones…"},
+                                {"value": "audio", "label": "Audio / TTS setup…"},
                                 {"value": "routing", "label": "Choose routing mode…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
@@ -1553,6 +1783,50 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
                     ),
                 ): selector({"boolean": {}}),
+            }
+        )
+
+    # Audio/TTS mirrors
+    def _audio_placeholders(self) -> dict[str, str]:
+        mp = _media_players(self.hass)
+        return _order_placeholders(mp, self._media_order_list)
+
+    def _get_audio_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+        existing = existing or {}
+        services = _tts_services(self.hass)
+        if DEFAULT_TTS_SERVICE not in services:
+            services = [DEFAULT_TTS_SERVICE] + services
+
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_TTS_ENABLE,
+                    default=existing.get(CONF_TTS_ENABLE, DEFAULT_TTS_ENABLE),
+                ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_TTS_DEFAULT,
+                    default=existing.get(CONF_TTS_DEFAULT, DEFAULT_TTS_DEFAULT),
+                ): selector({"boolean": {}}),
+                vol.Required(
+                    CONF_TTS_SERVICE,
+                    default=existing.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
+                ): selector({"select": {"options": services, "custom_value": True}}),
+                vol.Optional(
+                    CONF_TTS_LANGUAGE,
+                    default=existing.get(CONF_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE),
+                ): str,
+                vol.Optional("nav"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": "reorder_players", "label": "Reorder media players…"},
+                                {"value": "routing", "label": "Back to routing…"},
+                                {"value": "stay", "label": "Stay here"},
+                            ],
+                            "custom_value": False,
+                        }
+                    }
+                ),
             }
         )
 
@@ -1720,6 +1994,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     def _get_target_more_schema(self) -> vol.Schema:
         options = [
             {"value": "add", "label": "➕ Add target"},
+            {"value": "audio", "label": "🔊 Audio / TTS setup"},
             {"value": "routing", "label": "🧠 Choose routing mode"},
             {"value": "done", "label": "✅ Done"},
         ]
@@ -1858,6 +2133,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 description_placeholders=placeholders,
             )
 
+        # audio
+        if user_input and user_input.get("nav") == "audio":
+            return self.async_show_form(
+                step_id=STEP_AUDIO_SETUP,
+                data_schema=self._get_audio_setup_schema(self._data),
+                description_placeholders=self._audio_placeholders(),
+            )
+
         # stay here: persist posted values, do not save/exit
         if user_input and user_input.get("nav") == "stay":
             self._data.update(
@@ -1947,7 +2230,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=self._get_smart_setup_schema(self._data),
         )
 
-    async def async_step_smart_phone_order(
+    async def async_step_smart_order_phones(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         services = self._smart_phone_candidates()
@@ -2289,6 +2572,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_select_target_to_edit()
             if nxt == "remove":
                 return await self.async_step_select_target_to_remove()
+            if nxt == "audio":
+                return self.async_show_form(
+                    step_id=STEP_AUDIO_SETUP,
+                    data_schema=self._get_audio_setup_schema(self._data),
+                    description_placeholders=self._audio_placeholders(),
+                )
             if nxt == "routing":
                 return self.async_show_form(
                     step_id=STEP_ROUTING_MODE,
@@ -2439,6 +2728,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         "select": {
                             "options": [
                                 {"value": "back", "label": "⬅ Back"},
+                                {"value": "audio", "label": "Audio / TTS setup…"},
                                 {"value": "continue", "label": "Continue"},
                             ]
                         }
@@ -2468,6 +2758,12 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         services=services, current=self._data.get(CONF_PRIORITY)
                     ),
                     description_placeholders=placeholders,
+                )
+            if user_input.get("nav") == "audio":
+                return self.async_show_form(
+                    step_id=STEP_AUDIO_SETUP,
+                    data_schema=self._get_audio_setup_schema(self._data),
+                    description_placeholders=self._audio_placeholders(),
                 )
             fb = user_input["fallback"]
             if fb not in notify_svcs:
