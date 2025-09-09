@@ -11,17 +11,6 @@ KEY_SERVICE = "service"
 KEY_CONDITIONS = "conditions"
 KEY_MATCH = "match"
 
-STEP_USER = "user"
-STEP_ADD_TARGET = "add_target"
-STEP_ADD_COND_ENTITY = "add_condition_entity"
-STEP_ADD_COND_VALUE = "add_condition_value"
-STEP_COND_MORE = "condition_more"
-STEP_REMOVE_COND = "remove_condition"
-STEP_MATCH_MODE = "match_mode"
-STEP_TARGET_MORE = "target_more"
-STEP_ORDER_TARGETS = "order_targets"
-STEP_CHOOSE_FALLBACK = "choose_fallback"
-
 # ── Routing mode (new) ────────────────────────────────────────────────
 CONF_ROUTING_MODE = "routing_mode"  # "conditional" or "smart"
 ROUTING_CONDITIONAL = "conditional"
@@ -60,3 +49,21 @@ DEFAULT_SMART_PC_FRESH_S = 300
 DEFAULT_SMART_REQUIRE_AWAKE = True
 DEFAULT_SMART_REQUIRE_UNLOCKED = True
 DEFAULT_SMART_POLICY = SMART_POLICY_PC_FIRST
+
+# ──────────────────────────── step IDs ────────────────────────────────
+STEP_USER = "user"
+STEP_ROUTING_MODE = "routing_mode"  # ask this right after name
+STEP_ADD_TARGET = "add_target"
+STEP_ADD_COND_ENTITY = "add_condition_entity"
+STEP_ADD_COND_VALUE = "add_condition_value"
+STEP_COND_MORE = "condition_more"
+STEP_REMOVE_COND = "remove_condition"
+STEP_SELECT_COND_TO_EDIT = "select_condition_to_edit"
+STEP_MATCH_MODE = "match_mode"
+STEP_TARGET_MORE = "target_more"
+STEP_ORDER_TARGETS = "order_targets"
+STEP_CHOOSE_FALLBACK = "choose_fallback"
+STEP_SELECT_TARGET_TO_EDIT = "select_target_to_edit"
+STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
+STEP_SMART_SETUP = "smart_setup"  # smart branch
+STEP_SMART_ORDER_PHONES = "smart_phone_order"  # smart branch

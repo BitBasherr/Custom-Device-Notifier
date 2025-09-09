@@ -61,7 +61,7 @@ DATA = f"{DOMAIN}.data"
 SERVICE_HANDLES = f"{DOMAIN}.service_handles"
 
 # If not configured in options, we use this sticky unlock memory window (seconds).
-DEFAULT_UNLOCK_WINDOW_S = 120
+DEFAULT_UNLOCK_WINDOW_S = DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S
 
 # In-memory store for last known explicit unlock timestamps per phone slug
 _LAST_PHONE_UNLOCK_UTC: Dict[str, datetime] = {}

@@ -52,27 +52,25 @@ from .const import (
     # NEW
     CONF_SMART_REQUIRE_PHONE_UNLOCKED,
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
+    STEP_USER,
+    STEP_ROUTING_MODE,
+    STEP_ADD_TARGET,
+    STEP_ADD_COND_ENTITY,
+    STEP_ADD_COND_VALUE,
+    STEP_COND_MORE,
+    STEP_REMOVE_COND,
+    STEP_SELECT_COND_TO_EDIT,
+    STEP_MATCH_MODE,
+    STEP_TARGET_MORE,
+    STEP_ORDER_TARGETS,
+    STEP_CHOOSE_FALLBACK,
+    STEP_SELECT_TARGET_TO_EDIT,
+    STEP_SELECT_TARGET_TO_REMOVE,
+    STEP_SMART_SETUP,
+    STEP_SMART_ORDER_PHONES,
 )
 
 _LOGGER = logging.getLogger(DOMAIN)
-
-# ──────────────────────────── step IDs ────────────────────────────────
-STEP_USER = "user"
-STEP_ROUTING_MODE = "routing_mode"  # ask this right after name
-STEP_ADD_TARGET = "add_target"
-STEP_ADD_COND_ENTITY = "add_condition_entity"
-STEP_ADD_COND_VALUE = "add_condition_value"
-STEP_COND_MORE = "condition_more"
-STEP_REMOVE_COND = "remove_condition"
-STEP_SELECT_COND_TO_EDIT = "select_condition_to_edit"
-STEP_MATCH_MODE = "match_mode"
-STEP_TARGET_MORE = "target_more"
-STEP_ORDER_TARGETS = "order_targets"
-STEP_CHOOSE_FALLBACK = "choose_fallback"
-STEP_SELECT_TARGET_TO_EDIT = "select_target_to_edit"
-STEP_SELECT_TARGET_TO_REMOVE = "select_target_to_remove"
-STEP_SMART_SETUP = "smart_setup"  # smart branch
-STEP_SMART_ORDER_PHONES = "smart_phone_order"  # smart branch
 
 _OPS_NUM = [">", "<", ">=", "<=", "==", "!="]
 _OPS_STR = ["==", "!="]
