@@ -4,12 +4,15 @@ In production, __init__.py registers the notifier service.
 This file exists so tests can import `async_register_services` directly.
 """
 
+from __future__ import annotations
+
 import logging
+
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 
 from .const import DOMAIN, CONF_SERVICE_NAME
-from .__init__ import _route_and_forward  # reuse the real routing entrypoint
+from . import _route_and_forward  # ⬅️ IMPORTANT: import the package, not .__init__
 
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -30,7 +33,6 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
 
     hass.services.async_register("notify", slug, _handle)
     _LOGGER.debug("Tests shim registered notify.%s", slug)
-
 
 # prior notify.py:
 # import logging
