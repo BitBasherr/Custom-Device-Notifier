@@ -1926,7 +1926,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
+                    "label": f"Current state: {st.state}"
+                    if st
+                    else "Current (unknown)",
                 },
             ]
 
@@ -1951,9 +1953,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required("value_choice", default=default_value_choice): selector(
-                        {"select": {"options": value_options}}
-                    ),
+                    vol.Required(
+                        "value_choice", default=default_value_choice
+                    ): selector({"select": {"options": value_options}}),
                     vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
@@ -1981,7 +1983,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             },
         ]
         default_value_choice = (
-            "current" if (use_prev and st and str(prev_value) == str(st.state)) else "manual"
+            "current"
+            if (use_prev and st and str(prev_value) == str(st.state))
+            else "manual"
         )
 
         if use_prev and prev_value in uniq:
@@ -2010,7 +2014,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("manual_value"): str,
             }
         )
-
 
     def _insertion_choices(self, current: list[str]) -> list[dict[str, str]]:
         if not current:
