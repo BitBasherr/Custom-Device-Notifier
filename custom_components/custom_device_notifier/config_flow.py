@@ -1631,6 +1631,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 # ──────────────────────────── Options Flow ────────────────────────────────
+# ──────────────────────────── Options Flow ────────────────────────────────
 class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     """Options flow for Custom Device Notifier."""
 
@@ -1894,6 +1895,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
     def _get_condition_value_schema(self, entity_id: str) -> vol.Schema:
         """Mirror of config flow version so mypy is happy."""
         st = self.hass.states.get(entity_id)
+
         is_num = False
         if st:
             try:
@@ -1919,15 +1921,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 if "battery" in entity_id
                 else {"number": {}}
             )
+
             value_options = [
                 {"value": "manual", "label": "Enter manually"},
                 {
                     "value": "current",
-                    "label": f"Current state: {st.state}"
-                    if st
-                    else "Current (unknown)",
+                    "label": f"Current state: {st.state}" if st else "Current (unknown)",
                 },
             ]
+
             default_operator = prev_op if use_prev else ">"
             default_value_choice = (
                 "current"
@@ -1949,14 +1951,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required("operator", default=default_operator): selector(
                         {"select": {"options": _OPS_NUM}}
                     ),
-                    vol.Required(
-                        "value_choice", default=default_value_choice
-                    ): selector({"select": {"options": value_options}}),
+                    vol.Required("value_choice", default=default_value_choice): selector(
+                        {"select": {"options": value_options}}
+                    ),
                     vol.Optional("value", default=default_num_value): selector(num_sel),
                     vol.Optional("manual_value"): str,
                 }
             )
 
+        # string path
         opts: list[str] = ["unknown or unavailable"]
         if st:
             opts.append(st.state)
@@ -1969,6 +1972,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         uniq = list(dict.fromkeys(opts))
 
         default_operator = prev_op if use_prev else "=="
+
         value_options = [
             {"value": "manual", "label": "Enter manually"},
             {
@@ -1977,9 +1981,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             },
         ]
         default_value_choice = (
-            "current"
-            if (use_prev and st and str(prev_value) == str(st.state))
-            else "manual"
+            "current" if (use_prev and st and str(prev_value) == str(st.state)) else "manual"
         )
 
         if use_prev and prev_value in uniq:
@@ -2008,6 +2010,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("manual_value"): str,
             }
         )
+
 
     def _insertion_choices(self, current: list[str]) -> list[dict[str, str]]:
         if not current:
