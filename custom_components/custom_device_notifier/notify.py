@@ -34,6 +34,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
     hass.services.async_register("notify", slug, _handle)
     _LOGGER.debug("Tests shim registered notify.%s", slug)
 
+
 # prior notify.py:
 # import logging
 
