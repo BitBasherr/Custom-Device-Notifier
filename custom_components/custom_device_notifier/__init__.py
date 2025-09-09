@@ -299,6 +299,8 @@ async def _route_and_forward(
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, clean.get("title"))
+
+    # Build HA-compliant payload (keeps extras nested under "data")
     out = build_notify_payload(clean)
     await hass.services.async_call(domain, service, out, blocking=True)
 
