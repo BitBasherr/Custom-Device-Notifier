@@ -157,7 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             {
                 vol.Required("message"): vol.Any(str, int, float),
                 vol.Optional("title"): vol.Any(str, int, float, None),
-                vol.Optional("data"): dict,         # <-- keep nested dict
+                vol.Optional("data"): dict,  # <-- keep nested dict
                 vol.Optional("target"): vol.Any(str, [str], None),
                 # allow arbitrary extras; HA ignores unknowns for most notify backends
             }
