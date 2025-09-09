@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -54,6 +55,8 @@ from .const import (
     CONF_SMART_PHONE_UNLOCK_WINDOW_S,
     DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
 )
+
+from .notify import build_notify_payload  # <-- use helper to preserve nested data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -145,7 +148,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if hass.services.has_service("notify", slug):
         hass.services.async_remove("notify", slug)
 
-    hass.services.async_register("notify", slug, _handle_notify)
+    # Register with a permissive schema that preserves nested 'data'
+    hass.services.async_register(
+        "notify",
+        slug,
+        _handle_notify,
+        schema=vol.Schema(
+            {
+                vol.Required("message"): vol.Any(str, int, float),
+                vol.Optional("title"): vol.Any(str, int, float, None),
+                vol.Optional("data"): dict,         # <-- keep nested dict
+                vol.Optional("target"): vol.Any(str, [str], None),
+                # allow arbitrary extras; HA ignores unknowns for most notify backends
+            }
+        ),
+    )
     hass.data[SERVICE_HANDLES][entry.entry_id] = slug
 
     # live “current target” sensor platform (subscribes to our dispatcher)
@@ -226,7 +243,6 @@ async def _route_and_forward(
     if not target_service:
         fb = cfg.get(CONF_FALLBACK)
         if isinstance(fb, str) and fb:
-            # Fallback is always used if nothing else matched.
             target_service = fb
             via = "fallback"
             _LOGGER.debug("Using fallback %s", fb)
@@ -236,9 +252,24 @@ async def _route_and_forward(
             _LOGGER.warning("No matching target and no fallback; dropping notification")
             return
 
-    clean = dict(payload)
-    clean.pop("service", None)
-    clean.pop("services", None)
+    # Build outgoing payload **without flattening** nested 'data'
+    message = payload.get("message", "")
+    title = payload.get("title")
+    data = payload.get("data")
+    target = payload.get("target")
+    # strip keys we never forward (internal / HA service shims)
+    extra = {
+        k: v
+        for k, v in payload.items()
+        if k not in ("message", "title", "data", "target", "service", "services")
+    }
+    clean = build_notify_payload(
+        message=str(message),
+        title=str(title) if title is not None else None,
+        data=data if isinstance(data, dict) else None,
+        target=target,
+        extra=extra,
+    )
 
     domain, service = _split_service(target_service)
 
