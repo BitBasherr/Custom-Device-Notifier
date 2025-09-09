@@ -302,6 +302,7 @@ async def _route_and_forward(
     out = build_notify_payload(clean)
     await hass.services.async_call(domain, service, out, blocking=True)
 
+
 # ───────────────────────── conditional routing ─────────────────────────
 
 

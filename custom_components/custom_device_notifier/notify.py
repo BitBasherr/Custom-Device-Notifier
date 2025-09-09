@@ -24,15 +24,34 @@ _LOGGER = logging.getLogger(DOMAIN)
 #  top-level keys into data anyway—but it’s handy to see what we expect.)
 KNOWN_DATA_KEYS = {
     # mobile_app core
-    "ttl", "priority", "channel", "tag", "group", "sticky", "importance",
-    "visibility", "color", "subject", "image", "actions", "clickAction",
-    "notification_icon", "ledColor", "timeout",
+    "ttl",
+    "priority",
+    "channel",
+    "tag",
+    "group",
+    "sticky",
+    "importance",
+    "visibility",
+    "color",
+    "subject",
+    "image",
+    "actions",
+    "clickAction",
+    "notification_icon",
+    "ledColor",
+    "timeout",
     # alarm stream / media
-    "media_stream", "media_stream_max", "car_ui",
+    "media_stream",
+    "media_stream_max",
+    "car_ui",
     # TTS
-    "tts_text", "tts_lang",
+    "tts_text",
+    "tts_lang",
     # misc others people often send
-    "url", "subtitle", "icon", "sound",
+    "url",
+    "subtitle",
+    "icon",
+    "sound",
 }
 
 
