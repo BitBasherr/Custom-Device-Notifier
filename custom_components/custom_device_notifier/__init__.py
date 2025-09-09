@@ -289,6 +289,7 @@ async def _route_and_forward(
 
     await hass.services.async_call(domain, service, out, blocking=True)
 
+
 # ───────────────────────── conditional routing ─────────────────────────
 
 
