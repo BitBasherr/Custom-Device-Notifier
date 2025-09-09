@@ -252,24 +252,11 @@ async def _route_and_forward(
             _LOGGER.warning("No matching target and no fallback; dropping notification")
             return
 
-    # Build outgoing payload **without flattening** nested 'data'
-    message = payload.get("message", "")
-    title = payload.get("title")
-    data = payload.get("data")
-    target = payload.get("target")
-    # strip keys we never forward (internal / HA service shims)
-    extra = {
-        k: v
-        for k, v in payload.items()
-        if k not in ("message", "title", "data", "target", "service", "services")
-    }
-    clean = build_notify_payload(
-        message=str(message),
-        title=str(title) if title is not None else None,
-        data=data if isinstance(data, dict) else None,
-        target=target,
-        extra=extra,
-    )
+    # Clean raw payload and let notify.py normalize it (keeps nested "data")
+    raw = dict(payload)
+    raw.pop("service", None)
+    raw.pop("services", None)
+    out = build_notify_payload(raw)
 
     domain, service = _split_service(target_service)
 
@@ -298,12 +285,9 @@ async def _route_and_forward(
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
 
-    _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, clean.get("title"))
+    _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
 
-    # Build HA-compliant payload (keeps extras nested under "data")
-    out = build_notify_payload(clean)
     await hass.services.async_call(domain, service, out, blocking=True)
-
 
 # ───────────────────────── conditional routing ─────────────────────────
 
