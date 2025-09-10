@@ -90,16 +90,19 @@ _LAST_PHONE_UNLOCK_UTC: Dict[str, datetime] = {}
 OPT_PC_LIKE_SERVICES = "smart_pc_like_services"
 OPT_PC_AUTODETECT = "smart_pc_autodetect"
 
+
 def _boot_window_seconds(cfg: dict[str, Any]) -> int:
     try:
         return int(cfg.get(CONF_BOOT_STICKY_TARGET_S, _BOOT_STICKY_TARGET_S))
     except (TypeError, ValueError):
         return _BOOT_STICKY_TARGET_S
 
+
 def _boot_window_seconds_left(cfg: dict[str, Any]) -> float:
     win = _boot_window_seconds(cfg)
     elapsed = (dt_util.utcnow() - _BOOT_UTC).total_seconds()
     return max(0.0, float(win) - float(elapsed))
+
 
 async def _wait_for_service(
     hass: HomeAssistant, domain: str, service: str, timeout_s: float
@@ -124,7 +127,8 @@ async def _wait_for_service(
         return hass.services.has_service(domain, service)
     finally:
         unsub()
-        
+
+
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
@@ -392,6 +396,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 # ─────────────────────────── routing entry point ───────────────────────────
 
+
 async def _route_and_forward(
     hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any]
 ) -> None:
@@ -421,7 +426,9 @@ async def _route_and_forward(
             decision.update({"conditional": info})
             target_service = svc or ""
         else:
-            _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
+            _LOGGER.warning(
+                "Unknown routing mode %r, falling back to conditional", mode
+            )
             svc, info = _choose_service_conditional_with_info(hass, cfg)
             decision.update({"conditional": info})
             target_service = svc or ""
@@ -453,7 +460,9 @@ async def _route_and_forward(
             )
             ok = await _wait_for_service(hass, domain, service, timeout_s=remaining)
             if ok:
-                _LOGGER.debug("Boot-sticky target %s.%s is now available", domain, service)
+                _LOGGER.debug(
+                    "Boot-sticky target %s.%s is now available", domain, service
+                )
             else:
                 _LOGGER.debug(
                     "Boot-sticky wait expired; %s.%s still unavailable", domain, service
@@ -515,6 +524,7 @@ async def _route_and_forward(
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
+
 
 # ───────────────────────── conditional routing ─────────────────────────
 
