@@ -126,7 +126,8 @@ async def _wait_for_service_registered(
         await asyncio.sleep(poll_interval_s)
         if hass.services.has_service(domain, service):
             return True
-    return hass.services.has_service(domain, service)
+    # Ensure we return a real bool, not Any
+    return bool(hass.services.has_service(domain, service))
 
 
 async def _wait_for_service(
