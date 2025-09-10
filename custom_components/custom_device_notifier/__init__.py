@@ -386,7 +386,9 @@ async def _route_and_forward(
             decision.update({"conditional": info})
             target_service = svc or ""
         else:
-            _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
+            _LOGGER.warning(
+                "Unknown routing mode %r, falling back to conditional", mode
+            )
             svc, info = _choose_service_conditional_with_info(hass, cfg)
             decision.update({"conditional": info})
             target_service = svc or ""
@@ -440,10 +442,11 @@ async def _route_and_forward(
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
-    
+
     # Persist last-used target so early post-boot notifications can stick to it
     _save_last_target(hass, f"{domain}.{service}")
-    
+
+
 # ───────────────────────── conditional routing ─────────────────────────
 
 
@@ -1367,6 +1370,7 @@ def _config_view(entry: ConfigEntry) -> dict[str, Any]:
     cfg = dict(entry.data)
     cfg.update(entry.options or {})
     return cfg
+
 
 def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
     """Persist the last chosen notify target so we can reuse it right after boot."""
