@@ -1382,6 +1382,7 @@ def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
     if isinstance(store_obj, Store):
         hass.async_create_task(store_obj.async_save(mem))
 
+
 def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
     """
     During the first N seconds after boot, prefer the last target we forwarded to,
