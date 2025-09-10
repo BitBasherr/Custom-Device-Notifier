@@ -27,7 +27,6 @@ from .const import (
     CONF_FALLBACK,
     KEY_MATCH,
     CONF_MATCH_MODE,
-    EVENT_SERVICE_REGISTERED,
     KEY_SERVICE,
     KEY_CONDITIONS,
     # routing mode
