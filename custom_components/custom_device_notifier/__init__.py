@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
+import asyncio
 from typing import Any, Callable, Dict, List, Optional, Set, cast
 
 import voluptuous as vol
@@ -26,6 +27,7 @@ from .const import (
     CONF_FALLBACK,
     KEY_MATCH,
     CONF_MATCH_MODE,
+    EVENT_SERVICE_REGISTERED,
     KEY_SERVICE,
     KEY_CONDITIONS,
     # routing mode
@@ -88,7 +90,41 @@ _LAST_PHONE_UNLOCK_UTC: Dict[str, datetime] = {}
 OPT_PC_LIKE_SERVICES = "smart_pc_like_services"
 OPT_PC_AUTODETECT = "smart_pc_autodetect"
 
+def _boot_window_seconds(cfg: dict[str, Any]) -> int:
+    try:
+        return int(cfg.get(CONF_BOOT_STICKY_TARGET_S, _BOOT_STICKY_TARGET_S))
+    except (TypeError, ValueError):
+        return _BOOT_STICKY_TARGET_S
 
+def _boot_window_seconds_left(cfg: dict[str, Any]) -> float:
+    win = _boot_window_seconds(cfg)
+    elapsed = (dt_util.utcnow() - _BOOT_UTC).total_seconds()
+    return max(0.0, float(win) - float(elapsed))
+
+async def _wait_for_service(
+    hass: HomeAssistant, domain: str, service: str, timeout_s: float
+) -> bool:
+    """Wait up to timeout_s for (domain.service) to register."""
+    if hass.services.has_service(domain, service):
+        return True
+
+    evt = asyncio.Event()
+
+    def _cb(event) -> None:
+        data = event.data or {}
+        if data.get("domain") == domain and data.get("service") == service:
+            evt.set()
+
+    unsub = hass.bus.async_listen(EVENT_SERVICE_REGISTERED, _cb)
+    try:
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            pass
+        return hass.services.has_service(domain, service)
+    finally:
+        unsub()
+        
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
@@ -356,7 +392,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 # ─────────────────────────── routing entry point ───────────────────────────
 
-
 async def _route_and_forward(
     hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any]
 ) -> None:
@@ -370,14 +405,13 @@ async def _route_and_forward(
         "payload_keys": sorted(list(payload.keys())),
     }
 
-    # Prefer the last-used target briefly after boot
+    # 1) Boot-sticky: force last-known target during the boot window
     sticky = _boot_sticky_target(hass, entry)
     if sticky:
         target_service = sticky
         via = "boot-sticky"
     else:
         mode = decision["mode"]
-
         if mode == ROUTING_SMART:
             svc, info = _choose_service_smart(hass, cfg)
             decision.update({"smart": info})
@@ -387,14 +421,13 @@ async def _route_and_forward(
             decision.update({"conditional": info})
             target_service = svc or ""
         else:
-            _LOGGER.warning(
-                "Unknown routing mode %r, falling back to conditional", mode
-            )
+            _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
             svc, info = _choose_service_conditional_with_info(hass, cfg)
             decision.update({"conditional": info})
             target_service = svc or ""
 
-    if not target_service:
+    # 2) If nothing chosen at all, consider fallback now (non-boot path)
+    if not target_service and not sticky:
         fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
         if isinstance(fb, str) and fb:
             target_service = fb
@@ -406,23 +439,63 @@ async def _route_and_forward(
             _LOGGER.warning("No matching target and no fallback; dropping notification")
             return
 
-    # Clean raw payload and let notify.py normalize it (keeps nested "data")
+    # 3) If we’re in the boot window with a sticky target, WAIT for it to register
+    domain, service = _split_service(target_service)
+    if sticky and not hass.services.has_service(domain, service):
+        # Wait up to the remaining boot window before considering fallback.
+        remaining = _boot_window_seconds_left(cfg)
+        if remaining > 0:
+            _LOGGER.debug(
+                "Boot-sticky waiting up to %.1fs for %s.%s to register",
+                remaining,
+                domain,
+                service,
+            )
+            ok = await _wait_for_service(hass, domain, service, timeout_s=remaining)
+            if ok:
+                _LOGGER.debug("Boot-sticky target %s.%s is now available", domain, service)
+            else:
+                _LOGGER.debug(
+                    "Boot-sticky wait expired; %s.%s still unavailable", domain, service
+                )
+
+    # 4) After possible wait, if the chosen service is still missing, use fallback
+    if not hass.services.has_service(domain, service):
+        fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
+        if isinstance(fb, str) and fb and fb != f"{domain}.{service}":
+            _LOGGER.debug(
+                "Chosen service %s.%s not registered; using fallback %s",
+                domain,
+                service,
+                fb,
+            )
+            domain, service = _split_service(fb)
+            via = "missing-service-fallback"
+        else:
+            decision.update({"result": "dropped_missing_service"})
+            async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
+            _LOGGER.warning(
+                "Chosen service %s.%s not registered and no fallback; dropping",
+                domain,
+                service,
+            )
+            return
+
+    # 5) Clean raw payload and let notify.py normalize it (keeps nested "data")
     raw = dict(payload)
     raw.pop("service", None)
     raw.pop("services", None)
     out = build_notify_payload(raw)
 
-    domain, service = _split_service(target_service)
-
-    # refuse to call ourselves; try fallback if available
+    # 6) Refuse to call ourselves; fallback if available
     own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if own_slug and domain == "notify" and service == own_slug:
         _LOGGER.warning(
             "Refusing to call notifier onto itself (%s); using fallback if set.",
-            target_service,
+            f"{domain}.{service}",
         )
         fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
-        if isinstance(fb, str) and fb and fb != target_service:
+        if isinstance(fb, str) and fb and fb != f"{domain}.{service}":
             domain, service = _split_service(fb)
             via = "self-recursion-fallback"
         else:
@@ -431,22 +504,17 @@ async def _route_and_forward(
             return
 
     decision.update(
-        {
-            "result": "forwarded",
-            "service_full": f"{domain}.{service}",
-            "via": via,
-        }
+        {"result": "forwarded", "service_full": f"{domain}.{service}", "via": via}
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
+
+    # Persist last-used target so early post-boot notifications can stick to it
+    _save_last_target(hass, f"{domain}.{service}")
 
     await _maybe_play_tts(hass, entry, payload, cfg)
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
-
-    # Persist last-used target so early post-boot notifications can stick to it
-    _save_last_target(hass, f"{domain}.{service}")
-
 
 # ───────────────────────── conditional routing ─────────────────────────
 
@@ -1385,16 +1453,11 @@ def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
 
 def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
     """
-    During the first N seconds after boot, prefer the last target we forwarded to,
-    where N is from options (CONF_BOOT_STICKY_TARGET_S) or the module default.
+    During the boot window, return the last used target (if any).
+    Do not check service registration here—routing handles that.
     """
     cfg = _config_view(entry)
-    try:
-        window_s = int(cfg.get(CONF_BOOT_STICKY_TARGET_S, _BOOT_STICKY_TARGET_S))
-    except (TypeError, ValueError):
-        window_s = _BOOT_STICKY_TARGET_S
-
-    if (dt_util.utcnow() - _BOOT_UTC) > timedelta(seconds=window_s):
+    if _boot_window_seconds_left(cfg) <= 0.0:
         return None
 
     mem = hass.data.get(DATA, {}).get("memory", {})
@@ -1405,10 +1468,6 @@ def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str
     domain, service = _split_service(sticky)
     own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if domain == "notify" and service == own_slug:
-        return None  # don't recurse into ourselves
-
-    # Only use if the service is actually registered
-    if not hass.services.has_service(domain, service):
-        return None
+        return None  # avoid recursion
 
     return sticky
