@@ -105,6 +105,7 @@ def _boot_window_seconds_left(cfg: dict[str, Any]) -> float:
     elapsed = (dt_util.utcnow() - _BOOT_UTC).total_seconds()
     return max(0.0, float(win) - float(elapsed))
 
+
 async def _wait_for_service_registered(
     hass: HomeAssistant,
     domain: str,
@@ -126,6 +127,7 @@ async def _wait_for_service_registered(
         if hass.services.has_service(domain, service):
             return True
     return hass.services.has_service(domain, service)
+
 
 async def _wait_for_service(
     hass: HomeAssistant, domain: str, service: str, timeout_s: float
@@ -151,6 +153,7 @@ async def _wait_for_service(
         return bool(hass.services.has_service(domain, service))
     finally:
         unsub()
+
 
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
@@ -449,7 +452,9 @@ async def _route_and_forward(
             decision.update({"conditional": info})
             target_service = svc or ""
         else:
-            _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
+            _LOGGER.warning(
+                "Unknown routing mode %r, falling back to conditional", mode
+            )
             svc, info = _choose_service_conditional_with_info(hass, cfg)
             decision.update({"conditional": info})
             target_service = svc or ""
@@ -550,6 +555,7 @@ async def _route_and_forward(
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
+
 
 # ───────────────────────── conditional routing ─────────────────────────
 
