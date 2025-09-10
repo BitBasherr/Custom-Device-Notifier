@@ -92,7 +92,7 @@ def _signal_name(entry_id: str) -> str:
 
 
 _STARTUP_GRACE_S = 120  # small window to ignore "restored" freshness
-_BOOT_UTC = dt_util.utcnow()
+_BOOT_UTC: datetime = cast(datetime, dt_util.utcnow())
 
 
 def _is_restored_or_boot_fresh(st: State | None) -> bool:
@@ -112,7 +112,7 @@ def _is_restored_or_boot_fresh(st: State | None) -> bool:
 
     last_updated: datetime = last_updated_obj
     # treat anything 'updated' near boot as restored
-    return (last_updated - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
+    return bool((last_updated - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S))
 
 
 @dataclass
