@@ -61,6 +61,7 @@ from .const import (
     TTS_OPT_SERVICE,
     TTS_OPT_LANGUAGE,
     MEDIA_ORDER_OPT,
+    CONF_MEDIA_PLAYER_ORDER,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
@@ -132,45 +133,76 @@ async def _maybe_play_tts(
     cfg: dict[str, Any],
 ) -> None:
     """If TTS is enabled and requested, call the configured tts.* service."""
-    if not cfg.get(TTS_OPT_ENABLE):
+    if not bool(cfg.get(TTS_OPT_ENABLE)):
         return
 
-    data = payload.get("data") or {}
-    # 1) explicit request via data.tts_text
+    # ---- message to speak ----------------------------------------------------
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        data = {}
+
     text: Optional[str] = None
-    if isinstance(data, dict) and data.get("tts_text"):
-        text = str(data["tts_text"])
+
+    # 1) explicit request via data.tts_text
+    raw_tts = data.get("tts_text")
+    if isinstance(raw_tts, (str, int, float)) and str(raw_tts).strip():
+        text = str(raw_tts)
     # 2) or speak the normal message when 'Send TTS by default' is on
-    elif cfg.get(TTS_OPT_DEFAULT):
-        msg = payload.get("message") or payload.get("title")
-        if msg:
-            text = str(msg)
+    elif bool(cfg.get(TTS_OPT_DEFAULT)):
+        raw_msg = payload.get("message") or payload.get("title")
+        if isinstance(raw_msg, (str, int, float)) and str(raw_msg).strip():
+            text = str(raw_msg)
 
     if not text:
         return
 
-    # Pick a media player: payload override > first in configured order
+    # ---- pick media_player ---------------------------------------------------
     mp: Optional[str] = None
-    if isinstance(data, dict):
-        mp = cast(Optional[str], data.get("media_player_entity_id"))
+
+    # payload override
+    override = data.get("media_player_entity_id")
+    if isinstance(override, str) and override:
+        mp = override
+    elif isinstance(override, list) and override and isinstance(override[0], str):
+        mp = override[0]
+
+    # configured order (new key first, then legacy fallback)
     if not mp:
-        order = cast(List[str], cfg.get(MEDIA_ORDER_OPT) or [])
+        order_any = cfg.get(MEDIA_ORDER_OPT)
+        if order_any is None:
+            # legacy key fallback (kept for compatibility)
+            order_any = cfg.get(CONF_MEDIA_PLAYER_ORDER)
+
+        order: list[str] = []
+        if isinstance(order_any, str):
+            order = [order_any]
+        elif isinstance(order_any, list):
+            order = [s for s in order_any if isinstance(s, str)]
+
         if order:
             mp = order[0]
 
     if not mp:
-        _LOGGER.warning("TTS requested but no media player is configured/ordered.")
+        _LOGGER.warning(
+            "TTS requested but no media player is configured/ordered "
+            "(data.media_player_entity_id or %s/%s).",
+            MEDIA_ORDER_OPT,
+            CONF_MEDIA_PLAYER_ORDER,
+        )
         return
 
-    tts_service = cast(Optional[str], cfg.get(TTS_OPT_SERVICE))
-    if not tts_service or "." not in tts_service:
+    # ---- tts service + call --------------------------------------------------
+    tts_service = cfg.get(TTS_OPT_SERVICE)
+    if not isinstance(tts_service, str) or "." not in tts_service:
         _LOGGER.warning(
-            "TTS requested but tts_service option is not set correctly: %r",
+            "TTS requested but tts_service option is missing/invalid: %r",
             tts_service,
         )
         return
 
-    lang = cast(Optional[str], cfg.get(TTS_OPT_LANGUAGE)) or None
+    lang = cfg.get(TTS_OPT_LANGUAGE)
+    language: Optional[str] = str(lang) if isinstance(lang, str) and lang else None
+
     tts_domain, tts_method = tts_service.split(".", 1)
 
     # tts.speak uses media_player_entity_id; legacy engines (google_translate_say) use entity_id
@@ -180,12 +212,14 @@ async def _maybe_play_tts(
     else:
         svc_data["entity_id"] = mp
         svc_data["cache"] = False
-    if lang:
-        svc_data["language"] = lang
+    if language:
+        svc_data["language"] = language
 
     _LOGGER.debug("TTS: calling %s with %s", tts_service, svc_data)
-    await hass.services.async_call(tts_domain, tts_method, svc_data, blocking=True)
-
+    try:
+        await hass.services.async_call(tts_domain, tts_method, svc_data, blocking=True)
+    except Exception:
+        _LOGGER.exception("TTS call %s failed", tts_service)
 
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
