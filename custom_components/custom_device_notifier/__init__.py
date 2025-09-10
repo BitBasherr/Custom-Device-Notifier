@@ -89,8 +89,10 @@ def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
 
+
 _STARTUP_GRACE_S = 120  # you can make this an option later if you want
 _BOOT_UTC = dt_util.utcnow()
+
 
 def _is_restored_or_boot_fresh(st: State | None) -> bool:
     """True if the state looks restored at startup (don’t trust freshness/unlock)."""
@@ -105,6 +107,7 @@ def _is_restored_or_boot_fresh(st: State | None) -> bool:
         return False
     # treat anything 'updated' in the first N seconds after boot as restored
     return (ts - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
+
 
 @dataclass
 class EntryRuntime:
