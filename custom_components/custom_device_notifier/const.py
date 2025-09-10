@@ -94,3 +94,6 @@ TTS_OPT_DEFAULT = "tts_default"
 TTS_OPT_SERVICE = "tts_service"  # e.g. "tts.google_translate_say" or "tts.speak"
 TTS_OPT_LANGUAGE = "tts_language"  # optional language code
 MEDIA_ORDER_OPT = "media_order"  # list[str] of media_player entity_ids
+
+# Sticky preferred target right after boot (e.g., 2 minutes)
+_BOOT_STICKY_TARGET_S = 120

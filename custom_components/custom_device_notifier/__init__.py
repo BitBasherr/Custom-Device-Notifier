@@ -62,6 +62,7 @@ from .const import (
     TTS_OPT_LANGUAGE,
     MEDIA_ORDER_OPT,
     CONF_MEDIA_PLAYER_ORDER,
+    _BOOT_STICKY_TARGET_S,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
@@ -361,29 +362,35 @@ async def _route_and_forward(
     cfg = _config_view(entry)
 
     target_service: str = ""
+    via: str = "matched"
     decision: Dict[str, Any] = {
         "timestamp": dt_util.utcnow().isoformat(),
         "mode": cfg.get(CONF_ROUTING_MODE, DEFAULT_ROUTING_MODE),
         "payload_keys": sorted(list(payload.keys())),
     }
 
-    mode = decision["mode"]
-
-    if mode == ROUTING_SMART:
-        svc, info = _choose_service_smart(hass, cfg)
-        decision.update({"smart": info})
-        target_service = svc or ""
-    elif mode == ROUTING_CONDITIONAL:
-        svc, info = _choose_service_conditional_with_info(hass, cfg)
-        decision.update({"conditional": info})
-        target_service = svc or ""
+    # Prefer the last-used target briefly after boot
+    sticky = _boot_sticky_target(hass, entry)
+    if sticky:
+        target_service = sticky
+        via = "boot-sticky"
     else:
-        _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
-        svc, info = _choose_service_conditional_with_info(hass, cfg)
-        decision.update({"conditional": info})
-        target_service = svc or ""
+        mode = decision["mode"]
 
-    via = "matched"
+        if mode == ROUTING_SMART:
+            svc, info = _choose_service_smart(hass, cfg)
+            decision.update({"smart": info})
+            target_service = svc or ""
+        elif mode == ROUTING_CONDITIONAL:
+            svc, info = _choose_service_conditional_with_info(hass, cfg)
+            decision.update({"conditional": info})
+            target_service = svc or ""
+        else:
+            _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
+            svc, info = _choose_service_conditional_with_info(hass, cfg)
+            decision.update({"conditional": info})
+            target_service = svc or ""
+
     if not target_service:
         fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
         if isinstance(fb, str) and fb:
@@ -428,12 +435,15 @@ async def _route_and_forward(
         }
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
+
     await _maybe_play_tts(hass, entry, payload, cfg)
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
-
-
+    
+    # Persist last-used target so early post-boot notifications can stick to it
+    _save_last_target(hass, f"{domain}.{service}")
+    
 # ───────────────────────── conditional routing ─────────────────────────
 
 
@@ -1319,13 +1329,18 @@ class PreviewManager:
             "payload_keys": [],  # preview has no payload
             "via": "preview",
         }
-
-        if mode == ROUTING_SMART:
-            chosen, info = _choose_service_smart(self.hass, cfg)
-            decision["smart"] = info
+        # Honor boot-sticky in the preview as well so the sensor reflects reality
+        sticky = _boot_sticky_target(self.hass, self.entry)
+        if sticky:
+            chosen = sticky
+            decision["via"] = "preview-boot-sticky"
         else:
-            chosen, info = _choose_service_conditional_with_info(self.hass, cfg)
-            decision["conditional"] = info
+            if mode == ROUTING_SMART:
+                chosen, info = _choose_service_smart(self.hass, cfg)
+                decision["smart"] = info
+            else:
+                chosen, info = _choose_service_conditional_with_info(self.hass, cfg)
+                decision["conditional"] = info
 
         if not chosen:
             # show fallback if present (this matches UI expectations for "what would happen now")
@@ -1352,3 +1367,36 @@ def _config_view(entry: ConfigEntry) -> dict[str, Any]:
     cfg = dict(entry.data)
     cfg.update(entry.options or {})
     return cfg
+
+def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
+    """Persist the last chosen notify target so we can reuse it right after boot."""
+    mem = hass.data.get(DATA, {}).setdefault("memory", {})
+    mem["last_target_service"] = service_full
+    store: Store | None = hass.data.get(DATA, {}).get("store")  # type: ignore[assignment]
+    if store:
+        hass.async_create_task(store.async_save(mem))
+
+
+def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
+    """
+    During the first _BOOT_STICKY_TARGET_S seconds after boot, prefer the last
+    target we actually forwarded to (if available and not ourselves).
+    """
+    if (dt_util.utcnow() - _BOOT_UTC) > timedelta(seconds=_BOOT_STICKY_TARGET_S):
+        return None
+
+    mem = hass.data.get(DATA, {}).get("memory", {})
+    sticky = mem.get("last_target_service")
+    if not isinstance(sticky, str) or "." not in sticky:
+        return None
+
+    domain, service = _split_service(sticky)
+    own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
+    if domain == "notify" and service == own_slug:
+        return None  # don't recurse into ourselves
+
+    # Only use if the service is actually registered
+    if not hass.services.has_service(domain, service):
+        return None
+
+    return sticky
