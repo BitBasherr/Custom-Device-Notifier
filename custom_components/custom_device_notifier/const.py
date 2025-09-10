@@ -96,4 +96,5 @@ TTS_OPT_LANGUAGE = "tts_language"  # optional language code
 MEDIA_ORDER_OPT = "media_order"  # list[str] of media_player entity_ids
 
 # Sticky preferred target right after boot (e.g., 2 minutes)
-_BOOT_STICKY_TARGET_S = 120
+CONF_BOOT_STICKY_TARGET_S = "boot_sticky_target_s"
+DEFAULT_BOOT_STICKY_TARGET_S = 120

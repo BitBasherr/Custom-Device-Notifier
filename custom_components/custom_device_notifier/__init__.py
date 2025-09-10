@@ -62,6 +62,8 @@ from .const import (
     TTS_OPT_LANGUAGE,
     MEDIA_ORDER_OPT,
     CONF_MEDIA_PLAYER_ORDER,
+    CONF_BOOT_STICKY_TARGET_S,
+    DEFAULT_BOOT_STICKY_TARGET_S,
     _BOOT_STICKY_TARGET_S,
 )
 
@@ -1376,17 +1378,22 @@ def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
     """Persist the last chosen notify target so we can reuse it right after boot."""
     mem = hass.data.get(DATA, {}).setdefault("memory", {})
     mem["last_target_service"] = service_full
-    store: Store | None = hass.data.get(DATA, {}).get("store")  # type: ignore[assignment]
-    if store:
+    store = cast(Optional[Store], hass.data.get(DATA, {}).get("store"))
+    if store is not None:
         hass.async_create_task(store.async_save(mem))
-
 
 def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
     """
-    During the first _BOOT_STICKY_TARGET_S seconds after boot, prefer the last
+    During the first N seconds after boot, prefer the last
     target we actually forwarded to (if available and not ourselves).
+    N is configurable via options (CONF_BOOT_STICKY_TARGET_S). 0 disables.
     """
-    if (dt_util.utcnow() - _BOOT_UTC) > timedelta(seconds=_BOOT_STICKY_TARGET_S):
+    cfg = _config_view(entry)
+    window_s = int(cfg.get(CONF_BOOT_STICKY_TARGET_S, _BOOT_STICKY_TARGET_S))
+    if window_s <= 0:
+        return None
+
+    if (dt_util.utcnow() - _BOOT_UTC) > timedelta(seconds=window_s):
         return None
 
     mem = hass.data.get(DATA, {}).get("memory", {})
