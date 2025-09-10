@@ -221,6 +221,7 @@ async def _maybe_play_tts(
     except Exception:
         _LOGGER.exception("TTS call %s failed", tts_service)
 
+
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
