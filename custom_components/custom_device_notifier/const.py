@@ -89,8 +89,8 @@ STEP_AUDIO_SETUP = "audio_setup"
 STEP_MEDIA_ORDER = "media_order"
 
 # Audio/TTS options (stored by the options flow)
-TTS_OPT_ENABLE   = "tts_enable"
-TTS_OPT_DEFAULT  = "tts_default"
-TTS_OPT_SERVICE  = "tts_service"           # e.g. "tts.google_translate_say" or "tts.speak"
-TTS_OPT_LANGUAGE = "tts_language"          # optional language code
-MEDIA_ORDER_OPT  = "media_order"           # list[str] of media_player entity_ids
+TTS_OPT_ENABLE = "tts_enable"
+TTS_OPT_DEFAULT = "tts_default"
+TTS_OPT_SERVICE = "tts_service"  # e.g. "tts.google_translate_say" or "tts.speak"
+TTS_OPT_LANGUAGE = "tts_language"  # optional language code
+MEDIA_ORDER_OPT = "media_order"  # list[str] of media_player entity_ids

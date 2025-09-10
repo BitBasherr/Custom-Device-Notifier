@@ -95,7 +95,13 @@ class EntryRuntime:
 
 # ─────────────────────────── lifecycle ───────────────────────────
 
-async def _maybe_play_tts(hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any], cfg: dict[str, Any]) -> None:
+
+async def _maybe_play_tts(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    payload: dict[str, Any],
+    cfg: dict[str, Any],
+) -> None:
     """If TTS is enabled and requested, call the configured tts.* service."""
     if not cfg.get(TTS_OPT_ENABLE):
         return
@@ -127,7 +133,9 @@ async def _maybe_play_tts(hass: HomeAssistant, entry: ConfigEntry, payload: dict
 
     tts_service = cfg.get(TTS_OPT_SERVICE)
     if not tts_service or "." not in tts_service:
-        _LOGGER.warning("TTS requested but tts_service option is not set correctly: %r", tts_service)
+        _LOGGER.warning(
+            "TTS requested but tts_service option is not set correctly: %r", tts_service
+        )
         return
 
     lang = cfg.get(TTS_OPT_LANGUAGE) or None
@@ -145,6 +153,7 @@ async def _maybe_play_tts(hass: HomeAssistant, entry: ConfigEntry, payload: dict
 
     _LOGGER.debug("TTS: calling %s with %s", tts_service, svc_data)
     await hass.services.async_call(tts_domain, tts_method, svc_data, blocking=True)
+
 
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
