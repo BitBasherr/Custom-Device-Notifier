@@ -68,6 +68,21 @@ from .const import (
     CONF_MEDIA_PLAYER_ORDER,
     CONF_BOOT_STICKY_TARGET_S,
     _BOOT_STICKY_TARGET_S,
+    CONF_MSG_ENABLE,
+    CONF_MSG_SOURCE_SENSOR,
+    CONF_MSG_APPS,
+    CONF_MSG_TARGETS,
+    CONF_MSG_REPLY_TRANSPORT,
+    CONF_MSG_KDECONNECT_DEVICE_ID,
+    CONF_MSG_TASKER_EVENT,
+
+    DEFAULT_MSG_ENABLE,
+    DEFAULT_MSG_APPS,
+    DEFAULT_MSG_REPLY_TRANSPORT,
+    DEFAULT_MSG_TASKER_EVENT,
+
+    # Config-flow step id
+    STEP_MESSAGES_SETUP,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
@@ -190,7 +205,7 @@ class EntryRuntime:
     entry: ConfigEntry
     service_name: str  # notify service name (slug)
     preview: Optional["PreviewManager"] = None  # live preview publisher
-
+    msg_bridge: Optional["MessageBridge"] = None  # messages mirror/reply
 
 # ─────────────────────────── lifecycle ───────────────────────────
 
@@ -385,12 +400,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pm = PreviewManager(hass, entry)
     await pm.async_start()
     rt.preview = pm
-
+    
+    # NEW: start messages bridge if enabled
+    mb = MessageBridge(hass, entry)
+    await mb.async_start()
+    rt.msg_bridge = mb
+    
     # proper unload cleanup
     async def _stop_preview() -> None:
         await pm.async_stop()
+        
+    async def _stop_bridge() -> None:
+        if rt.msg_bridge:
+            await rt.msg_bridge.async_stop()
 
     entry.async_on_unload(_stop_preview)
+    entry.async_on_unload(_stop_bridge)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
@@ -400,18 +425,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    # Rebuild preview watchers/timer on options change
     rt: EntryRuntime | None = hass.data[DATA].get(entry.entry_id)
     if rt and rt.preview:
         await rt.preview.async_rebuild()
+    if rt and rt.msg_bridge:
+        await rt.msg_bridge.async_stop()
+        await rt.msg_bridge.async_start()
     _LOGGER.debug("Options updated for %s", entry.entry_id)
 
-
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Tear down notify service, preview manager, and sensor platform."""
     rt: EntryRuntime | None = hass.data[DATA].pop(entry.entry_id, None)
-    if rt and rt.preview:
-        await rt.preview.async_stop()
+    if rt:
+        if rt.preview:
+            await rt.preview.async_stop()
+        if rt.msg_bridge:
+            await rt.msg_bridge.async_stop()
 
     slug = hass.data[SERVICE_HANDLES].pop(entry.entry_id, None)
     if slug and hass.services.has_service("notify", slug):
@@ -1278,6 +1306,198 @@ def _choose_service_smart(
         "pc_like_autodetect": autodetect_pc_like,
     }
     return (chosen, info)
+
+
+class MessageBridge:
+    """Mirror SMS/IM notifications from one phone and allow inline reply."""
+
+    ACTION = "CDN_REPLY_MESSAGE"  # action id we emit on actionable notifs
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        self._unsub_sensor: Optional[Callable[[], None]] = None
+        self._unsub_action: Optional[Callable[[], None]] = None
+
+    def _cfg(self) -> dict[str, Any]:
+        return _config_view(self.entry)
+
+    async def async_start(self) -> None:
+        cfg = self._cfg()
+        if not bool(cfg.get(CONF_MSG_ENABLE)):
+            return
+        sensor_id = str(cfg.get(CONF_MSG_SOURCE_SENSOR) or "")
+        if not sensor_id:
+            _LOGGER.debug("MessagesBridge: source sensor not configured")
+            return
+
+        # Listen for new notifications on the source device
+        self._unsub_sensor = async_track_state_change_event(
+            self.hass, [sensor_id], self._on_last_notification
+        )
+
+        # Listen for reply actions coming back from any device
+        self._unsub_action = self.hass.bus.async_listen(
+            "mobile_app_notification_action", self._on_mobile_action
+        )
+        _LOGGER.info("MessagesBridge started for %s", sensor_id)
+
+    async def async_stop(self) -> None:
+        if self._unsub_sensor:
+            self._unsub_sensor()
+            self._unsub_sensor = None
+        if self._unsub_action:
+            self._unsub_action()
+            self._unsub_action = None
+        _LOGGER.info("MessagesBridge stopped")
+
+    # ---------- helpers ----------
+
+    def _apps_set(self) -> set[str]:
+        cfg = self._cfg()
+        apps = cfg.get(CONF_MSG_APPS) or []
+        return {str(p) for p in apps if isinstance(p, str) and p}
+
+    def _targets(self) -> list[str]:
+        cfg = self._cfg()
+        raw = cfg.get(CONF_MSG_TARGETS) or []
+        return [str(s) for s in raw if isinstance(s, str) and s]
+
+    # ---------- handlers ----------
+
+    @callback
+    def _on_last_notification(self, event) -> None:
+        """Mirror qualifying notifications as actionable messages."""
+        try:
+            new_state: Optional[State] = event.data.get("new_state")
+            if not new_state:
+                return
+
+            attrs = dict(getattr(new_state, "attributes", {}) or {})
+            a = dict(attrs.get("android") or {})
+            pkg = str(a.get("package") or "")
+            if not pkg:
+                return
+
+            apps = self._apps_set()
+            if apps and pkg not in apps:
+                return
+
+            # Extract message fields
+            title = (
+                a.get("conversation_title")
+                or a.get("title")
+                or attrs.get("title")
+                or "New message"
+            )
+            text = a.get("text") or attrs.get("text") or ""
+            if not str(text).strip():
+                return  # nothing to show
+
+            # Conversation id / number (best effort; adjust if your app exposes different fields)
+            conv_id = (
+                a.get("conversation_id")
+                or a.get("tag")
+                or a.get("post_time")
+                or new_state.last_changed.isoformat()
+            )
+            number = a.get("phone") or a.get("person") or ""
+
+            # Build a replyable notification and send to configured targets
+            payload = {
+                "title": str(title),
+                "message": str(text),
+                "data": {
+                    "tag": f"msg_{conv_id}",
+                    "channel": "messages",
+                    "actions": [
+                        {
+                            "action": self.ACTION,
+                            "title": "Reply",
+                            "reply": True,
+                            "placeholder": "Send from Fold 7…",
+                            "action_data": {
+                                "number": number,
+                                "conv_id": conv_id,
+                                "package": pkg,
+                            },
+                        }
+                    ],
+                },
+            }
+
+            targets = self._targets()
+            if not targets:
+                # Default to our own notify service to benefit from your routing
+                own_slug = str(self.entry.data.get(CONF_SERVICE_NAME) or "")
+                if own_slug:
+                    self.hass.async_create_task(
+                        self.hass.services.async_call(
+                            "notify", own_slug, payload, blocking=False
+                        )
+                    )
+                return
+
+            for full in targets:
+                domain, service = _split_service(full)
+                self.hass.async_create_task(
+                    self.hass.services.async_call(
+                        domain, service, payload, blocking=False
+                    )
+                )
+        except Exception:  # pragma: no cover
+            _LOGGER.exception("MessagesBridge: error mirroring notification")
+
+    async def _send_reply(self, number: str, text: str, pkg: str, conv_id: str) -> None:
+        """Send the reply using the configured transport."""
+        cfg = self._cfg()
+        transport = str(cfg.get(CONF_MSG_REPLY_TRANSPORT) or DEFAULT_MSG_REPLY_TRANSPORT)
+
+        if transport == "kdeconnect":
+            device_id = str(cfg.get(CONF_MSG_KDECONNECT_DEVICE_ID) or "")
+            if not device_id:
+                _LOGGER.warning("MessagesBridge: KDE Connect device_id not set")
+                return
+            await self.hass.services.async_call(
+                "kdeconnect",
+                "send_sms",
+                {"device_id": device_id, "number": number, "message": text},
+                blocking=False,
+            )
+            return
+
+        # tasker/autonotification route: fire an HA event Tasker can listen for
+        event_name = str(cfg.get(CONF_MSG_TASKER_EVENT) or DEFAULT_MSG_TASKER_EVENT)
+        self.hass.bus.async_fire(
+            event_name,
+            {
+                "package": pkg,
+                "conversation_id": conv_id,
+                "number": number,
+                "text": text,
+            },
+        )
+
+    @callback
+    def _on_mobile_action(self, event) -> None:
+        """Handle inline replies coming back from HA actionable notifications."""
+        try:
+            data = dict(event.data or {})
+            if data.get("action") != self.ACTION:
+                return
+            action_data = dict(data.get("action_data") or {})
+            reply = data.get("reply_text") or data.get("text") or ""
+            number = action_data.get("number") or ""
+            pkg = action_data.get("package") or ""
+            conv_id = action_data.get("conv_id") or ""
+            if not str(reply).strip():
+                return
+            # Schedule the actual send
+            self.hass.async_create_task(
+                self._send_reply(str(number), str(reply), str(pkg), str(conv_id))
+            )
+        except Exception:  # pragma: no cover
+            _LOGGER.exception("MessagesBridge: error handling reply")
 
 
 # ───────────────────────── live preview manager (async) ─────────────────────────

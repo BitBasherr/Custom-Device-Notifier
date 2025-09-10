@@ -84,6 +84,21 @@ from .const import (
     STEP_MEDIA_ORDER,
     CONF_BOOT_STICKY_TARGET_S,
     DEFAULT_BOOT_STICKY_TARGET_S,
+    CONF_MSG_ENABLE,
+    CONF_MSG_SOURCE_SENSOR,
+    CONF_MSG_APPS,
+    CONF_MSG_TARGETS,
+    CONF_MSG_REPLY_TRANSPORT,
+    CONF_MSG_KDECONNECT_DEVICE_ID,
+    CONF_MSG_TASKER_EVENT,
+
+    DEFAULT_MSG_ENABLE,
+    DEFAULT_MSG_APPS,
+    DEFAULT_MSG_REPLY_TRANSPORT,
+    DEFAULT_MSG_TASKER_EVENT,
+
+    # Config-flow step id
+    STEP_MESSAGES_SETUP,
 )
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -249,6 +264,67 @@ def _wipe_keys(d: dict[str, Any], keys: list[str]) -> None:
     for k in keys:
         d.pop(k, None)
 
+def _messages_placeholders(self) -> dict[str, str]:
+    return {
+        "note": "Mirror notifications from a phone’s Last Notification sensor and allow inline replies."
+    }
+def _get_messages_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+    existing = existing or {}
+    notify_options = [f"notify.{s}" for s in _notify_services(self.hass)]
+    common_pkgs = [
+        "com.google.android.apps.messaging",
+        "org.thoughtcrime.securesms",  # Signal
+        "com.whatsapp",
+        "org.telegram.messenger",
+        "com.facebook.orca",           # Messenger
+    ]
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_MSG_ENABLE,
+                default=existing.get(CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE),
+            ): selector({"boolean": {}}),
+            vol.Required(
+                CONF_MSG_SOURCE_SENSOR,
+                default=existing.get(CONF_MSG_SOURCE_SENSOR, ""),
+            ): selector({"entity": {"domain": "sensor"}}),
+            vol.Optional(
+                CONF_MSG_APPS,
+                default=existing.get(CONF_MSG_APPS, DEFAULT_MSG_APPS),
+            ): selector(
+                {"select": {"options": common_pkgs, "multiple": True, "custom_value": True}}
+            ),
+            vol.Optional(
+                CONF_MSG_TARGETS,
+                default=existing.get(CONF_MSG_TARGETS, []),
+            ): selector(
+                {"select": {"options": notify_options, "multiple": True, "custom_value": True}}
+            ),
+            vol.Required(
+                CONF_MSG_REPLY_TRANSPORT,
+                default=existing.get(
+                    CONF_MSG_REPLY_TRANSPORT, DEFAULT_MSG_REPLY_TRANSPORT
+                ),
+            ): selector(
+                {
+                    "select": {
+                        "options": [
+                            {"value": "kdeconnect", "label": "KDE Connect (SMS)"},
+                            {"value": "tasker", "label": "Tasker / AutoNotification"},
+                        ]
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_MSG_KDECONNECT_DEVICE_ID,
+                default=existing.get(CONF_MSG_KDECONNECT_DEVICE_ID, ""),
+            ): str,
+            vol.Optional(
+                CONF_MSG_TASKER_EVENT,
+                default=existing.get(CONF_MSG_TASKER_EVENT, DEFAULT_MSG_TASKER_EVENT),
+            ): str,
+        }
+    )
 
 # ──────────────────────────── Config Flow ────────────────────────────────
 class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -340,14 +416,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
                     default=existing.get(CONF_SMART_PC_NOTIFY, pc_default),
-                ): selector(
-                    {
-                        "select": {
-                            "options": [f"notify.{s}" for s in services],
-                            "custom_value": True,
-                        }
-                    }
-                ),
+                ): selector({"select": {"options": self._smart_pc_candidates(),
+                                        "custom_value": True}}),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
@@ -662,6 +732,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         options = [
             {"value": "add", "label": "➕ Add target"},
             {"value": "audio", "label": "🔊 Audio / TTS setup"},
+            {"value": "messages", "label": "💬 Messages bridge"},
             {"value": "routing", "label": "🧠 Choose routing mode"},
             {"value": "done", "label": "✅ Done"},
         ]
@@ -1075,11 +1146,15 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=self._get_audio_setup_schema(self._data),
                     description_placeholders=self._audio_placeholders(),
                 )
-            if nxt == "routing":
-                # Let the user switch modes mid-flow; ensure we wipe incompatible keys
+            if nxt == "messages":
                 return self.async_show_form(
-                    step_id=STEP_ROUTING_MODE,
-                    data_schema=self._get_routing_mode_schema(),
+                    step_id=STEP_MESSAGES_SETUP,
+                    data_schema=_get_messages_setup_schema(self, self._data),
+                    description_placeholders=_messages_placeholders(self),
+                )
+            if nxt == "routing":
+                return self.async_show_form(
+                    step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
                 )
             if nxt == "done":
                 services = [t[KEY_SERVICE] for t in self._targets]
@@ -1642,6 +1717,47 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders=self._audio_placeholders(),
         )
 
+    async def async_step_messages_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input:
+            self._data.update(
+                {
+                    CONF_MSG_ENABLE: user_input.get(CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE),
+                    CONF_MSG_SOURCE_SENSOR: user_input.get(CONF_MSG_SOURCE_SENSOR, ""),
+                    CONF_MSG_APPS: user_input.get(CONF_MSG_APPS, DEFAULT_MSG_APPS),
+                    CONF_MSG_TARGETS: user_input.get(CONF_MSG_TARGETS, []),
+                    CONF_MSG_REPLY_TRANSPORT: user_input.get(
+                        CONF_MSG_REPLY_TRANSPORT, DEFAULT_MSG_REPLY_TRANSPORT
+                    ),
+                    CONF_MSG_KDECONNECT_DEVICE_ID: user_input.get(
+                        CONF_MSG_KDECONNECT_DEVICE_ID, ""
+                    ),
+                    CONF_MSG_TASKER_EVENT: user_input.get(
+                        CONF_MSG_TASKER_EVENT, DEFAULT_MSG_TASKER_EVENT
+                    ),
+                }
+            )
+            # After saving, send them back to the fallback page (same behavior as Audio)
+            return self.async_show_form(
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._get_choose_fallback_schema(),
+                description_placeholders={
+                    "available_services": ", ".join(
+                        sorted(self.hass.services.async_services().get("notify", {}))
+                    ),
+                    "current_order": "—",
+                    "remaining": "—",
+                },
+                errors={},
+            )
+
+        return self.async_show_form(
+            step_id=STEP_MESSAGES_SETUP,
+            data_schema=_get_messages_setup_schema(self, self._data),
+            description_placeholders=_messages_placeholders(self),
+        )
+
     @staticmethod
     @callback
     def async_get_options_flow(
@@ -1731,14 +1847,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
                     default=existing.get(CONF_SMART_PC_NOTIFY, pc_default),
-                ): selector(
-                    {
-                        "select": {
-                            "options": [f"notify.{s}" for s in services],
-                            "custom_value": True,
-                        }
-                    }
-                ),
+                ): selector({"select": {"options": self._smart_pc_candidates(),
+                                        "custom_value": True}}),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
@@ -2046,6 +2156,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         options = [
             {"value": "add", "label": "➕ Add target"},
             {"value": "audio", "label": "🔊 Audio / TTS setup"},
+            {"value": "messages", "label": "💬 Messages bridge"},
             {"value": "routing", "label": "🧠 Choose routing mode"},
             {"value": "done", "label": "✅ Done"},
         ]
@@ -2053,11 +2164,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
             options.insert(2, {"value": "remove", "label": "➖ Remove target"})
         return vol.Schema(
-            {
-                vol.Required("next", default="add"): selector(
-                    {"select": {"options": options}}
-                )
-            }
+            {vol.Required("next", default="add"): selector({"select": {"options": options}})}
         )
 
     def _get_order_targets_schema(
@@ -2486,6 +2593,47 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders=self._audio_placeholders(),
         )
 
+    async def async_step_messages_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input:
+            self._data.update(
+                {
+                    CONF_MSG_ENABLE: user_input.get(CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE),
+                    CONF_MSG_SOURCE_SENSOR: user_input.get(CONF_MSG_SOURCE_SENSOR, ""),
+                    CONF_MSG_APPS: user_input.get(CONF_MSG_APPS, DEFAULT_MSG_APPS),
+                    CONF_MSG_TARGETS: user_input.get(CONF_MSG_TARGETS, []),
+                    CONF_MSG_REPLY_TRANSPORT: user_input.get(
+                        CONF_MSG_REPLY_TRANSPORT, DEFAULT_MSG_REPLY_TRANSPORT
+                    ),
+                    CONF_MSG_KDECONNECT_DEVICE_ID: user_input.get(
+                        CONF_MSG_KDECONNECT_DEVICE_ID, ""
+                    ),
+                    CONF_MSG_TASKER_EVENT: user_input.get(
+                        CONF_MSG_TASKER_EVENT, DEFAULT_MSG_TASKER_EVENT
+                    ),
+                }
+            )
+            # Stay in options; send them back to fallback chooser for consistency
+            return self.async_show_form(
+                step_id=STEP_CHOOSE_FALLBACK,
+                data_schema=self._get_choose_fallback_schema(),
+                description_placeholders={
+                    "available_services": ", ".join(
+                        sorted(self.hass.services.async_services().get("notify", {}))
+                    ),
+                    "current_order": "—",
+                    "remaining": "—",
+                },
+                errors={},
+            )
+
+        return self.async_show_form(
+            step_id=STEP_MESSAGES_SETUP,
+            data_schema=_get_messages_setup_schema(self, self._data),
+            description_placeholders=_messages_placeholders(self),
+        )
+
     # ─── conditional editors (mirror) ───
     async def async_step_add_target(
         self, user_input: dict[str, Any] | None = None
@@ -2770,10 +2918,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     data_schema=self._get_audio_setup_schema(self._data),
                     description_placeholders=self._audio_placeholders(),
                 )
+            if nxt == "messages":
+                return self.async_show_form(
+                    step_id=STEP_MESSAGES_SETUP,
+                    data_schema=_get_messages_setup_schema(self, self._data),
+                    description_placeholders=_messages_placeholders(self),
+                )
             if nxt == "routing":
                 return self.async_show_form(
-                    step_id=STEP_ROUTING_MODE,
-                    data_schema=self._get_routing_mode_schema(),
+                    step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
                 )
             if nxt == "done":
                 services = [t[KEY_SERVICE] for t in self._targets]

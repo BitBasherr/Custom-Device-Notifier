@@ -99,3 +99,20 @@ MEDIA_ORDER_OPT = "media_order"  # list[str] of media_player entity_ids
 CONF_BOOT_STICKY_TARGET_S = "boot_sticky_target_s"
 DEFAULT_BOOT_STICKY_TARGET_S = 120
 _BOOT_STICKY_TARGET_S = DEFAULT_BOOT_STICKY_TARGET_S  # fallback if no option set
+
+# ── Messages Bridge (mirror & reply) ─────────────────────────────────────
+CONF_MSG_ENABLE = "msg_enable"
+CONF_MSG_SOURCE_SENSOR = "msg_source_sensor"          # sensor.<slug>_last_notification
+CONF_MSG_APPS = "msg_apps"                             # list[str] of Android package names
+CONF_MSG_TARGETS = "msg_targets"                       # list[str] of notify.* to forward to
+CONF_MSG_REPLY_TRANSPORT = "msg_reply_transport"       # "kdeconnect" | "tasker"
+CONF_MSG_KDECONNECT_DEVICE_ID = "msg_kdeconnect_device_id"
+CONF_MSG_TASKER_EVENT = "msg_tasker_event"             # HA event name for Tasker
+
+DEFAULT_MSG_ENABLE = False
+DEFAULT_MSG_APPS = ["com.google.android.apps.messaging"]  # Google Messages
+DEFAULT_MSG_REPLY_TRANSPORT = "kdeconnect"
+DEFAULT_MSG_TASKER_EVENT = "custom_device_notifier.reply"
+
+# Config-flow step id
+STEP_MESSAGES_SETUP = "messages_setup"
