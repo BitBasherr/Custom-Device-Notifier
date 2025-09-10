@@ -99,16 +99,20 @@ def _is_restored_or_boot_fresh(st: State | None) -> bool:
     """True if the state looks restored at startup (don’t trust freshness/unlock)."""
     if st is None:
         return False
-    # Many RestoreEntitys add attributes["restored"]: True
-    if isinstance(st.attributes, dict) and st.attributes.get("restored") is True:
-        return True
-    ts_any = getattr(st, "last_updated", None)
-    ts = ts_any if isinstance(ts_any, datetime) else None
-    if ts is None:
-        return False
-    # treat anything 'updated' near boot as restored
-    return (ts - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
 
+    # Many RestoreEntitys add attributes["restored"]: True
+    attrs = getattr(st, "attributes", None)
+    if isinstance(attrs, dict) and attrs.get("restored") is True:
+        return True
+
+    # Avoid Any from getattr: type as object, then narrow
+    last_updated_obj: object | None = getattr(st, "last_updated", None)
+    if not isinstance(last_updated_obj, datetime):
+        return False
+
+    last_updated: datetime = last_updated_obj
+    # treat anything 'updated' near boot as restored
+    return (last_updated - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
 
 @dataclass
 class EntryRuntime:
