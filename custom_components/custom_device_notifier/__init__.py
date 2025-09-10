@@ -1377,21 +1377,21 @@ def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
     """Persist the last chosen notify target so we can reuse it right after boot."""
     mem = hass.data.get(DATA, {}).setdefault("memory", {})
     mem["last_target_service"] = service_full
-    store = cast(Optional[Store], hass.data.get(DATA, {}).get("store"))
-    if store is not None:
-        hass.async_create_task(store.async_save(mem))
 
+    store_obj = hass.data.get(DATA, {}).get("store")
+    if isinstance(store_obj, Store):
+        hass.async_create_task(store_obj.async_save(mem))
 
 def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
     """
-    During the first N seconds after boot, prefer the last
-    target we actually forwarded to (if available and not ourselves).
-    N is configurable via options (CONF_BOOT_STICKY_TARGET_S). 0 disables.
+    During the first N seconds after boot, prefer the last target we forwarded to,
+    where N is from options (CONF_BOOT_STICKY_TARGET_S) or the module default.
     """
     cfg = _config_view(entry)
-    window_s = int(cfg.get(CONF_BOOT_STICKY_TARGET_S, _BOOT_STICKY_TARGET_S))
-    if window_s <= 0:
-        return None
+    try:
+        window_s = int(cfg.get(CONF_BOOT_STICKY_TARGET_S, _BOOT_STICKY_TARGET_S))
+    except (TypeError, ValueError):
+        window_s = _BOOT_STICKY_TARGET_S
 
     if (dt_util.utcnow() - _BOOT_UTC) > timedelta(seconds=window_s):
         return None
