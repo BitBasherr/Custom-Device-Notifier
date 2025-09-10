@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import asyncio
+import time
 from typing import Any, Callable, Dict, List, Optional, Set, cast
 
 import voluptuous as vol
@@ -104,6 +105,27 @@ def _boot_window_seconds_left(cfg: dict[str, Any]) -> float:
     elapsed = (dt_util.utcnow() - _BOOT_UTC).total_seconds()
     return max(0.0, float(win) - float(elapsed))
 
+async def _wait_for_service_registered(
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    *,
+    timeout_s: float,
+    poll_interval_s: float = 0.2,
+) -> bool:
+    """
+    Poll until the given service is registered or timeout elapses.
+    Returns True if the service is available, else False.
+    """
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    # Fast path
+    if hass.services.has_service(domain, service):
+        return True
+    while time.monotonic() < deadline:
+        await asyncio.sleep(poll_interval_s)
+        if hass.services.has_service(domain, service):
+            return True
+    return hass.services.has_service(domain, service)
 
 async def _wait_for_service(
     hass: HomeAssistant, domain: str, service: str, timeout_s: float
@@ -129,7 +151,6 @@ async def _wait_for_service(
         return bool(hass.services.has_service(domain, service))
     finally:
         unsub()
-
 
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
@@ -412,7 +433,7 @@ async def _route_and_forward(
         "payload_keys": sorted(list(payload.keys())),
     }
 
-    # 1) Boot-sticky: force last-known target during the boot window
+    # Prefer the last-used target briefly after boot
     sticky = _boot_sticky_target(hass, entry)
     if sticky:
         target_service = sticky
@@ -428,15 +449,13 @@ async def _route_and_forward(
             decision.update({"conditional": info})
             target_service = svc or ""
         else:
-            _LOGGER.warning(
-                "Unknown routing mode %r, falling back to conditional", mode
-            )
+            _LOGGER.warning("Unknown routing mode %r, falling back to conditional", mode)
             svc, info = _choose_service_conditional_with_info(hass, cfg)
             decision.update({"conditional": info})
             target_service = svc or ""
 
-    # 2) If nothing chosen at all, consider fallback now (non-boot path)
-    if not target_service and not sticky:
+    # Fallback if still nothing
+    if not target_service:
         fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
         if isinstance(fb, str) and fb:
             target_service = fb
@@ -448,65 +467,23 @@ async def _route_and_forward(
             _LOGGER.warning("No matching target and no fallback; dropping notification")
             return
 
-    # 3) If we’re in the boot window with a sticky target, WAIT for it to register
-    domain, service = _split_service(target_service)
-    if sticky and not hass.services.has_service(domain, service):
-        # Wait up to the remaining boot window before considering fallback.
-        remaining = _boot_window_seconds_left(cfg)
-        if remaining > 0:
-            _LOGGER.debug(
-                "Boot-sticky waiting up to %.1fs for %s.%s to register",
-                remaining,
-                domain,
-                service,
-            )
-            ok = await _wait_for_service(hass, domain, service, timeout_s=remaining)
-            if ok:
-                _LOGGER.debug(
-                    "Boot-sticky target %s.%s is now available", domain, service
-                )
-            else:
-                _LOGGER.debug(
-                    "Boot-sticky wait expired; %s.%s still unavailable", domain, service
-                )
-
-    # 4) After possible wait, if the chosen service is still missing, use fallback
-    if not hass.services.has_service(domain, service):
-        fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
-        if isinstance(fb, str) and fb and fb != f"{domain}.{service}":
-            _LOGGER.debug(
-                "Chosen service %s.%s not registered; using fallback %s",
-                domain,
-                service,
-                fb,
-            )
-            domain, service = _split_service(fb)
-            via = "missing-service-fallback"
-        else:
-            decision.update({"result": "dropped_missing_service"})
-            async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
-            _LOGGER.warning(
-                "Chosen service %s.%s not registered and no fallback; dropping",
-                domain,
-                service,
-            )
-            return
-
-    # 5) Clean raw payload and let notify.py normalize it (keeps nested "data")
+    # Clean raw payload and let notify.py normalize it (keeps nested "data")
     raw = dict(payload)
     raw.pop("service", None)
     raw.pop("services", None)
     out = build_notify_payload(raw)
 
-    # 6) Refuse to call ourselves; fallback if available
+    domain, service = _split_service(target_service)
+
+    # refuse to call ourselves; try fallback if available
     own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if own_slug and domain == "notify" and service == own_slug:
         _LOGGER.warning(
             "Refusing to call notifier onto itself (%s); using fallback if set.",
-            f"{domain}.{service}",
+            target_service,
         )
         fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
-        if isinstance(fb, str) and fb and fb != f"{domain}.{service}":
+        if isinstance(fb, str) and fb and fb != target_service:
             domain, service = _split_service(fb)
             via = "self-recursion-fallback"
         else:
@@ -514,8 +491,55 @@ async def _route_and_forward(
             async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
             return
 
+    # If we’re within the sticky window and selected the sticky target,
+    # wait (up to the remaining sticky time) for that service to register
+    if via == "boot-sticky":
+        elapsed = (dt_util.utcnow() - _BOOT_UTC).total_seconds()
+        remaining = max(0.0, float(_BOOT_STICKY_TARGET_S) - float(elapsed))
+        if remaining > 0:
+            ok = await _wait_for_service_registered(
+                hass, domain, service, timeout_s=remaining
+            )
+            if not ok:
+                # Service didn’t show up in time → compute a live choice now
+                _LOGGER.debug(
+                    "Sticky target %s.%s not registered within %.1fs; choosing live.",
+                    domain,
+                    service,
+                    remaining,
+                )
+                mode = decision["mode"]
+                chosen_now = None
+                if mode == ROUTING_SMART:
+                    chosen_now, info = _choose_service_smart(hass, cfg)
+                    decision.update({"smart": info})
+                else:
+                    chosen_now, info = _choose_service_conditional_with_info(hass, cfg)
+                    decision.update({"conditional": info})
+                if chosen_now:
+                    domain, service = _split_service(chosen_now)
+                    via = "boot-sticky-failed"
+                else:
+                    fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
+                    if isinstance(fb, str) and fb:
+                        domain, service = _split_service(fb)
+                        via = "boot-sticky-fallback"
+                    else:
+                        decision.update({"result": "dropped"})
+                        async_dispatcher_send(
+                            hass, _signal_name(entry.entry_id), decision
+                        )
+                        _LOGGER.warning(
+                            "Sticky failed, no live match, no fallback; dropping."
+                        )
+                        return
+
     decision.update(
-        {"result": "forwarded", "service_full": f"{domain}.{service}", "via": via}
+        {
+            "result": "forwarded",
+            "service_full": f"{domain}.{service}",
+            "via": via,
+        }
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
 
@@ -526,7 +550,6 @@ async def _route_and_forward(
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
-
 
 # ───────────────────────── conditional routing ─────────────────────────
 
@@ -1465,11 +1488,12 @@ def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
 
 def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
     """
-    During the boot window, return the last used target (if any).
-    Do not check service registration here—routing handles that.
+    During the first _BOOT_STICKY_TARGET_S seconds after boot, prefer the last
+    target we actually forwarded to (if present and not ourselves).
+    NOTE: We do NOT require the service to be registered here; we’ll wait
+    for it later in _route_and_forward when sending.
     """
-    cfg = _config_view(entry)
-    if _boot_window_seconds_left(cfg) <= 0.0:
+    if (dt_util.utcnow() - _BOOT_UTC) > timedelta(seconds=_BOOT_STICKY_TARGET_S):
         return None
 
     mem = hass.data.get(DATA, {}).get("memory", {})
@@ -1480,6 +1504,6 @@ def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str
     domain, service = _split_service(sticky)
     own_slug = str(entry.data.get(CONF_SERVICE_NAME) or "")
     if domain == "notify" and service == own_slug:
-        return None  # avoid recursion
+        return None  # never recurse into ourselves
 
     return sticky
