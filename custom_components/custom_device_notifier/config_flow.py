@@ -433,7 +433,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
                     ),
                 ): selector({"boolean": {}}),
-
                 # NEW: Boot-sticky window (seconds). 0 disables.
                 vol.Required(
                     CONF_BOOT_STICKY_TARGET_S,
@@ -1404,7 +1403,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SMART_REQUIRE_PHONE_UNLOCKED
                     ),
                     # NEW: boot-sticky window
-                    CONF_BOOT_STICKY_TARGET_S: user_input.get(CONF_BOOT_STICKY_TARGET_S),
+                    CONF_BOOT_STICKY_TARGET_S: user_input.get(
+                        CONF_BOOT_STICKY_TARGET_S
+                    ),
                 }
             )
             return self.async_show_form(
@@ -1793,12 +1794,15 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_SMART_PHONE_UNLOCK_WINDOW_S,
                     default=existing.get(
-                        CONF_SMART_PHONE_UNLOCK_WINDOW_S, DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S
+                        CONF_SMART_PHONE_UNLOCK_WINDOW_S,
+                        DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
                     ),
                 ): selector({"number": {"min": 30, "max": 7200, "step": 10}}),
                 vol.Required(
                     CONF_SMART_PC_FRESH_S,
-                    default=existing.get(CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S),
+                    default=existing.get(
+                        CONF_SMART_PC_FRESH_S, DEFAULT_SMART_PC_FRESH_S
+                    ),
                 ): selector({"number": {"min": 30, "max": 3600, "step": 10}}),
                 vol.Required(
                     CONF_SMART_REQUIRE_AWAKE,
@@ -1819,7 +1823,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
                     ),
                 ): selector({"boolean": {}}),
-
                 # NEW: Boot-sticky window (seconds). 0 disables.
                 vol.Required(
                     CONF_BOOT_STICKY_TARGET_S,
@@ -2188,7 +2191,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_SMART_MIN_BATTERY, self._data.get(CONF_SMART_MIN_BATTERY)
                     ),
                     CONF_SMART_PHONE_FRESH_S: user_input.get(
-                        CONF_SMART_PHONE_FRESH_S, self._data.get(CONF_SMART_PHONE_FRESH_S)
+                        CONF_SMART_PHONE_FRESH_S,
+                        self._data.get(CONF_SMART_PHONE_FRESH_S),
                     ),
                     CONF_SMART_PHONE_UNLOCK_WINDOW_S: user_input.get(
                         CONF_SMART_PHONE_UNLOCK_WINDOW_S,
@@ -2198,18 +2202,23 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_SMART_PC_FRESH_S, self._data.get(CONF_SMART_PC_FRESH_S)
                     ),
                     CONF_SMART_REQUIRE_AWAKE: user_input.get(
-                        CONF_SMART_REQUIRE_AWAKE, self._data.get(CONF_SMART_REQUIRE_AWAKE)
+                        CONF_SMART_REQUIRE_AWAKE,
+                        self._data.get(CONF_SMART_REQUIRE_AWAKE),
                     ),
                     CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_UNLOCKED)
+                        CONF_SMART_REQUIRE_UNLOCKED,
+                        self._data.get(CONF_SMART_REQUIRE_UNLOCKED),
                     ),
                     CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(
-                        CONF_SMART_REQUIRE_PHONE_UNLOCKED, self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED)
+                        CONF_SMART_REQUIRE_PHONE_UNLOCKED,
+                        self._data.get(CONF_SMART_REQUIRE_PHONE_UNLOCKED),
                     ),
                     # NEW: boot-sticky window
                     CONF_BOOT_STICKY_TARGET_S: user_input.get(
                         CONF_BOOT_STICKY_TARGET_S,
-                        self._data.get(CONF_BOOT_STICKY_TARGET_S, DEFAULT_BOOT_STICKY_TARGET_S),
+                        self._data.get(
+                            CONF_BOOT_STICKY_TARGET_S, DEFAULT_BOOT_STICKY_TARGET_S
+                        ),
                     ),
                 }
             )
@@ -2231,12 +2240,16 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                     CONF_SMART_PC_FRESH_S: user_input.get(CONF_SMART_PC_FRESH_S),
                     CONF_SMART_REQUIRE_AWAKE: user_input.get(CONF_SMART_REQUIRE_AWAKE),
-                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(CONF_SMART_REQUIRE_UNLOCKED),
+                    CONF_SMART_REQUIRE_UNLOCKED: user_input.get(
+                        CONF_SMART_REQUIRE_UNLOCKED
+                    ),
                     CONF_SMART_REQUIRE_PHONE_UNLOCKED: user_input.get(
                         CONF_SMART_REQUIRE_PHONE_UNLOCKED
                     ),
                     # NEW: boot-sticky window
-                    CONF_BOOT_STICKY_TARGET_S: user_input.get(CONF_BOOT_STICKY_TARGET_S),
+                    CONF_BOOT_STICKY_TARGET_S: user_input.get(
+                        CONF_BOOT_STICKY_TARGET_S
+                    ),
                 }
             )
             self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)

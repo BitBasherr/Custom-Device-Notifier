@@ -1381,6 +1381,7 @@ def _save_last_target(hass: HomeAssistant, service_full: str) -> None:
     if store is not None:
         hass.async_create_task(store.async_save(mem))
 
+
 def _boot_sticky_target(hass: HomeAssistant, entry: ConfigEntry) -> Optional[str]:
     """
     During the first N seconds after boot, prefer the last
