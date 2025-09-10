@@ -121,7 +121,10 @@ class EntryRuntime:
 
 
 async def _maybe_play_tts(
-    hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any], cfg: dict[str, Any]
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    payload: dict[str, Any],
+    cfg: dict[str, Any],
 ) -> None:
     """If TTS is enabled and requested, call the configured tts.* service."""
     if not cfg.get(TTS_OPT_ENABLE):
@@ -603,8 +606,8 @@ def _phone_is_unlocked_with_sticky(
     *,
     fresh_ok_any: bool,
 ) -> bool:
-    latest_lock_ts, latest_fresh_unlock_ts, latest_any_unlock_ts = _explicit_unlock_times(
-        hass, slug, fresh_s
+    latest_lock_ts, latest_fresh_unlock_ts, latest_any_unlock_ts = (
+        _explicit_unlock_times(hass, slug, fresh_s)
     )
     now_dt = dt_util.utcnow()
 
@@ -612,9 +615,7 @@ def _phone_is_unlocked_with_sticky(
     mem: Dict[str, Any] = cast(
         Dict[str, Any], hass.data.get(DATA, {}).setdefault("memory", {})
     )
-    store: Optional[Store] = cast(
-        Optional[Store], hass.data.get(DATA, {}).get("store")
-    )
+    store: Optional[Store] = cast(Optional[Store], hass.data.get(DATA, {}).get("store"))
 
     def _persist(ts: datetime) -> None:
         d = cast(Dict[str, str], mem.setdefault("last_phone_unlock", {}))
@@ -913,7 +914,9 @@ def _pc_like_is_eligible(
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
         now_dt = dt_util.utcnow()
-        fresh_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
+        fresh_ok = (
+            (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
+        )
         eligible = bool(is_unlocked and fresh_ok)
         _LOGGER.debug(
             "PC (lock_state) %s | state=%s fresh_ok=%s unlocked=%s eligible=%s",
@@ -1000,7 +1003,9 @@ def _choose_service_smart(
 
     # Optional: list of services to force as PC-like
     forced_pc_like_list = cfg.get(OPT_PC_LIKE_SERVICES, []) or []
-    forced_pc_like: Set[str] = {str(s) for s in forced_pc_like_list if isinstance(s, str)}
+    forced_pc_like: Set[str] = {
+        str(s) for s in forced_pc_like_list if isinstance(s, str)
+    }
 
     # Optional: autodetect PC-like by screen_lock / non-mobile_app
     autodetect_pc_like = bool(cfg.get(OPT_PC_AUTODETECT, True))
@@ -1078,7 +1083,11 @@ def _choose_service_smart(
         if any_pc_unlocked_ok:
             chosen = eligible_phones[0] if eligible_phones else first_pc_ok
         else:
-            chosen = first_pc_ok if first_pc_ok else (eligible_phones[0] if eligible_phones else None)
+            chosen = (
+                first_pc_ok
+                if first_pc_ok
+                else (eligible_phones[0] if eligible_phones else None)
+            )
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -1287,7 +1296,9 @@ class PreviewManager:
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
+            decision.update(
+                {"result": "forwarded", "service_full": f"{domain}.{service}"}
+            )
         else:
             decision.update({"result": "dropped", "service_full": None})
 
