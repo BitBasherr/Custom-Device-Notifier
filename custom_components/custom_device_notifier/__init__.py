@@ -114,6 +114,7 @@ def _is_restored_or_boot_fresh(st: State | None) -> bool:
     # treat anything 'updated' near boot as restored
     return (last_updated - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
 
+
 @dataclass
 class EntryRuntime:
     entry: ConfigEntry
