@@ -7,12 +7,13 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall, callback, State
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -63,6 +64,9 @@ from .const import (
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
 
+_STORE_VER = 1
+_STORE_KEY = f"{DOMAIN}_memory"
+
 _LOGGER = logging.getLogger(__name__)
 
 DATA = f"{DOMAIN}.data"
@@ -85,6 +89,22 @@ def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
 
+_STARTUP_GRACE_S = 120  # you can make this an option later if you want
+_BOOT_UTC = dt_util.utcnow()
+
+def _is_restored_or_boot_fresh(st: State | None) -> bool:
+    """True if the state looks restored at startup (don’t trust freshness/unlock)."""
+    if st is None:
+        return False
+    # Many RestoreEntitys add attributes["restored"]: True
+    if isinstance(st.attributes, dict) and st.attributes.get("restored") is True:
+        return True
+    ts_any = getattr(st, "last_updated", None)
+    ts = ts_any if isinstance(ts_any, datetime) else None
+    if ts is None:
+        return False
+    # treat anything 'updated' in the first N seconds after boot as restored
+    return (ts - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
 
 @dataclass
 class EntryRuntime:
@@ -159,6 +179,17 @@ async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
     hass.data.setdefault(SERVICE_HANDLES, {})
+    store = Store(hass, _STORE_VER, _STORE_KEY)
+    mem = await store.async_load() or {}
+    hass.data[DATA]["store"] = store
+    hass.data[DATA]["memory"] = mem
+
+    # Seed sticky unlocks from disk
+    for slug, ts_iso in (mem.get("last_phone_unlock", {})).items():
+        try:
+            _LAST_PHONE_UNLOCK_UTC[slug] = dt_util.parse_datetime(ts_iso)
+        except Exception:
+            pass
     return True
 
 
@@ -510,7 +541,7 @@ def _explicit_unlock_times(
 
     for ent_id in candidates:
         st = hass.states.get(ent_id)
-        if not st:
+        if not st or _is_restored_or_boot_fresh(st):
             continue
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
@@ -645,7 +676,7 @@ def _explain_phone_eligibility(
         f"sensor.{slug}_last_notification",
     ):
         st = hass.states.get(ent_id)
-        if not st:
+        if not st or _is_restored_or_boot_fresh(st):
             continue
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
