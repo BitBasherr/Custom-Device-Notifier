@@ -130,6 +130,7 @@ async def _wait_for_service(
     finally:
         unsub()
 
+
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
     return f"{DOMAIN}_route_update_{entry_id}"
