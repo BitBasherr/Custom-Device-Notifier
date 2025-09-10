@@ -59,7 +59,6 @@ from .const import (
     TTS_OPT_SERVICE,
     TTS_OPT_LANGUAGE,
     MEDIA_ORDER_OPT,
-    CONF_MEDIA_PLAYER_ORDER,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
