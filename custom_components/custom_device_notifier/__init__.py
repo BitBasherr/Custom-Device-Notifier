@@ -54,6 +54,12 @@ from .const import (
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
     CONF_SMART_PHONE_UNLOCK_WINDOW_S,
     DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
+    TTS_OPT_ENABLE,
+    TTS_OPT_DEFAULT,
+    TTS_OPT_SERVICE,
+    TTS_OPT_LANGUAGE,
+    MEDIA_ORDER_OPT,
+    CONF_MEDIA_PLAYER_ORDER,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
@@ -90,6 +96,56 @@ class EntryRuntime:
 
 # ─────────────────────────── lifecycle ───────────────────────────
 
+async def _maybe_play_tts(hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any], cfg: dict[str, Any]) -> None:
+    """If TTS is enabled and requested, call the configured tts.* service."""
+    if not cfg.get(TTS_OPT_ENABLE):
+        return
+
+    data = payload.get("data") or {}
+    # 1) explicit request via data.tts_text
+    text = None
+    if isinstance(data, dict) and data.get("tts_text"):
+        text = str(data["tts_text"])
+    # 2) or speak the normal message when 'Send TTS by default' is on
+    elif cfg.get(TTS_OPT_DEFAULT):
+        msg = payload.get("message") or payload.get("title")
+        if msg:
+            text = str(msg)
+
+    if not text:
+        return
+
+    # Pick a media player: payload override > first in configured order
+    mp = data.get("media_player_entity_id")
+    if not mp:
+        order = cfg.get(MEDIA_ORDER_OPT) or []
+        if order:
+            mp = order[0]
+
+    if not mp:
+        _LOGGER.warning("TTS requested but no media player is configured/ordered.")
+        return
+
+    tts_service = cfg.get(TTS_OPT_SERVICE)
+    if not tts_service or "." not in tts_service:
+        _LOGGER.warning("TTS requested but tts_service option is not set correctly: %r", tts_service)
+        return
+
+    lang = cfg.get(TTS_OPT_LANGUAGE) or None
+    tts_domain, tts_method = tts_service.split(".", 1)
+
+    # tts.speak uses media_player_entity_id; legacy engines (google_translate_say) use entity_id
+    svc_data: dict[str, Any] = {"message": text}
+    if tts_method == "speak":
+        svc_data["media_player_entity_id"] = mp
+    else:
+        svc_data["entity_id"] = mp
+        svc_data["cache"] = False
+    if lang:
+        svc_data["language"] = lang
+
+    _LOGGER.debug("TTS: calling %s with %s", tts_service, svc_data)
+    await hass.services.async_call(tts_domain, tts_method, svc_data, blocking=True)
 
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
@@ -284,6 +340,7 @@ async def _route_and_forward(
         }
     )
     async_dispatcher_send(hass, _signal_name(entry.entry_id), decision)
+    await _maybe_play_tts(hass, entry, payload, cfg)
 
     _LOGGER.debug("Forwarding to %s.%s | title=%s", domain, service, out.get("title"))
     await hass.services.async_call(domain, service, out, blocking=True)
