@@ -17,6 +17,8 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from homeassistant.const import EVENT_SERVICE_REGISTERED
+
 from .const import (
     DOMAIN,
     # base config
@@ -123,10 +125,10 @@ async def _wait_for_service(
             await asyncio.wait_for(evt.wait(), timeout=timeout_s)
         except asyncio.TimeoutError:
             pass
-        return hass.services.has_service(domain, service)
+        # Explicit cast to satisfy mypy
+        return bool(hass.services.has_service(domain, service))
     finally:
         unsub()
-
 
 def _signal_name(entry_id: str) -> str:
     """Dispatcher signal used to publish routing decisions (and previews)."""
