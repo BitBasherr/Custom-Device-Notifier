@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, cast
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -55,6 +55,7 @@ from .const import (
     DEFAULT_SMART_REQUIRE_PHONE_UNLOCKED,
     CONF_SMART_PHONE_UNLOCK_WINDOW_S,
     DEFAULT_SMART_PHONE_UNLOCK_WINDOW_S,
+    # TTS
     TTS_OPT_ENABLE,
     TTS_OPT_DEFAULT,
     TTS_OPT_SERVICE,
@@ -90,7 +91,7 @@ def _signal_name(entry_id: str) -> str:
     return f"{DOMAIN}_route_update_{entry_id}"
 
 
-_STARTUP_GRACE_S = 120  # you can make this an option later if you want
+_STARTUP_GRACE_S = 120  # small window to ignore "restored" freshness
 _BOOT_UTC = dt_util.utcnow()
 
 
@@ -105,7 +106,7 @@ def _is_restored_or_boot_fresh(st: State | None) -> bool:
     ts = ts_any if isinstance(ts_any, datetime) else None
     if ts is None:
         return False
-    # treat anything 'updated' in the first N seconds after boot as restored
+    # treat anything 'updated' near boot as restored
     return (ts - _BOOT_UTC) <= timedelta(seconds=_STARTUP_GRACE_S)
 
 
@@ -120,10 +121,7 @@ class EntryRuntime:
 
 
 async def _maybe_play_tts(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    payload: dict[str, Any],
-    cfg: dict[str, Any],
+    hass: HomeAssistant, entry: ConfigEntry, payload: dict[str, Any], cfg: dict[str, Any]
 ) -> None:
     """If TTS is enabled and requested, call the configured tts.* service."""
     if not cfg.get(TTS_OPT_ENABLE):
@@ -131,7 +129,7 @@ async def _maybe_play_tts(
 
     data = payload.get("data") or {}
     # 1) explicit request via data.tts_text
-    text = None
+    text: Optional[str] = None
     if isinstance(data, dict) and data.get("tts_text"):
         text = str(data["tts_text"])
     # 2) or speak the normal message when 'Send TTS by default' is on
@@ -144,9 +142,11 @@ async def _maybe_play_tts(
         return
 
     # Pick a media player: payload override > first in configured order
-    mp = data.get("media_player_entity_id")
+    mp: Optional[str] = None
+    if isinstance(data, dict):
+        mp = cast(Optional[str], data.get("media_player_entity_id"))
     if not mp:
-        order = cfg.get(MEDIA_ORDER_OPT) or []
+        order = cast(List[str], cfg.get(MEDIA_ORDER_OPT) or [])
         if order:
             mp = order[0]
 
@@ -154,14 +154,15 @@ async def _maybe_play_tts(
         _LOGGER.warning("TTS requested but no media player is configured/ordered.")
         return
 
-    tts_service = cfg.get(TTS_OPT_SERVICE)
+    tts_service = cast(Optional[str], cfg.get(TTS_OPT_SERVICE))
     if not tts_service or "." not in tts_service:
         _LOGGER.warning(
-            "TTS requested but tts_service option is not set correctly: %r", tts_service
+            "TTS requested but tts_service option is not set correctly: %r",
+            tts_service,
         )
         return
 
-    lang = cfg.get(TTS_OPT_LANGUAGE) or None
+    lang = cast(Optional[str], cfg.get(TTS_OPT_LANGUAGE)) or None
     tts_domain, tts_method = tts_service.split(".", 1)
 
     # tts.speak uses media_player_entity_id; legacy engines (google_translate_say) use entity_id
@@ -182,16 +183,18 @@ async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
     hass.data.setdefault(SERVICE_HANDLES, {})
-    store = Store(hass, _STORE_VER, _STORE_KEY)
-    mem = await store.async_load() or {}
+    store: Store = Store(hass, _STORE_VER, _STORE_KEY)
+    mem: Dict[str, Any] = await store.async_load() or {}
     hass.data[DATA]["store"] = store
     hass.data[DATA]["memory"] = mem
 
     # Seed sticky unlocks from disk
     for slug, ts_iso in (mem.get("last_phone_unlock", {})).items():
         try:
-            _LAST_PHONE_UNLOCK_UTC[slug] = dt_util.parse_datetime(ts_iso)
-        except Exception:
+            parsed = dt_util.parse_datetime(ts_iso)
+            if parsed is not None:
+                _LAST_PHONE_UNLOCK_UTC[slug] = parsed
+        except Exception:  # pragma: no cover
             pass
     return True
 
@@ -303,7 +306,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_remove("notify", slug)
 
     ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    return ok
+    return bool(ok)  # mypy: ensure bool
 
 
 # ─────────────────────────── routing entry point ───────────────────────────
@@ -339,7 +342,7 @@ async def _route_and_forward(
 
     via = "matched"
     if not target_service:
-        fb = cfg.get(CONF_FALLBACK)
+        fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
         if isinstance(fb, str) and fb:
             target_service = fb
             via = "fallback"
@@ -365,7 +368,7 @@ async def _route_and_forward(
             "Refusing to call notifier onto itself (%s); using fallback if set.",
             target_service,
         )
-        fb = cfg.get(CONF_FALLBACK)
+        fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
         if isinstance(fb, str) and fb and fb != target_service:
             domain, service = _split_service(fb)
             via = "self-recursion-fallback"
@@ -600,29 +603,36 @@ def _phone_is_unlocked_with_sticky(
     *,
     fresh_ok_any: bool,
 ) -> bool:
-    """
-    Explicit-unlock with sticky window:
-
-    - Fresh explicit unlock → unlocked (record it).
-    - Else if ANY explicit unlock exists (even stale), the phone is fresh overall,
-      and there's no newer lock → unlocked (seed memory).
-    - Else if we previously saw an unlock within unlock_window_s and no newer lock → unlocked.
-    - Else locked.
-    """
-    latest_lock_ts, latest_fresh_unlock_ts, latest_any_unlock_ts = (
-        _explicit_unlock_times(hass, slug, fresh_s)
+    latest_lock_ts, latest_fresh_unlock_ts, latest_any_unlock_ts = _explicit_unlock_times(
+        hass, slug, fresh_s
     )
     now_dt = dt_util.utcnow()
+
+    # helpers for persistence
+    mem: Dict[str, Any] = cast(
+        Dict[str, Any], hass.data.get(DATA, {}).setdefault("memory", {})
+    )
+    store: Optional[Store] = cast(
+        Optional[Store], hass.data.get(DATA, {}).get("store")
+    )
+
+    def _persist(ts: datetime) -> None:
+        d = cast(Dict[str, str], mem.setdefault("last_phone_unlock", {}))
+        d[slug] = ts.isoformat()
+        if store:
+            hass.async_create_task(store.async_save(mem))
 
     # Fresh explicit unlock wins
     if latest_fresh_unlock_ts is not None:
         _LAST_PHONE_UNLOCK_UTC[slug] = latest_fresh_unlock_ts
+        _persist(latest_fresh_unlock_ts)
         return True
 
     # Stale explicit unlock can seed if phone itself is fresh and no newer lock exists
     if fresh_ok_any and latest_any_unlock_ts is not None:
         if latest_lock_ts is None or latest_any_unlock_ts > latest_lock_ts:
             _LAST_PHONE_UNLOCK_UTC[slug] = latest_any_unlock_ts
+            _persist(latest_any_unlock_ts)
             return True
 
     # Sticky memory window
@@ -903,9 +913,7 @@ def _pc_like_is_eligible(
         ts_any = getattr(st, "last_updated", None)
         ts: Optional[datetime] = ts_any if isinstance(ts_any, datetime) else None
         now_dt = dt_util.utcnow()
-        fresh_ok = (
-            (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
-        )
+        fresh_ok = (now_dt - ts) <= timedelta(seconds=fresh_s) if ts is not None else False
         eligible = bool(is_unlocked and fresh_ok)
         _LOGGER.debug(
             "PC (lock_state) %s | state=%s fresh_ok=%s unlocked=%s eligible=%s",
@@ -973,9 +981,9 @@ def _choose_service_smart(
         If no PC is unlocked/eligible:
             pick first eligible PC; else first eligible phone.
     """
-    legacy_pc_service: str | None = cfg.get(CONF_SMART_PC_NOTIFY)
-    legacy_pc_session: str | None = cfg.get(CONF_SMART_PC_SESSION)
-    order: list[str] = list(cfg.get(CONF_SMART_PHONE_ORDER, []))
+    legacy_pc_service: str | None = cast(Optional[str], cfg.get(CONF_SMART_PC_NOTIFY))
+    legacy_pc_session: str | None = cast(Optional[str], cfg.get(CONF_SMART_PC_SESSION))
+    order: List[str] = list(cast(List[str], cfg.get(CONF_SMART_PHONE_ORDER, [])))
 
     min_batt = int(cfg.get(CONF_SMART_MIN_BATTERY, DEFAULT_SMART_MIN_BATTERY))
     phone_fresh = int(cfg.get(CONF_SMART_PHONE_FRESH_S, DEFAULT_SMART_PHONE_FRESH_S))
@@ -992,9 +1000,7 @@ def _choose_service_smart(
 
     # Optional: list of services to force as PC-like
     forced_pc_like_list = cfg.get(OPT_PC_LIKE_SERVICES, []) or []
-    forced_pc_like: Set[str] = {
-        str(s) for s in forced_pc_like_list if isinstance(s, str)
-    }
+    forced_pc_like: Set[str] = {str(s) for s in forced_pc_like_list if isinstance(s, str)}
 
     # Optional: autodetect PC-like by screen_lock / non-mobile_app
     autodetect_pc_like = bool(cfg.get(OPT_PC_AUTODETECT, True))
@@ -1044,7 +1050,7 @@ def _choose_service_smart(
     any_pc_unlocked_ok: bool = any(e["ok"] and e["unlocked"] for e in pc_evals)
 
     # Evaluate phones (sticky unlock)
-    eligible_phones: list[str] = []
+    eligible_phones: List[str] = []
     eligibility_by_phone: Dict[str, Any] = {}
     for svc in phone_candidates_order:
         expl = _explain_phone_eligibility(
@@ -1072,11 +1078,7 @@ def _choose_service_smart(
         if any_pc_unlocked_ok:
             chosen = eligible_phones[0] if eligible_phones else first_pc_ok
         else:
-            chosen = (
-                first_pc_ok
-                if first_pc_ok
-                else (eligible_phones[0] if eligible_phones else None)
-            )
+            chosen = first_pc_ok if first_pc_ok else (eligible_phones[0] if eligible_phones else None)
 
     else:
         _LOGGER.warning("Unknown smart policy %r; defaulting to PC_FIRST", policy)
@@ -1278,16 +1280,14 @@ class PreviewManager:
 
         if not chosen:
             # show fallback if present (this matches UI expectations for "what would happen now")
-            fb = cfg.get(CONF_FALLBACK)
+            fb = cast(Optional[str], cfg.get(CONF_FALLBACK))
             if isinstance(fb, str) and fb:
                 chosen = fb
                 decision["via"] = "preview-fallback"
 
         if chosen:
             domain, service = _split_service(chosen)
-            decision.update(
-                {"result": "forwarded", "service_full": f"{domain}.{service}"}
-            )
+            decision.update({"result": "forwarded", "service_full": f"{domain}.{service}"})
         else:
             decision.update({"result": "dropped", "service_full": None})
 
