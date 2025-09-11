@@ -75,7 +75,7 @@ from .const import (
     CONF_MSG_REPLY_TRANSPORT,
     CONF_MSG_KDECONNECT_DEVICE_ID,
     CONF_MSG_TASKER_EVENT,
-    #Messaging Specific Constants:
+    # Messaging Specific Constants:
     DEFAULT_MSG_REPLY_TRANSPORT,
     DEFAULT_MSG_TASKER_EVENT,
 )
@@ -201,6 +201,7 @@ class EntryRuntime:
     service_name: str  # notify service name (slug)
     preview: Optional["PreviewManager"] = None  # live preview publisher
     msg_bridge: Optional["MessageBridge"] = None  # messages mirror/reply
+
 
 # ─────────────────────────── lifecycle ───────────────────────────
 
@@ -395,16 +396,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pm = PreviewManager(hass, entry)
     await pm.async_start()
     rt.preview = pm
-    
+
     # NEW: start messages bridge if enabled
     mb = MessageBridge(hass, entry)
     await mb.async_start()
     rt.msg_bridge = mb
-    
+
     # proper unload cleanup
     async def _stop_preview() -> None:
         await pm.async_stop()
-        
+
     async def _stop_bridge() -> None:
         if rt.msg_bridge:
             await rt.msg_bridge.async_stop()
@@ -427,6 +428,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
         await rt.msg_bridge.async_stop()
         await rt.msg_bridge.async_start()
     _LOGGER.debug("Options updated for %s", entry.entry_id)
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     rt: EntryRuntime | None = hass.data[DATA].pop(entry.entry_id, None)
@@ -1446,7 +1448,9 @@ class MessageBridge:
     async def _send_reply(self, number: str, text: str, pkg: str, conv_id: str) -> None:
         """Send the reply using the configured transport."""
         cfg = self._cfg()
-        transport = str(cfg.get(CONF_MSG_REPLY_TRANSPORT) or DEFAULT_MSG_REPLY_TRANSPORT)
+        transport = str(
+            cfg.get(CONF_MSG_REPLY_TRANSPORT) or DEFAULT_MSG_REPLY_TRANSPORT
+        )
 
         if transport == "kdeconnect":
             device_id = str(cfg.get(CONF_MSG_KDECONNECT_DEVICE_ID) or "")
