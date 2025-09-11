@@ -75,14 +75,9 @@ from .const import (
     CONF_MSG_REPLY_TRANSPORT,
     CONF_MSG_KDECONNECT_DEVICE_ID,
     CONF_MSG_TASKER_EVENT,
-
-    DEFAULT_MSG_ENABLE,
-    DEFAULT_MSG_APPS,
+    #Messaging Specific Constants:
     DEFAULT_MSG_REPLY_TRANSPORT,
     DEFAULT_MSG_TASKER_EVENT,
-
-    # Config-flow step id
-    STEP_MESSAGES_SETUP,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
