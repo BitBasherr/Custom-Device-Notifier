@@ -91,12 +91,10 @@ from .const import (
     CONF_MSG_REPLY_TRANSPORT,
     CONF_MSG_KDECONNECT_DEVICE_ID,
     CONF_MSG_TASKER_EVENT,
-
     DEFAULT_MSG_ENABLE,
     DEFAULT_MSG_APPS,
     DEFAULT_MSG_REPLY_TRANSPORT,
     DEFAULT_MSG_TASKER_EVENT,
-
     # Config-flow step id
     STEP_MESSAGES_SETUP,
 )
@@ -264,11 +262,16 @@ def _wipe_keys(d: dict[str, Any], keys: list[str]) -> None:
     for k in keys:
         d.pop(k, None)
 
+
 def _messages_placeholders(self) -> dict[str, str]:
     return {
         "note": "Mirror notifications from a phone’s Last Notification sensor and allow inline replies."
     }
-def _get_messages_setup_schema(self, existing: dict[str, Any] | None = None) -> vol.Schema:
+
+
+def _get_messages_setup_schema(
+    self, existing: dict[str, Any] | None = None
+) -> vol.Schema:
     existing = existing or {}
     notify_options = [f"notify.{s}" for s in _notify_services(self.hass)]
     common_pkgs = [
@@ -276,7 +279,7 @@ def _get_messages_setup_schema(self, existing: dict[str, Any] | None = None) -> 
         "org.thoughtcrime.securesms",  # Signal
         "com.whatsapp",
         "org.telegram.messenger",
-        "com.facebook.orca",           # Messenger
+        "com.facebook.orca",  # Messenger
     ]
     return vol.Schema(
         {
@@ -292,13 +295,25 @@ def _get_messages_setup_schema(self, existing: dict[str, Any] | None = None) -> 
                 CONF_MSG_APPS,
                 default=existing.get(CONF_MSG_APPS, DEFAULT_MSG_APPS),
             ): selector(
-                {"select": {"options": common_pkgs, "multiple": True, "custom_value": True}}
+                {
+                    "select": {
+                        "options": common_pkgs,
+                        "multiple": True,
+                        "custom_value": True,
+                    }
+                }
             ),
             vol.Optional(
                 CONF_MSG_TARGETS,
                 default=existing.get(CONF_MSG_TARGETS, []),
             ): selector(
-                {"select": {"options": notify_options, "multiple": True, "custom_value": True}}
+                {
+                    "select": {
+                        "options": notify_options,
+                        "multiple": True,
+                        "custom_value": True,
+                    }
+                }
             ),
             vol.Required(
                 CONF_MSG_REPLY_TRANSPORT,
@@ -325,6 +340,7 @@ def _get_messages_setup_schema(self, existing: dict[str, Any] | None = None) -> 
             ): str,
         }
     )
+
 
 # ──────────────────────────── Config Flow ────────────────────────────────
 class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -416,8 +432,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
                     default=existing.get(CONF_SMART_PC_NOTIFY, pc_default),
-                ): selector({"select": {"options": self._smart_pc_candidates(),
-                                        "custom_value": True}}),
+                ): selector(
+                    {
+                        "select": {
+                            "options": self._smart_pc_candidates(),
+                            "custom_value": True,
+                        }
+                    }
+                ),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
@@ -1155,7 +1177,8 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             if nxt == "routing":
                 return self.async_show_form(
-                    step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
                 )
             if nxt == "done":
                 services = [t[KEY_SERVICE] for t in self._targets]
@@ -1732,7 +1755,9 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             self._data.update(
                 {
-                    CONF_MSG_ENABLE: user_input.get(CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE),
+                    CONF_MSG_ENABLE: user_input.get(
+                        CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE
+                    ),
                     CONF_MSG_SOURCE_SENSOR: user_input.get(CONF_MSG_SOURCE_SENSOR, ""),
                     CONF_MSG_APPS: user_input.get(CONF_MSG_APPS, DEFAULT_MSG_APPS),
                     CONF_MSG_TARGETS: user_input.get(CONF_MSG_TARGETS, []),
@@ -1856,8 +1881,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_SMART_PC_NOTIFY,
                     default=existing.get(CONF_SMART_PC_NOTIFY, pc_default),
-                ): selector({"select": {"options": self._smart_pc_candidates(),
-                                        "custom_value": True}}),
+                ): selector(
+                    {
+                        "select": {
+                            "options": self._smart_pc_candidates(),
+                            "custom_value": True,
+                        }
+                    }
+                ),
                 vol.Required(
                     CONF_SMART_PC_SESSION,
                     default=existing.get(CONF_SMART_PC_SESSION, pc_session_default),
@@ -2174,7 +2205,11 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             options.insert(1, {"value": "edit", "label": "✏️ Edit target"})
             options.insert(2, {"value": "remove", "label": "➖ Remove target"})
         return vol.Schema(
-            {vol.Required("next", default="add"): selector({"select": {"options": options}})}
+            {
+                vol.Required("next", default="add"): selector(
+                    {"select": {"options": options}}
+                )
+            }
         )
 
     def _get_order_targets_schema(
@@ -2617,7 +2652,9 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input:
             self._data.update(
                 {
-                    CONF_MSG_ENABLE: user_input.get(CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE),
+                    CONF_MSG_ENABLE: user_input.get(
+                        CONF_MSG_ENABLE, DEFAULT_MSG_ENABLE
+                    ),
                     CONF_MSG_SOURCE_SENSOR: user_input.get(CONF_MSG_SOURCE_SENSOR, ""),
                     CONF_MSG_APPS: user_input.get(CONF_MSG_APPS, DEFAULT_MSG_APPS),
                     CONF_MSG_TARGETS: user_input.get(CONF_MSG_TARGETS, []),
@@ -2944,7 +2981,8 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 )
             if nxt == "routing":
                 return self.async_show_form(
-                    step_id=STEP_ROUTING_MODE, data_schema=self._get_routing_mode_schema()
+                    step_id=STEP_ROUTING_MODE,
+                    data_schema=self._get_routing_mode_schema(),
                 )
             if nxt == "done":
                 services = [t[KEY_SERVICE] for t in self._targets]
