@@ -451,6 +451,7 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             "options": [
                                 {"value": "reorder_phones", "label": "Reorder phones…"},
                                 {"value": "audio", "label": "Audio / TTS setup…"},
+                                {"value": "messages", "label": "Messages bridge…"},
                                 {"value": "routing", "label": "Choose routing mode…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
@@ -1425,6 +1426,14 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 description_placeholders=self._audio_placeholders(),
             )
 
+        # open Messages bridge directly from Smart setup
+        if user_input and user_input.get("nav") == "messages":
+            return self.async_show_form(
+                step_id=STEP_MESSAGES_SETUP,
+                data_schema=_get_messages_setup_schema(self, self._data),
+                description_placeholders=_messages_placeholders(self),
+            )
+
         # Stay here: persist posted values but do not advance
         if user_input and user_input.get("nav") == "stay":
             self._data[CONF_SMART_PHONE_ORDER] = list(self._phone_order_list)
@@ -1890,6 +1899,7 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                             "options": [
                                 {"value": "reorder_phones", "label": "Reorder phones…"},
                                 {"value": "audio", "label": "Audio / TTS setup…"},
+                                {"value": "messages", "label": "Messages bridge…"},
                                 {"value": "routing", "label": "Choose routing mode…"},
                                 {"value": "stay", "label": "Stay here"},
                             ],
@@ -2316,6 +2326,14 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                 step_id=STEP_AUDIO_SETUP,
                 data_schema=self._get_audio_setup_schema(self._data),
                 description_placeholders=self._audio_placeholders(),
+            )
+
+        # open Messages bridge directly from Smart setup
+        if user_input and user_input.get("nav") == "messages":
+            return self.async_show_form(
+                step_id=STEP_MESSAGES_SETUP,
+                data_schema=_get_messages_setup_schema(self, self._data),
+                description_placeholders=_messages_placeholders(self),
             )
         if user_input and user_input.get("nav") == "stay":
             self._data.update(
