@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Medication Tracker</title>
+    <style>
+        body {
+            font-family: var(--primary-font-family, "Roboto", sans-serif);
+            margin: 0;
+            padding: 20px;
+            background-color: var(--primary-background-color, #fafafa);
+            color: var(--primary-text-color, #212121);
+        }
+        
+        h1 {
+            color: var(--primary-color, #03a9f4);
+            margin-bottom: 20px;
+        }
+        
+        .medication-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .medication-card {
+            background: var(--card-background-color, white);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: box-shadow 0.3s ease;
+        }
+        
+        .medication-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .medication-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .medication-name {
+            font-size: 1.3em;
+            font-weight: 500;
+            color: var(--primary-text-color, #212121);
+        }
+        
+        .medication-status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+        
+        .status-complete {
+            background-color: #4caf50;
+            color: white;
+        }
+        
+        .status-partial {
+            background-color: #ff9800;
+            color: white;
+        }
+        
+        .status-not-taken {
+            background-color: #f44336;
+            color: white;
+        }
+        
+        .medication-details {
+            margin-bottom: 15px;
+            font-size: 0.95em;
+            color: var(--secondary-text-color, #727272);
+        }
+        
+        .detail-row {
+            display: flex;
+            padding: 5px 0;
+        }
+        
+        .detail-label {
+            font-weight: 500;
+            min-width: 180px;
+        }
+        
+        .detail-value {
+            flex: 1;
+        }
+        
+        .schedule-times {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .schedule-time {
+            background: var(--primary-color, #03a9f4);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 500;
+            transition: background-color 0.3s ease;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color, #03a9f4);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #0288d1;
+        }
+        
+        .btn-secondary {
+            background-color: var(--secondary-background-color, #e0e0e0);
+            color: var(--primary-text-color, #212121);
+        }
+        
+        .btn-secondary:hover {
+            background-color: #d0d0d0;
+        }
+        
+        .btn-all {
+            background-color: #4caf50;
+            color: white;
+            padding: 12px 30px;
+            font-size: 1.1em;
+            margin-bottom: 20px;
+        }
+        
+        .btn-all:hover {
+            background-color: #45a049;
+        }
+        
+        .time-input-container {
+            display: none;
+            margin-top: 10px;
+            padding: 15px;
+            background: var(--secondary-background-color, #f5f5f5);
+            border-radius: 4px;
+        }
+        
+        .time-input-container.active {
+            display: block;
+        }
+        
+        .time-input {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        input[type="date"],
+        input[type="time"] {
+            padding: 8px;
+            border: 1px solid var(--divider-color, #e0e0e0);
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--secondary-text-color, #727272);
+        }
+        
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .info-box {
+            background-color: var(--info-color, #e3f2fd);
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏥 Medication Tracker</h1>
+    
+    <div class="info-box">
+        <strong>Medication logs location:</strong> <span id="log-location">Loading...</span>
+    </div>
+    
+    <button class="btn-all" onclick="markAllTaken()">✓ Mark All Medications Taken</button>
+    
+    <div id="content" class="loading">Loading medications...</div>
+    
+    <script>
+        let medications = [];
+        
+        async function loadMedications() {
+            try {
+                const states = await window.hassConnection.sendMessagePromise({
+                    type: 'get_states'
+                });
+                
+                medications = states.filter(state => 
+                    state.entity_id.startsWith('sensor.medication_')
+                );
+                
+                if (medications.length === 0) {
+                    document.getElementById('content').innerHTML = `
+                        <div class="info-box">
+                            No medications configured. Please configure medications in the integration settings.
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Get log location from first medication
+                if (medications.length > 0 && medications[0].attributes.log_file) {
+                    const logPath = medications[0].attributes.log_file;
+                    const logDir = logPath.substring(0, logPath.lastIndexOf('/'));
+                    document.getElementById('log-location').textContent = logDir;
+                }
+                
+                renderMedications();
+            } catch (error) {
+                document.getElementById('content').innerHTML = `
+                    <div class="error">Error loading medications: ${error.message}</div>
+                `;
+            }
+        }
+        
+        function renderMedications() {
+            const content = document.getElementById('content');
+            content.className = 'medication-list';
+            content.innerHTML = '';
+            
+            medications.forEach((med, index) => {
+                const card = createMedicationCard(med, index);
+                content.appendChild(card);
+            });
+        }
+        
+        function createMedicationCard(med, index) {
+            const card = document.createElement('div');
+            card.className = 'medication-card';
+            
+            const attrs = med.attributes;
+            const medName = attrs.medication_name || 'Unknown';
+            const state = med.state;
+            const lastTaken = attrs['Last Taken at'] || 'Never';
+            const dosesToday = attrs['Doses taken today'] || [];
+            const doseRatio = attrs['Doses Taken/Doses Scheduled'] || '0/0';
+            const schedule = attrs.schedule || [];
+            
+            // Determine status class
+            let statusClass = 'status-not-taken';
+            if (state === 'Complete') {
+                statusClass = 'status-complete';
+            } else if (state.startsWith('Partial')) {
+                statusClass = 'status-partial';
+            }
+            
+            card.innerHTML = `
+                <div class="medication-header">
+                    <div class="medication-name">💊 ${medName}</div>
+                    <div class="medication-status ${statusClass}">${state}</div>
+                </div>
+                
+                <div class="medication-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Last Taken:</span>
+                        <span class="detail-value">${formatTimestamp(lastTaken)}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Doses Taken/Scheduled:</span>
+                        <span class="detail-value">${doseRatio}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Schedule:</span>
+                        <span class="detail-value">
+                            <div class="schedule-times">
+                                ${schedule.map(time => `<span class="schedule-time">${time}</span>`).join('')}
+                            </div>
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Doses Today:</span>
+                        <span class="detail-value">${dosesToday.length > 0 ? dosesToday.join(', ') : 'None'}</span>
+                    </div>
+                </div>
+                
+                <div class="button-group">
+                    <button class="btn-primary" onclick="markTaken('${medName}')">Mark Taken Now</button>
+                    <button class="btn-secondary" onclick="toggleTimeInput(${index})">Custom Time</button>
+                </div>
+                
+                <div class="time-input-container" id="time-input-${index}">
+                    <div class="time-input">
+                        <label>Date:</label>
+                        <input type="date" id="date-${index}" value="${getTodayDate()}">
+                        <label>Time:</label>
+                        <input type="time" id="time-${index}" value="${getCurrentTime()}">
+                    </div>
+                    <button class="btn-primary" onclick="markTakenCustomTime('${medName}', ${index})">
+                        Mark Taken at Selected Time
+                    </button>
+                </div>
+            `;
+            
+            return card;
+        }
+        
+        function formatTimestamp(timestamp) {
+            if (timestamp === 'Never' || !timestamp) {
+                return 'Never';
+            }
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString();
+            } catch {
+                return timestamp;
+            }
+        }
+        
+        function getTodayDate() {
+            return new Date().toISOString().split('T')[0];
+        }
+        
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toTimeString().substring(0, 5);
+        }
+        
+        function toggleTimeInput(index) {
+            const container = document.getElementById(`time-input-${index}`);
+            container.classList.toggle('active');
+        }
+        
+        async function markTaken(medName) {
+            try {
+                await window.hassConnection.sendMessagePromise({
+                    type: 'call_service',
+                    domain: 'custom_device_notifier',
+                    service: 'mark_medication_taken',
+                    service_data: {
+                        medication_name: medName
+                    }
+                });
+                
+                // Reload after a short delay to show updated state
+                setTimeout(loadMedications, 1000);
+            } catch (error) {
+                alert(`Error marking medication taken: ${error.message}`);
+            }
+        }
+        
+        async function markTakenCustomTime(medName, index) {
+            const dateInput = document.getElementById(`date-${index}`);
+            const timeInput = document.getElementById(`time-${index}`);
+            
+            const timestamp = `${dateInput.value}T${timeInput.value}:00`;
+            
+            try {
+                await window.hassConnection.sendMessagePromise({
+                    type: 'call_service',
+                    domain: 'custom_device_notifier',
+                    service: 'mark_medication_taken',
+                    service_data: {
+                        medication_name: medName,
+                        timestamp: timestamp
+                    }
+                });
+                
+                // Reload after a short delay to show updated state
+                setTimeout(loadMedications, 1000);
+            } catch (error) {
+                alert(`Error marking medication taken: ${error.message}`);
+            }
+        }
+        
+        async function markAllTaken() {
+            if (!confirm('Mark all medications as taken?')) {
+                return;
+            }
+            
+            try {
+                await window.hassConnection.sendMessagePromise({
+                    type: 'call_service',
+                    domain: 'custom_device_notifier',
+                    service: 'mark_all_medications_taken',
+                    service_data: {}
+                });
+                
+                // Reload after a short delay to show updated state
+                setTimeout(loadMedications, 1000);
+            } catch (error) {
+                alert(`Error marking all medications taken: ${error.message}`);
+            }
+        }
+        
+        // Subscribe to state changes
+        async function subscribeToChanges() {
+            await window.hassConnection.subscribeEvents((event) => {
+                if (event.data.entity_id && event.data.entity_id.startsWith('sensor.medication_')) {
+                    loadMedications();
+                }
+            }, 'state_changed');
+        }
+        
+        // Initialize
+        window.addEventListener('load', async () => {
+            // Wait for Home Assistant connection
+            while (!window.hassConnection) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            await loadMedications();
+            await subscribeToChanges();
+            
+            // Refresh every 30 seconds
+            setInterval(loadMedications, 30000);
+        });
+    </script>
+</body>
+</html>

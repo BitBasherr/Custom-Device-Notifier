@@ -116,3 +116,23 @@ DEFAULT_MSG_TASKER_EVENT = "custom_device_notifier.reply"
 
 # Config-flow step id
 STEP_MESSAGES_SETUP = "messages_setup"
+
+# ── Medication Tracking ─────────────────────────────────────────────────
+CONF_MEDICATIONS = "medications"  # list of medication configs
+CONF_MED_NAME = "med_name"
+CONF_MED_SCHEDULE = "med_schedule"  # list of scheduled times per day
+CONF_MED_ENABLED = "med_enabled"
+
+# Storage
+MEDICATION_STORAGE_VERSION = 1
+MEDICATION_STORAGE_KEY = f"{DOMAIN}_medications"
+
+# Services
+SERVICE_MARK_TAKEN = "mark_medication_taken"
+SERVICE_MARK_ALL_TAKEN = "mark_all_medications_taken"
+
+# Panel
+PANEL_NAME = "medication_tracker"
+PANEL_TITLE = "Medications"
+PANEL_ICON = "mdi:pill"
+PANEL_URL = "/api/panel_custom/medication_tracker"
