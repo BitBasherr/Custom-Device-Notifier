@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional, Callable, List
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,6 +13,9 @@ from .const import (
     DOMAIN,
     CONF_SERVICE_NAME,
     CONF_SERVICE_NAME_RAW,
+    CONF_MEDICATIONS,
+    CONF_MED_NAME,
+    CONF_MED_SCHEDULE,
 )
 
 # If you prefer to avoid importing from __init__, copy the helper here instead.
@@ -22,7 +25,20 @@ from . import _signal_name
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ) -> None:
-    async_add_entities([CurrentTargetSensor(hass, entry)], True)
+    entities: List[SensorEntity] = [CurrentTargetSensor(hass, entry)]
+    
+    # Add medication sensors if configured
+    medications = entry.options.get(CONF_MEDICATIONS, [])
+    if medications:
+        from .medication_sensor import MedicationSensor
+        
+        for med_config in medications:
+            med_name = med_config.get(CONF_MED_NAME, "")
+            schedule = med_config.get(CONF_MED_SCHEDULE, [])
+            if med_name:
+                entities.append(MedicationSensor(hass, entry, med_name, schedule))
+    
+    async_add_entities(entities, True)
 
 
 class CurrentTargetSensor(RestoreEntity, SensorEntity):
