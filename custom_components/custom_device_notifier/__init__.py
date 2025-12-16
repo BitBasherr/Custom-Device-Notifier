@@ -394,7 +394,7 @@ async def _register_medication_services(hass: HomeAssistant, entry: ConfigEntry)
         medications = entry.options.get(CONF_MEDICATIONS, [])
         
         for med_config in medications:
-            med_name = med_config.get("med_name")
+            med_name = med_config.get(CONF_MED_NAME)
             if med_name:
                 # Trigger mark_taken for each medication
                 await hass.services.async_call(
