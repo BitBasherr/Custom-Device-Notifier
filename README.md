@@ -2,27 +2,6 @@
 
 Create a custom `notify.<your_name>` service in Home Assistant that evaluates multiple conditions (across sensors, binary_sensors, device_trackers, inputs, etc.) in priority order and forwards your notification to the first matching underlying service—or to a fallback—without writing extra automations.
 
-**NEW**: Now includes medication tracking with a sidebar panel, CSV logging, and dose monitoring!
-
-## ✨ Features
-
-### Notification Routing
-- **Conditional Routing**: Route notifications based on entity states and conditions
-- **Smart Select**: Intelligent PC/Phone selection based on device state
-- **Priority-based**: First matching target wins
-- **Fallback Support**: Always have a backup notification method
-- **Live Preview**: Real-time sensor showing current routing target
-
-### 💊 Medication Tracking (NEW)
-- **Sidebar Panel**: Dedicated UI for viewing and managing all medications
-- **CSV Logging**: Persistent history with timestamps for each medication
-- **Dose Monitoring**: Track scheduled vs. taken doses throughout the day
-- **Services**: Mark medications taken via automation or manual action
-- **Attributes**: Rich sensor data including last taken time, doses today, and compliance ratio
-- **Non-scroll Time Pickers**: Easy-to-use date/time selection
-
-[See full medication tracking documentation →](MEDICATION_TRACKING.md)
-
 ## 📥 Installation
 
 ### HACS
@@ -89,50 +68,12 @@ data:
 
 A live sensor `sensor.<slug>_current_target` shows which underlying service would fire **right now**.
 
-## 💊 Medication Tracking
-
-Track medications with ease using the integrated medication management system:
-
-### Quick Start
-
-1. **Configure Medications**:
-   - Go to your Custom Device Notifier integration
-   - Click **Configure**
-   - Select **💊 Medication tracking**
-   - Add medications with names and schedules (e.g., "08:00,20:00")
-
-2. **Access the Panel**:
-   - Find the **Medications** panel in your sidebar (💊 icon)
-   - View all medications, their status, and schedule
-   - Mark medications as taken with one click
-
-3. **Use in Automations**:
-   ```yaml
-   service: custom_device_notifier.mark_medication_taken
-   data:
-     medication_name: "Aspirin"
-   ```
-
-### Features
-- ✅ **Status Tracking**: See if medications are Not Taken, Partial, or Complete for the day
-- ✅ **CSV Logs**: All doses logged to `<config>/custom_components/custom_device_notifier/medication_logs/`
-- ✅ **Rich Attributes**: Last Taken at, Doses taken today, Doses Taken/Doses Scheduled (as string like "1/2")
-- ✅ **Mark All**: Bulk action to mark all medications taken at once
-- ✅ **Custom Times**: Set historical or future doses with date/time pickers
-
-[Full medication tracking documentation →](MEDICATION_TRACKING.md)
-
 ## 🛠 Developer-Tools
 
 - **Service Domain**: `custom_device_notifier`  
 - **Service**: `evaluate`  
 - **Usage**: In Developer Tools → Services, select `custom_device_notifier.evaluate` to dump each condition’s result and the overall match decision to the log.
 
-
-### Medication Tracking
-- **Service**: `mark_medication_taken` - Mark a specific medication as taken
-- **Service**: `mark_all_medications_taken` - Mark all medications as taken
-- **Sensors**: Each medication gets a sensor at `sensor.medication_<name>` with rich attributes
 ## 🐞 Debug Logging
 
 To see detailed logs, add to your `configuration.yaml`:

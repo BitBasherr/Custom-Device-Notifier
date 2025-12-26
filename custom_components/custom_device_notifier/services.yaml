@@ -15,25 +15,3 @@ evaluate:
       required: false
       selector:
         text:
-
-mark_medication_taken:
-  name: Mark Medication Taken
-  description: Mark a specific medication as taken at the current time or a specified time.
-  fields:
-    medication_name:
-      name: Medication Name
-      description: The name of the medication to mark as taken.
-      required: true
-      selector:
-        text:
-    timestamp:
-      name: Timestamp
-      description: Optional ISO 8601 timestamp when the medication was taken. Defaults to now.
-      required: false
-      selector:
-        text:
-
-mark_all_medications_taken:
-  name: Mark All Medications Taken
-  description: Mark all configured medications as taken at the current time.
-

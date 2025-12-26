@@ -97,13 +97,6 @@ from .const import (
     DEFAULT_MSG_TASKER_EVENT,
     # Config-flow step id
     STEP_MESSAGES_SETUP,
-    # Medication tracking
-    CONF_MEDICATIONS,
-    CONF_MED_NAME,
-    CONF_MED_SCHEDULE,
-    CONF_MED_ENABLED,
-    STEP_MEDICATION_SETUP,
-    STEP_ADD_MEDICATION,
 )
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -591,31 +584,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
             }
         )
-    
-    def _get_medication_setup_schema(self) -> vol.Schema:
-        """Get medication setup schema."""
-        medications = self._data.get(CONF_MEDICATIONS, [])
-        
-        med_lines = []
-        for i, med in enumerate(medications):
-            name = med.get(CONF_MED_NAME, "")
-            schedule = med.get(CONF_MED_SCHEDULE, [])
-            sched_str = ", ".join(schedule) if schedule else "No schedule"
-            med_lines.append(f"{i+1}. {name} ({sched_str})")
-        
-        current_meds = "\n".join(med_lines) if med_lines else "No medications configured"
-        
-        return vol.Schema({
-            vol.Optional("action", default="add"): selector({
-                "select": {
-                    "options": [
-                        {"value": "add", "label": "➕ Add medication"},
-                        {"value": "remove", "label": "➖ Remove medication"},
-                        {"value": "done", "label": "✅ Done"},
-                    ]
-                }
-            })
-        })
 
     def _get_condition_more_schema(self) -> vol.Schema:
         options = [
@@ -788,7 +756,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {"value": "add", "label": "➕ Add target"},
             {"value": "audio", "label": "🔊 Audio / TTS setup"},
             {"value": "messages", "label": "💬 Messages bridge"},
-            {"value": "medications", "label": "💊 Medication tracking"},
             {"value": "routing", "label": "🧠 Choose routing mode"},
             {"value": "done", "label": "✅ Done"},
         ]
@@ -1207,11 +1174,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     step_id=STEP_MESSAGES_SETUP,
                     data_schema=_get_messages_setup_schema(self, self._data),
                     description_placeholders=_messages_placeholders(self),
-                )
-            if nxt == "medications":
-                return self.async_show_form(
-                    step_id=STEP_MEDICATION_SETUP,
-                    data_schema=self._get_medication_setup_schema(),
                 )
             if nxt == "routing":
                 return self.async_show_form(
@@ -1830,101 +1792,6 @@ class CustomDeviceNotifierConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders=_messages_placeholders(self),
         )
 
-
-    async def async_step_medication_setup(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle medication setup step."""
-        if user_input:
-            action = user_input.get("action", "done")
-            
-            if action == "add":
-                return self.async_show_form(
-                    step_id=STEP_ADD_MEDICATION,
-                    data_schema=vol.Schema({
-                        vol.Required("medication_name"): str,
-                        vol.Required("schedule_times", default="08:00,20:00"): str,
-                    }),
-                    description_placeholders={
-                        "info": "Enter medication name and schedule times (comma-separated, 24h format)"
-                    },
-                )
-            
-            elif action == "remove":
-                medications = self._data.get(CONF_MEDICATIONS, [])
-                if medications:
-                    med_names = [m.get(CONF_MED_NAME, f"Med {i}") for i, m in enumerate(medications)]
-                    return self.async_show_form(
-                        step_id="remove_medication",
-                        data_schema=vol.Schema({
-                            vol.Required("medication_to_remove"): selector({
-                                "select": {"options": med_names}
-                            })
-                        })
-                    )
-            
-            elif action == "done":
-                return self.async_show_form(
-                    step_id=STEP_TARGET_MORE,
-                    data_schema=self._get_target_more_schema(),
-                    description_placeholders=self._get_target_more_placeholders(),
-                )
-        
-        # Show current medications
-        medications = self._data.get(CONF_MEDICATIONS, [])
-        return self.async_show_form(
-            step_id=STEP_MEDICATION_SETUP,
-            data_schema=self._get_medication_setup_schema(),
-            description_placeholders={
-                "current_medications": self._format_medications_list(medications)
-            },
-        )
-    
-    async def async_step_add_medication(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle adding a medication."""
-        if user_input:
-            med_name = user_input.get("medication_name", "").strip()
-            schedule_str = user_input.get("schedule_times", "").strip()
-            
-            # Parse schedule times
-            schedule = [t.strip() for t in schedule_str.split(",") if t.strip()]
-            
-            # Add medication to data
-            medications = list(self._data.get(CONF_MEDICATIONS, []))
-            medications.append({
-                CONF_MED_NAME: med_name,
-                CONF_MED_SCHEDULE: schedule,
-                CONF_MED_ENABLED: True,
-            })
-            self._data[CONF_MEDICATIONS] = medications
-            
-            # Return to medication setup
-            return await self.async_step_medication_setup()
-        
-        return self.async_show_form(
-            step_id=STEP_ADD_MEDICATION,
-            data_schema=vol.Schema({
-                vol.Required("medication_name"): str,
-                vol.Required("schedule_times", default="08:00,20:00"): str,
-            }),
-        )
-    
-    def _format_medications_list(self, medications: list) -> str:
-        """Format medications list for display."""
-        if not medications:
-            return "No medications configured yet."
-        
-        lines = []
-        for i, med in enumerate(medications, 1):
-            name = med.get(CONF_MED_NAME, "Unknown")
-            schedule = med.get(CONF_MED_SCHEDULE, [])
-            sched_str = ", ".join(schedule) if schedule else "No schedule"
-            lines.append(f"{i}. {name} - Schedule: {sched_str}")
-        
-        return "\n".join(lines)
-
     @staticmethod
     @callback
     def async_get_options_flow(
@@ -2331,7 +2198,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
             {"value": "add", "label": "➕ Add target"},
             {"value": "audio", "label": "🔊 Audio / TTS setup"},
             {"value": "messages", "label": "💬 Messages bridge"},
-            {"value": "medications", "label": "💊 Medication tracking"},
             {"value": "routing", "label": "🧠 Choose routing mode"},
             {"value": "done", "label": "✅ Done"},
         ]
@@ -3112,11 +2978,6 @@ class CustomDeviceNotifierOptionsFlowHandler(config_entries.OptionsFlow):
                     step_id=STEP_MESSAGES_SETUP,
                     data_schema=_get_messages_setup_schema(self, self._data),
                     description_placeholders=_messages_placeholders(self),
-                )
-            if nxt == "medications":
-                return self.async_show_form(
-                    step_id=STEP_MEDICATION_SETUP,
-                    data_schema=self._get_medication_setup_schema(),
                 )
             if nxt == "routing":
                 return self.async_show_form(

@@ -78,10 +78,6 @@ from .const import (
     # Messaging Specific Constants:
     DEFAULT_MSG_REPLY_TRANSPORT,
     DEFAULT_MSG_TASKER_EVENT,
-    # Medication tracking
-    SERVICE_MARK_TAKEN,
-    SERVICE_MARK_ALL_TAKEN,
-    CONF_MEDICATIONS,
 )
 
 from .notify import build_notify_payload  # <-- use helper to preserve nested data
@@ -306,125 +302,6 @@ async def _maybe_play_tts(
         _LOGGER.exception("TTS call %s failed", tts_service)
 
 
-# ─────────────────────────── medication panel ───────────────────────────
-
-
-async def _register_medication_panel(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Register medication tracker panel if medications are configured."""
-    from pathlib import Path
-    
-    medications = entry.options.get(CONF_MEDICATIONS, [])
-    if not medications:
-        return
-    
-    # Get the path to the panel HTML file
-    integration_dir = Path(__file__).parent
-    panel_path = integration_dir / "www" / "medication_panel.html"
-    
-    if not panel_path.exists():
-        _LOGGER.warning("Medication panel HTML file not found at %s", panel_path)
-        return
-    
-    # Register the panel (only once)
-    from homeassistant.components import frontend
-    
-    try:
-        # Register as a custom panel
-        await hass.http.async_register_static_paths([
-            {"url": "/local/medication_panel.html", "path": str(panel_path)}
-        ])
-        
-        # Add the panel to the sidebar
-        if not hass.data.get("custom_panels", {}).get("medication_tracker"):
-            hass.components.frontend.async_register_built_in_panel(
-                "iframe",
-                "Medications",
-                "mdi:pill",
-                "medication_tracker",
-                {"url": "/local/medication_panel.html"},
-                require_admin=False,
-            )
-            hass.data.setdefault("custom_panels", {})["medication_tracker"] = True
-            _LOGGER.info("Registered medication tracker panel")
-    except Exception as e:
-        _LOGGER.error("Failed to register medication panel: %s", e)
-
-
-# ─────────────────────────── medication services ───────────────────────────
-
-
-async def _register_medication_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Register medication tracking services."""
-    
-    async def handle_mark_taken(call: ServiceCall) -> None:
-        """Handle mark_medication_taken service call."""
-        med_name = call.data.get("medication_name")
-        timestamp_str = call.data.get("timestamp")
-        
-        if not med_name:
-            _LOGGER.error("No medication_name provided")
-            return
-        
-        # Parse timestamp if provided
-        timestamp = None
-        if timestamp_str:
-            timestamp = dt_util.parse_datetime(timestamp_str)
-            if timestamp is None:
-                _LOGGER.error("Invalid timestamp format: %s", timestamp_str)
-                return
-        
-        # Find the medication sensor
-        slug = entry.data.get(CONF_SERVICE_NAME, "custom_notifier")
-        safe_name = med_name.lower().replace(" ", "_")
-        entity_id = f"sensor.medication_{safe_name}"
-        
-        # Get entity from registry
-        from homeassistant.helpers import entity_platform
-        platform = entity_platform.async_get_current_platform()
-        if platform:
-            for entity in platform.entities.values():
-                if hasattr(entity, "_med_name") and entity._med_name == med_name:
-                    await entity.async_mark_taken(timestamp)
-                    return
-        
-        _LOGGER.error("Medication sensor not found: %s", med_name)
-    
-    async def handle_mark_all_taken(call: ServiceCall) -> None:
-        """Handle mark_all_medications_taken service call."""
-        medications = entry.options.get(CONF_MEDICATIONS, [])
-        
-        for med_config in medications:
-            med_name = med_config.get(CONF_MED_NAME)
-            if med_name:
-                # Trigger mark_taken for each medication
-                await hass.services.async_call(
-                    DOMAIN,
-                    SERVICE_MARK_TAKEN,
-                    {"medication_name": med_name},
-                    blocking=True,
-                )
-    
-    # Register services (only once per domain, not per entry)
-    if not hass.services.has_service(DOMAIN, SERVICE_MARK_TAKEN):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_MARK_TAKEN,
-            handle_mark_taken,
-            schema=vol.Schema({
-                vol.Required("medication_name"): str,
-                vol.Optional("timestamp"): str,
-            }),
-        )
-    
-    if not hass.services.has_service(DOMAIN, SERVICE_MARK_ALL_TAKEN):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_MARK_ALL_TAKEN,
-            handle_mark_all_taken,
-            schema=vol.Schema({}),
-        )
-
-
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data.setdefault(DATA, {})
@@ -515,9 +392,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # live “current target” sensor platform (subscribes to our dispatcher)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
-    # Register medication panel if medications are configured
-    await _register_medication_panel(hass, entry)
-
     # start the live preview publisher (proactive)
     pm = PreviewManager(hass, entry)
     await pm.async_start()
@@ -539,9 +413,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(_stop_preview)
     entry.async_on_unload(_stop_bridge)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-
-    # Register medication services
-    await _register_medication_services(hass, entry)
 
     _LOGGER.info(
         "Registered notify.%s for %s", slug, entry.data.get(CONF_SERVICE_NAME_RAW, slug)
