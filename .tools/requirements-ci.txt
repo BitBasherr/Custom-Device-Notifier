@@ -9,4 +9,9 @@ pytest-homeassistant-custom-component
 pytest-mock
 
 homeassistant-stubs
+
 homeassistant==2025.7.4
+
+#added 12-26-25:
+aiodns>=3.0.0
+pycares>=4.4.0
