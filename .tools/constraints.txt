@@ -1,1 +1,3 @@
 homeassistant==2025.7.4
+#added 12-26-25:
+pycares<5.0.0
